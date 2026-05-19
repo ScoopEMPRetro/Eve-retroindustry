@@ -43,6 +43,12 @@ from app.web.industry_helper import (
     get_adjusted_prices,
     get_sci_for_system,
     derive_facility_tax,
+    get_station_me_bonus,
+    save_station_me_bonus,
+    populate_rig_bonuses,
+    get_rig_types,
+    save_station_rigs_full,
+    get_station_rigs_full,
 )
 
 DB_ABS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "eve_cache.db"))
@@ -50,6 +56,18 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 app = FastAPI(title="EVE Retroindustry")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+@app.on_event("startup")
+async def _startup_populate_groups():
+    """Načte jména skupin z ESI a rig bonusy ze SDE při startu."""
+    try:
+        conn = get_conn()
+        populate_rig_bonuses(conn)
+        await _ensure_groups_populated(conn)
+        conn.close()
+    except Exception:
+        pass
 
 
 def _isk(v: float | None) -> str:
@@ -82,7 +100,51 @@ def get_conn() -> sqlite3.Connection:
     ensure_price_table(conn)
     ensure_location_name_table(conn)
     ensure_industry_tables(conn)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sde_groups (
+            group_id INTEGER PRIMARY KEY,
+            name     TEXT NOT NULL
+        )
+    """)
+    conn.commit()
     return conn
+
+
+async def _ensure_groups_populated(conn: sqlite3.Connection) -> None:
+    """Populate sde_groups via ESI /universe/groups/{id}/ with concurrency limit."""
+    if conn.execute("SELECT COUNT(*) FROM sde_groups").fetchone()[0] > 0:
+        return
+    group_ids = [r[0] for r in conn.execute(
+        "SELECT DISTINCT group_id FROM sde_types WHERE group_id > 0 AND published = 1"
+    ).fetchall()]
+    if not group_ids:
+        return
+
+    sem = asyncio.Semaphore(50)
+
+    async def _fetch(client: httpx.AsyncClient, gid: int):
+        async with sem:
+            try:
+                r = await client.get(
+                    f"https://esi.evetech.net/latest/universe/groups/{gid}/",
+                    params={"datasource": "tranquility"},
+                    timeout=10,
+                )
+                if r.status_code == 200:
+                    d = r.json()
+                    if d.get("published", True):
+                        return (gid, d["name"])
+            except Exception:
+                pass
+            return None
+
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(*[_fetch(client, gid) for gid in group_ids])
+
+    for row in results:
+        if row:
+            conn.execute("INSERT OR REPLACE INTO sde_groups VALUES (?,?)", row)
+    conn.commit()
 
 
 def _collect_type_ids(node) -> list[int]:
@@ -231,11 +293,15 @@ async def plan_result(
     request: Request,
     product: str = Form(...),
     station: int = Form(...),
+    reaction_station: int = Form(0),
     qty: int = Form(1),
     mode: str = Form("full"),
     form_me: str = Form(""),
     form_te: str = Form(""),
     facility_tax: str = Form("5"),
+    reaction_facility_tax: str = Form(""),
+    facility_me_bonus: str = Form("0"),
+    reaction_me_bonus: str = Form("0"),
 ):
     conn = get_conn()
     error = None
@@ -244,6 +310,15 @@ async def plan_result(
     # Převeď ME/TE na int pokud zadány
     me_override: int | None = int(form_me) if form_me.strip().isdigit() else None
     te_override: int | None = int(form_te) if form_te.strip().isdigit() else None
+
+    def _parse_pct(s: str) -> float:
+        try:
+            return max(0.0, min(25.0, float(s.replace(",", "."))))
+        except (ValueError, AttributeError):
+            return 0.0
+
+    fac_me_bonus = _parse_pct(facility_me_bonus)
+    rxn_me_bonus_val = _parse_pct(reaction_me_bonus)
 
     try:
         token = get_valid_token()
@@ -276,7 +351,9 @@ async def plan_result(
         te = int(te_override if te_override is not None else (bp.time_efficiency if bp else 0))
 
         resolver = BOMResolver(DB_ABS)
-        root = resolver.resolve(type_id, qty, me=me)
+        root = resolver.resolve(type_id, qty, me=me,
+                                facility_me_bonus=fac_me_bonus,
+                                rxn_me_bonus=rxn_me_bonus_val)
         resolver.close()
 
         all_ids = list(set(_collect_type_ids(root) + [type_id]))
@@ -291,6 +368,8 @@ async def plan_result(
             db_path=DB_ABS,
             mode=mode,
             prices=prices,
+            facility_me_bonus=fac_me_bonus,
+            rxn_me_bonus=rxn_me_bonus_val,
         )
         plan_data = _plan_to_dict(plan, prices, type_name)
         # Přepis ME/TE v plan_data pokud bylo zadáno ručně
@@ -311,28 +390,55 @@ async def plan_result(
         fac_tax_pct  = _safe_pct(facility_tax, 5.0)
         fac_tax_rate = fac_tax_pct / 100
 
-        # Solar system ID stanice
+        # Reakční stanice — 0 znamená použít stejnou jako výrobní
+        eff_rxn_station = reaction_station if reaction_station else station
+        sep_rxn_station = eff_rxn_station != station
+
+        rxn_fac_tax_pct  = _safe_pct(reaction_facility_tax, fac_tax_pct) if reaction_facility_tax.strip() else fac_tax_pct
+        rxn_fac_tax_rate = rxn_fac_tax_pct / 100
+
+        # Solar system ID výrobní stanice
         sys_row = conn.execute(
             "SELECT solar_system_id FROM location_name_cache WHERE location_id=?", (station,)
         ).fetchone()
         solar_system_id: int | None = sys_row[0] if sys_row and sys_row[0] else None
 
-        adj_prices = await get_adjusted_prices(conn)
-        if solar_system_id:
-            mfg_sci = await get_sci_for_system(conn, solar_system_id, "manufacturing")
-            rxn_sci = await get_sci_for_system(conn, solar_system_id, "reaction")
+        # Solar system ID reakční stanice
+        if sep_rxn_station:
+            rxn_sys_row = conn.execute(
+                "SELECT solar_system_id FROM location_name_cache WHERE location_id=?", (eff_rxn_station,)
+            ).fetchone()
+            rxn_solar_system_id: int | None = rxn_sys_row[0] if rxn_sys_row and rxn_sys_row[0] else None
         else:
-            mfg_sci = rxn_sci = 0.0
+            rxn_solar_system_id = solar_system_id
+
+        adj_prices = await get_adjusted_prices(conn)
+
+        mfg_sci = await get_sci_for_system(conn, solar_system_id, "manufacturing") if solar_system_id else 0.0
+        rxn_sci = await get_sci_for_system(conn, rxn_solar_system_id, "reaction") if rxn_solar_system_id else 0.0
 
         total_job_fee = 0.0
         for step in plan_data["manufacturing_steps"]:
             for job in step["jobs"]:
-                sci = rxn_sci if job.get("activity") == "reaction" else mfg_sci
-                eiv = sum(
-                    adj_prices.get(inp["type_id"], 0.0) * inp["quantity"]
-                    for inp in job["inputs"]
-                )
-                job_fee = eiv * (sci + fac_tax_rate)
+                is_rxn   = job.get("activity") == "reaction"
+                sci      = rxn_sci      if is_rxn else mfg_sci
+                tax_rate = rxn_fac_tax_rate if is_rxn else fac_tax_rate
+
+                # EIV musí používat BASE množství ze SDE (ne ME-redukovaná)
+                bp_id = job.get("blueprint_type_id")
+                runs  = job.get("runs", 1) or 1
+                if bp_id:
+                    base_mats = conn.execute(
+                        "SELECT material_type_id, quantity FROM sde_blueprint_materials"
+                        " WHERE blueprint_type_id=? AND activity=?",
+                        (bp_id, job.get("activity", "manufacturing")),
+                    ).fetchall()
+                    eiv = sum(adj_prices.get(m[0], 0.0) * m[1] * runs for m in base_mats)
+                else:
+                    eiv = sum(adj_prices.get(inp["type_id"], 0.0) * inp["quantity"]
+                              for inp in job["inputs"])
+
+                job_fee = eiv * (sci + tax_rate)
                 job["eiv"] = eiv
                 job["sci"] = sci
                 job["job_fee"] = job_fee
@@ -352,14 +458,17 @@ async def plan_result(
         profit_stock  = (rev - buy_cost - total_job_fee) if rev is not None else None
 
         plan_data["fees"] = {
-            "solar_system_id": solar_system_id,
-            "mfg_sci":         mfg_sci,
-            "rxn_sci":         rxn_sci,
-            "facility_tax":    fac_tax_pct,
-            "total_job_fee":   total_job_fee,
-            "full_mat_cost":   full_mat_cost,
-            "profit_market":   profit_market,
-            "profit_stock":    profit_stock,
+            "solar_system_id":     solar_system_id,
+            "rxn_solar_system_id": rxn_solar_system_id,
+            "sep_rxn_station":     sep_rxn_station,
+            "mfg_sci":             mfg_sci,
+            "rxn_sci":             rxn_sci,
+            "facility_tax":        fac_tax_pct,
+            "rxn_facility_tax":    rxn_fac_tax_pct,
+            "total_job_fee":       total_job_fee,
+            "full_mat_cost":       full_mat_cost,
+            "profit_market":       profit_market,
+            "profit_stock":        profit_stock,
         }
 
     except Exception as e:
@@ -374,6 +483,7 @@ async def plan_result(
     # Načti jméno stanice pro zobrazení ve formuláři
     loc_names = load_location_names_from_db(conn)
     station_name = loc_names.get(station, str(station))
+    rxn_station_name = loc_names.get(reaction_station, str(reaction_station)) if reaction_station else ""
     conn.close()
 
     return _tr("plan.html", request, {
@@ -383,11 +493,16 @@ async def plan_result(
         "form_product": product,
         "form_station": station,
         "form_station_name": station_name,
+        "form_rxn_station": reaction_station or "",
+        "form_rxn_station_name": rxn_station_name,
         "form_qty": qty,
         "form_mode": mode,
         "form_me": str(int(me)) if me_override is not None else "",
         "form_te": str(te) if te_override is not None else "",
         "form_facility_tax": facility_tax,
+        "form_rxn_facility_tax": reaction_facility_tax if reaction_facility_tax.strip() else facility_tax,
+        "form_facility_me_bonus": facility_me_bonus,
+        "form_rxn_me_bonus": reaction_me_bonus,
     })
 
 
@@ -426,18 +541,21 @@ def _build_manufacturing_steps(root, prices: dict, available: dict) -> list[dict
 
         if tid not in aggregated:
             aggregated[tid] = {
-                "type_id":    tid,
-                "name":       node.name,
-                "quantity":   node.quantity,
-                "level":      level,
-                "activity":   node.activity,
-                "unit_price": sell_p,
-                "total_price": sell_p * node.quantity if sell_p else None,
-                "available":  available.get(tid, 0),
+                "type_id":           tid,
+                "name":              node.name,
+                "quantity":          node.quantity,
+                "runs":              node.runs,
+                "blueprint_type_id": node.blueprint_type_id,
+                "level":             level,
+                "activity":          node.activity,
+                "unit_price":        sell_p,
+                "total_price":       sell_p * node.quantity if sell_p else None,
+                "available":         available.get(tid, 0),
             }
             inputs_agg[tid] = {}
         else:
             aggregated[tid]["quantity"] += node.quantity
+            aggregated[tid]["runs"]     += node.runs
             if sell_p:
                 aggregated[tid]["total_price"] = sell_p * aggregated[tid]["quantity"]
 
@@ -943,20 +1061,57 @@ async def station_industry_info(location_id: int):
 
     # Odvoď facility tax z jobů postavy
     facility_tax_pct: float | None = None
+    tax_auto: bool = False
     token = get_valid_token()
     char  = get_character()
     if token and char:
         raw = await derive_facility_tax(conn, location_id, char[0], token)
         if raw is not None:
             facility_tax_pct = round(raw * 100, 2)
+            tax_auto = True
 
+    rig_info = get_station_rigs_full(conn, location_id)
     conn.close()
     return {
         "solar_system_id":  solar_system_id,
         "mfg_sci":          mfg_sci,
         "rxn_sci":          rxn_sci,
         "facility_tax_pct": facility_tax_pct,
+        "tax_auto":         tax_auto,
+        "me_bonus_pct":     rig_info["me_bonus_pct"],
+        "structure_type":   rig_info["structure_type"],
+        "rigs":             rig_info["rigs"],
     }
+
+
+@app.post("/api/station-rigs")
+async def save_station_rigs(request: Request):
+    """Uloží konfiguraci rigů pro danou stanici/strukturu."""
+    try:
+        data = await request.json()
+        location_id = int(data.get("location_id", 0))
+        if not location_id:
+            return {"ok": False, "error": "missing location_id"}
+        structure_type = data.get("structure_type") or None
+        rig1 = int(data["rig1_type_id"]) if data.get("rig1_type_id") else None
+        rig2 = int(data["rig2_type_id"]) if data.get("rig2_type_id") else None
+        rig3 = int(data["rig3_type_id"]) if data.get("rig3_type_id") else None
+        conn = get_conn()
+        me_bonus = save_station_rigs_full(conn, location_id, structure_type, rig1, rig2, rig3)
+        conn.close()
+        return {"ok": True, "me_bonus_pct": me_bonus}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/rig-types")
+async def api_rig_types(structure_type: str = ""):
+    """Vrátí dostupné rigy pro daný typ struktury (raitaru/azbel/sotiyo/athanor/tatara)."""
+    conn = get_conn()
+    populate_rig_bonuses(conn)
+    rigs = get_rig_types(conn, structure_type)
+    conn.close()
+    return {"rigs": rigs}
 
 
 @app.get("/api/suggest-station")
@@ -1376,6 +1531,96 @@ async def prices_refresh_stream():
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/api/prices/search")
+async def prices_search(q: str = ""):
+    if len(q.strip()) < 2:
+        return {"mode": "name", "group_name": None, "items": []}
+    conn = get_conn()
+    await _ensure_groups_populated(conn)
+    pattern = f"%{q.strip().lower()}%"
+    import time as _time
+    from app.market.prices import PRICE_CACHE_TTL
+    now = _time.time()
+
+    # Priorita: pokud dotaz odpovídá názvu skupiny, vrátíme itemy z té skupiny
+    # Přesná shoda má prioritu (battleship → "Battleship", ne "Battleship Blueprint")
+    group_rows = conn.execute(
+        "SELECT group_id, name FROM sde_groups WHERE LOWER(name) = ? ORDER BY name",
+        (q.strip().lower(),),
+    ).fetchall()
+    if not group_rows:
+        group_rows = conn.execute(
+            "SELECT group_id, name FROM sde_groups WHERE LOWER(name) LIKE ? ORDER BY name LIMIT 10",
+            (pattern,),
+        ).fetchall()
+
+    if group_rows:
+        group_ids = [r[0] for r in group_rows]
+        ph = ",".join("?" * len(group_ids))
+        rows = conn.execute(f"""
+            SELECT t.type_id, t.name, g.name AS group_name,
+                   m.sell_price, m.buy_price, m.cached_at,
+                   m.volume, m.jita_available
+            FROM sde_types t
+            JOIN sde_groups g ON g.group_id = t.group_id
+            LEFT JOIN market_price_cache m ON m.type_id = t.type_id
+            WHERE t.published = 1 AND t.group_id IN ({ph})
+            ORDER BY g.name, t.name
+            LIMIT 500
+        """, group_ids).fetchall()
+        found_groups = list(dict.fromkeys(r[1] for r in group_rows))
+        label = ", ".join(found_groups[:3])
+        conn.close()
+        return {
+            "mode": "group",
+            "group_name": label,
+            "items": [
+                {
+                    "type_id":       r[0],
+                    "name":          r[1],
+                    "group_name":    r[2],
+                    "sell_price":    r[3],
+                    "buy_price":     r[4],
+                    "fresh":         bool(r[5] and (now - r[5]) < PRICE_CACHE_TTL),
+                    "volume":        r[6],
+                    "jita_available": r[7],
+                }
+                for r in rows
+            ],
+        }
+
+    # Fallback: hledání v názvech itemů (jen itemy v price cache)
+    rows = conn.execute("""
+        SELECT t.type_id, t.name, g.name AS group_name,
+               m.sell_price, m.buy_price, m.cached_at,
+               m.volume, m.jita_available
+        FROM sde_types t
+        LEFT JOIN sde_groups g ON g.group_id = t.group_id
+        JOIN market_price_cache m ON m.type_id = t.type_id
+        WHERE t.published = 1 AND LOWER(t.name) LIKE ?
+        ORDER BY t.name
+        LIMIT 100
+    """, (pattern,)).fetchall()
+    conn.close()
+    return {
+        "mode": "name",
+        "group_name": None,
+        "items": [
+            {
+                "type_id":       r[0],
+                "name":          r[1],
+                "group_name":    r[2],
+                "sell_price":    r[3],
+                "buy_price":     r[4],
+                "fresh":         bool(r[5] and (now - r[5]) < PRICE_CACHE_TTL),
+                "volume":        r[6],
+                "jita_available": r[7],
+            }
+            for r in rows
+        ],
+    }
 
 
 @app.post("/api/prices/custom")

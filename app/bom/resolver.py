@@ -78,13 +78,17 @@ class BOMResolver:
         self,
         type_id: int,
         quantity: int,
-        me: float = 0.0,        # Material Efficiency 0–10
+        me: float = 0.0,                # Blueprint ME 0–10
+        facility_me_bonus: float = 0.0, # Struktura/stanice ME bonus % (výroba)
+        rxn_me_bonus: float = 0.0,      # Struktura/stanice ME bonus % (reakce)
         depth: int = 0,
         visited: set[int] | None = None,
     ) -> BOMNode:
         """
         Rekurzivně rozloží výrobu daného typu na primární suroviny.
-        me: 0–10 (EVE ME level, snižuje materiály o me % zaokrouhleno nahoru)
+        me: 0–10 (EVE ME level blueprintu)
+        facility_me_bonus: bonus ze stavebních rigů, aplikovaný na manufacturing uzly
+        rxn_me_bonus: bonus z reakčních rigů, aplikovaný na reaction uzly
         """
         if visited is None:
             visited = set()
@@ -116,11 +120,14 @@ class BOMResolver:
         visited = visited | {type_id}  # immutable kopie pro větve
 
         for mat in materials:
-            mat_qty = self._apply_me(mat["quantity"], runs, me)
+            bonus = facility_me_bonus if activity == "manufacturing" else rxn_me_bonus
+            mat_qty = self._apply_me(mat["quantity"], runs, me, bonus)
             child = self.resolve(
                 type_id=mat["material_type_id"],
                 quantity=mat_qty,
                 me=me,
+                facility_me_bonus=facility_me_bonus,
+                rxn_me_bonus=rxn_me_bonus,
                 depth=depth + 1,
                 visited=visited,
             )
@@ -129,10 +136,10 @@ class BOMResolver:
         return node
 
     @staticmethod
-    def _apply_me(base_qty: int, runs: int, me: float) -> int:
+    def _apply_me(base_qty: int, runs: int, me: float, facility_me_bonus: float = 0.0) -> int:
         """
-        Eve Online ME formula:
-        total = max(runs, ceil(base_qty * runs * (1 - ME/100)))
+        EVE formula:
+        total = max(runs, ceil(base_qty * runs * (1 - me/100) * (1 - facility_me_bonus/100)))
         """
-        adjusted = ceil(base_qty * runs * (1 - me / 100))
+        adjusted = ceil(base_qty * runs * (1 - me / 100) * (1 - facility_me_bonus / 100))
         return max(runs, adjusted)

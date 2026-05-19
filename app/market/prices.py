@@ -16,6 +16,7 @@ JITA_STATION = 60003760  # Jita 4-4 CNAP
 PRICE_CACHE_TTL = 60 * 30  # 30 minut
 
 _JITA_SEM = asyncio.Semaphore(20)
+_HIST_SEM = asyncio.Semaphore(20)
 
 
 # ---------------------------------------------------------------------------
@@ -109,19 +110,20 @@ def _save_cached_price(
 
 async def _fetch_region_volume(client: httpx.AsyncClient, region_id: int, type_id: int) -> int | None:
     """Vrátí součet objemu za posledních 7 dní z ESI history pro daný region."""
-    try:
-        r = await client.get(
-            f"{ESI_BASE}/markets/{region_id}/history/",
-            params={"type_id": type_id, "datasource": "tranquility"},
-            timeout=15,
-        )
-        if r.status_code != 200:
-            return None
-        history = r.json()
-        if history:
-            return sum(entry.get("volume", 0) for entry in history[-7:])
-    except Exception:
-        pass
+    async with _HIST_SEM:
+        try:
+            r = await client.get(
+                f"{ESI_BASE}/markets/{region_id}/history/",
+                params={"type_id": type_id, "datasource": "tranquility"},
+                timeout=15,
+            )
+            if r.status_code != 200:
+                return None
+            history = r.json()
+            if isinstance(history, list) and history:
+                return sum(entry.get("volume", 0) for entry in history[-7:])
+        except Exception:
+            pass
     return None
 
 
@@ -289,6 +291,17 @@ async def fetch_structure_market(
     # Fetch history pro typy které mají alespoň nějaké objednávky
     traded_with_orders = {tid for tid, e in aggregated.items() if e["volume"] > 0}
     if region_id is None:
+        # Try location_name_cache first (populated by location resolver in web layer)
+        try:
+            row = conn.execute(
+                "SELECT region_id FROM location_name_cache WHERE location_id=?",
+                (structure_id,)
+            ).fetchone()
+            if row and row[0]:
+                region_id = row[0]
+        except Exception:
+            pass
+    if region_id is None:
         region_id = await get_region_for_structure(structure_id)
 
     history_map: dict[int, int | None] = {}
@@ -401,5 +414,11 @@ def get_cached_station_volumes(
         return None
     now = time.time()
     if any((now - (r[4] or 0)) > STATION_VOLUME_TTL for r in rows):
+        return None
+    # Pokud jsou záznamy s volume>0 ale všechna traded_volume jsou NULL,
+    # cache je neúplná (region nebyl znám při ukládání) — vynutíme refetch.
+    has_stock = any(r[1] and r[1] > 0 for r in rows)
+    all_traded_null = all(r[3] is None for r in rows)
+    if has_stock and all_traded_null:
         return None
     return {r[0]: (r[1], r[2], r[3]) for r in rows}

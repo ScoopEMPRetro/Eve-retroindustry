@@ -88,11 +88,16 @@
 
     {# Výrobní poplatky — druhý řádek #}
     <div class="row g-2 align-items-end mt-2 pt-2" style="border-top:1px solid #21262d">
+
+      {# === Výroba === #}
       <div class="col-auto d-flex align-items-center pb-1">
-        <span class="text-muted small"><i class="bi bi-receipt me-1"></i>Výrobní poplatky</span>
+        <span class="text-muted small"><i class="bi bi-hammer me-1"></i>Výroba</span>
       </div>
       <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Facility tax (%)</label>
+        <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
+          Facility tax (%)
+          <span id="facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
+        </label>
         <input type="number" name="facility_tax" id="facility-tax-input"
                class="form-control form-control-sm"
                step="0.1" min="0" max="25" value="{{ form_facility_tax or '5' }}"
@@ -101,7 +106,129 @@
       <div id="sci-display" class="col-auto d-none align-items-end pb-1">
         <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
           <span id="sci-mfg-val" class="fw-semibold" style="color:#79c0ff"></span>
-          <span id="sci-rxn-val" class="ms-1" style="color:#a5d6ff"></span>
+        </span>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Struktura</label>
+        <select id="mfg-structure-type" class="form-select form-select-sm" style="width:140px"
+                onchange="onStructureTypeChange('mfg', this.value)">
+          <option value="npc">NPC stanice</option>
+          <option value="raitaru">Raitaru (M-Set)</option>
+          <option value="azbel">Azbel (L-Set)</option>
+          <option value="sotiyo">Sotiyo (XL-Set)</option>
+        </select>
+      </div>
+      <input type="hidden" name="facility_me_bonus" id="mfg-me-bonus-input" value="{{ form_facility_me_bonus or '0' }}">
+
+      {# === Reakce === #}
+      <div class="col-auto d-flex align-items-center pb-1 ms-3" style="border-left:1px solid #30363d; padding-left:1rem !important">
+        <span class="text-muted small"><i class="bi bi-arrows-angle-contract me-1"></i>Reakce</span>
+      </div>
+      <div class="col-auto" style="position:relative">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Stanice pro reakce</label>
+        <input type="text" id="rxn-station-display" class="form-control form-control-sm"
+               placeholder="stejná jako výrobní…"
+               value="{{ form_rxn_station_name or '' }}" autocomplete="off"
+               style="width:210px">
+        <input type="hidden" name="reaction_station" id="rxn-station-id"
+               value="{{ form_rxn_station or '' }}">
+        <div id="rxn-station-suggestions" style="
+          display:none; position:absolute; z-index:1000; left:0; right:0;
+          background:#1c2128; border:1px solid #30363d; border-radius:6px;
+          box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:300px; overflow-y:auto;
+          font-size:.875rem; margin-top:2px; min-width:260px;
+        "></div>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
+          Tax reak. (%)
+          <span id="rxn-facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
+        </label>
+        <input type="number" name="reaction_facility_tax" id="rxn-facility-tax-input"
+               class="form-control form-control-sm"
+               step="0.1" min="0" max="25" value="{{ form_rxn_facility_tax or '5' }}"
+               style="width:90px">
+      </div>
+      <div id="rxn-sci-display" class="col-auto d-none align-items-end pb-1">
+        <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
+          <span id="rxn-sci-val" class="fw-semibold" style="color:#a5d6ff"></span>
+        </span>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Struktura</label>
+        <select id="rxn-structure-type" class="form-select form-select-sm" style="width:140px"
+                onchange="onStructureTypeChange('rxn', this.value)">
+          <option value="npc">NPC stanice</option>
+          <option value="athanor">Athanor (M-Set)</option>
+          <option value="tatara">Tatara (L-Set)</option>
+        </select>
+      </div>
+      <input type="hidden" name="reaction_me_bonus" id="rxn-me-bonus-input" value="{{ form_rxn_me_bonus or '0' }}">
+
+    </div>
+
+    {# Rig sloty — výroba #}
+    <div id="mfg-rig-container" class="row g-2 align-items-end mt-1 pt-1 d-none" style="border-top:1px solid #21262d">
+      <div class="col-auto d-flex align-items-center pb-1">
+        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#79c0ff">Rigy výroby</span></span>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 1</label>
+        <select id="mfg-rig1-select" class="form-select form-select-sm rig-select" style="width:280px"
+                onchange="onRigChange('mfg')">
+          <option value="">— žádný —</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 2</label>
+        <select id="mfg-rig2-select" class="form-select form-select-sm rig-select" style="width:280px"
+                onchange="onRigChange('mfg')">
+          <option value="">— žádný —</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 3</label>
+        <select id="mfg-rig3-select" class="form-select form-select-sm rig-select" style="width:280px"
+                onchange="onRigChange('mfg')">
+          <option value="">— žádný —</option>
+        </select>
+      </div>
+      <div class="col-auto d-flex align-items-end pb-1">
+        <span class="badge px-3 py-2" style="background:#1f3a4f;color:#79c0ff;font-size:.8rem">
+          ME <span id="mfg-me-bonus-display">−0%</span>
+        </span>
+      </div>
+    </div>
+
+    {# Rig sloty — reakce #}
+    <div id="rxn-rig-container" class="row g-2 align-items-end mt-1 pt-1 d-none" style="border-top:1px solid #21262d">
+      <div class="col-auto d-flex align-items-center pb-1">
+        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#a5d6ff">Rigy reakce</span></span>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 1</label>
+        <select id="rxn-rig1-select" class="form-select form-select-sm rig-select" style="width:280px"
+                onchange="onRigChange('rxn')">
+          <option value="">— žádný —</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 2</label>
+        <select id="rxn-rig2-select" class="form-select form-select-sm rig-select" style="width:280px"
+                onchange="onRigChange('rxn')">
+          <option value="">— žádný —</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 3</label>
+        <select id="rxn-rig3-select" class="form-select form-select-sm rig-select" style="width:280px"
+                onchange="onRigChange('rxn')">
+          <option value="">— žádný —</option>
+        </select>
+      </div>
+      <div class="col-auto d-flex align-items-end pb-1">
+        <span class="badge px-3 py-2" style="background:#1a2f3a;color:#a5d6ff;font-size:.8rem">
+          ME <span id="rxn-me-bonus-display">−0%</span>
         </span>
       </div>
     </div>
@@ -114,6 +241,7 @@
 {% endif %}
 
 {% if result %}
+{% set full_cost = (result.fees.full_mat_cost if result.fees else result.total_buy) or 0 %}
 {# Záhlaví plánu #}
 <div class="card mb-3 p-3">
   <div class="row g-3 align-items-center">
@@ -133,6 +261,9 @@
           ME: <strong class="text-success">{{ result.blueprint.me }}</strong>
           &nbsp;TE: <strong class="text-warning">{{ result.blueprint.te }}</strong>
           {% if not result.blueprint.manual %}Runy: <strong>{{ result.blueprint.runs }}</strong>{% endif %}
+          {% if form_facility_me_bonus and form_facility_me_bonus != '0' %}
+          &nbsp;·&nbsp;Rigy ME: <strong class="text-info">{{ form_facility_me_bonus }}%</strong>
+          {% endif %}
           {% if result.blueprint.manual %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">zadáno ručně</span>{% endif %}
         </span>
       {% else %}
@@ -144,10 +275,24 @@
       </div>
     </div>
     <div class="col-auto text-end">
+      <div class="form-check form-switch d-flex align-items-center justify-content-end gap-2 mb-2">
+        <input class="form-check-input" type="checkbox" role="switch" id="stock-toggle"
+               style="cursor:pointer;font-size:1.1rem" checked
+               onchange="toggleStockMode(this.checked)">
+        <label class="form-check-label small" for="stock-toggle" style="cursor:pointer;color:#8b949e">
+          <i class="bi bi-box-seam me-1"></i>Zásoby
+        </label>
+      </div>
       {% if result.can_manufacture %}
-      <span class="badge bg-success fs-6"><i class="bi bi-check-circle me-1"></i>Máš vše k výrobě</span>
+      <span id="stock-badge"
+            data-with-html='<i class="bi bi-check-circle me-1"></i>Máš vše k výrobě'
+            data-without-html='<i class="bi bi-x-circle me-1"></i>Chybí {{ result.materials | selectattr("required", ">", 0) | list | length }} druhů'
+            class="badge bg-success fs-6"><i class="bi bi-check-circle me-1"></i>Máš vše k výrobě</span>
       {% else %}
-      <span class="badge bg-danger fs-6"><i class="bi bi-x-circle me-1"></i>Chybí {{ result.total_missing_types }} druhů</span>
+      <span id="stock-badge"
+            data-with-html='<i class="bi bi-x-circle me-1"></i>Chybí {{ result.total_missing_types }} druhů'
+            data-without-html='<i class="bi bi-x-circle me-1"></i>Chybí {{ result.materials | selectattr("required", ">", 0) | list | length }} druhů'
+            class="badge bg-danger fs-6"><i class="bi bi-x-circle me-1"></i>Chybí {{ result.total_missing_types }} druhů</span>
       {% endif %}
       {% if result.opt_total_cost is not none %}
       <div class="mt-2 small">
@@ -161,11 +306,15 @@
 
 {# Finanční souhrn #}
 {% if result.total_buy %}
+{% set profit_no_stock = (result.revenue - full_cost) if result.revenue is not none else none %}
 <div class="row g-3 mb-3">
   <div class="col-sm-6 col-lg-3">
     <div class="card p-3 text-center">
-      <div class="text-muted small">Nákup surovin</div>
-      <div class="text-isk fw-bold fs-5">{{ result.total_buy | isk }}</div>
+      <div class="text-muted small summary-buy-label">Nákup surovin</div>
+      <div class="text-isk fw-bold fs-5"
+           id="summary-buy-val"
+           data-with="{{ result.total_buy }}"
+           data-without="{{ full_cost }}">{{ result.total_buy | isk }}</div>
       <div class="text-muted" style="font-size:.7rem">ISK</div>
     </div>
   </div>
@@ -187,8 +336,13 @@
   <div class="col-sm-6 col-lg-3">
     <div class="card p-3 text-center">
       <div class="text-muted small">Zisk</div>
-      <div class="fw-bold fs-5 {% if result.profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
-        {% if result.profit >= 0 %}+{% endif %}{{ result.profit | isk }}
+      <div id="summary-profit-val"
+           class="fw-bold fs-5"
+           data-with="{{ result.profit }}"
+           data-without="{{ profit_no_stock }}">
+        <span class="{% if result.profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
+          {% if result.profit >= 0 %}+{% endif %}{{ result.profit | isk }}
+        </span>
       </div>
       <div class="text-muted" style="font-size:.7rem">ISK</div>
     </div>
@@ -206,9 +360,11 @@
       <div class="fw-bold text-warning" style="font-size:1.05rem">{{ result.fees.total_job_fee | isk }}</div>
       <div class="text-muted" style="font-size:.7rem">
         {% if result.fees.solar_system_id %}
-        výr. SCI {{ (result.fees.mfg_sci * 100) | round(2) }}%
-        {% if result.fees.rxn_sci %}&nbsp;· reak. {{ (result.fees.rxn_sci * 100) | round(2) }}%{% endif %}
-        &nbsp;+ fac. tax {{ result.fees.facility_tax }}%
+        výr. SCI {{ (result.fees.mfg_sci * 100) | round(2) }}% + tax {{ result.fees.facility_tax }}%
+        {% if result.fees.rxn_sci is not none %}
+        &nbsp;·&nbsp;reak. SCI {{ (result.fees.rxn_sci * 100) | round(2) }}% + tax {{ result.fees.rxn_facility_tax }}%
+        {% if result.fees.sep_rxn_station %}<span class="badge bg-secondary ms-1" style="font-size:.6rem">jiná stanice</span>{% endif %}
+        {% endif %}
         {% else %}SCI neznámo &nbsp;· fac. tax {{ result.fees.facility_tax }}%{% endif %}
       </div>
     </div>
@@ -280,7 +436,14 @@
       </thead>
       <tbody>
         {% for m in result.materials %}
-        <tr class="{% if m.ok %}material-ok{% elif m.coverage_pct >= 50 %}material-partial{% else %}material-missing{% endif %}">
+        <tr class="{% if m.ok %}material-ok{% elif m.coverage_pct >= 50 %}material-partial{% else %}material-missing{% endif %}"
+            data-required="{{ m.required | int }}"
+            data-avail="{{ m.available | int }}"
+            data-missing="{{ m.missing | int }}"
+            data-total-price="{{ m.total_price or 0 }}"
+            data-buy-price="{{ m.buy_price or 0 }}"
+            data-coverage="{{ m.coverage_pct | int }}"
+            data-ok="{{ 'true' if m.ok else 'false' }}">
           <td>
             <img src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32"
                  width="32" height="32" class="rounded" alt="">
@@ -303,22 +466,22 @@
             <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td class="text-end">{{ m.available | int | format_number }}</td>
-          <td class="text-end">
+          <td class="text-end cell-avail">{{ m.available | int | format_number }}</td>
+          <td class="text-end cell-missing">
             {% if m.missing > 0 %}
             <span class="text-danger fw-semibold">{{ m.missing | int | format_number }}</span>
             {% else %}
             <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td class="text-end">
+          <td class="text-end cell-buy">
             {% if m.buy_price %}
             <span class="text-warning fw-semibold">{{ m.buy_price | isk }}</span>
             {% else %}
             <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td class="text-end">
+          <td class="text-end cell-coverage">
             <div>
               <span class="{% if m.ok %}text-success{% elif m.coverage_pct >= 50 %}text-warning{% else %}text-danger{% endif %} fw-semibold">
                 {{ m.coverage_pct | int }}%
@@ -339,7 +502,10 @@
           <td></td>
           <td></td>
           <td></td>
-          <td class="text-end text-warning">
+          <td class="text-end text-warning"
+              id="mat-footer-total"
+              data-with="{{ result.total_buy or 0 }}"
+              data-without="{{ full_cost }}">
             {% if result.total_buy %}{{ result.total_buy | isk }}{% else %}—{% endif %}
           </td>
           <td></td>
@@ -349,13 +515,16 @@
   </div>
 </div>
 
-{# Nákupní seznam — jen chybějící #}
+{# Nákupní seznam — s/bez zásob #}
 {# (uzavírá se tab-pane materials níže) #}
-{% set missing = result.materials | selectattr('missing', '>', 0) | list %}
-{% if missing %}
-<div class="card mb-3">
+{% set shop_items = result.materials | selectattr('required', '>', 0) | sort(attribute='total_price', reverse=True) | list %}
+{% set missing_count = result.materials | selectattr('missing', '>', 0) | list | length %}
+{% if shop_items %}
+<div class="card mb-3" id="shopping-list">
   <div class="card-header py-2">
-    <span class="fw-semibold text-danger"><i class="bi bi-cart me-2"></i>Nákupní seznam ({{ missing | length }} položek)</span>
+    <span class="fw-semibold text-danger" id="shop-header-label">
+      <i class="bi bi-cart me-2"></i>Nákupní seznam (<span id="shop-item-count">{{ missing_count }}</span> položek)
+    </span>
   </div>
   <div class="table-responsive">
     <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
@@ -369,20 +538,28 @@
         </tr>
       </thead>
       <tbody>
-        {% for m in missing | sort(attribute='buy_price', reverse=True) %}
-        <tr>
+        {% for m in shop_items %}
+        <tr {% if m.missing == 0 %}hidden{% endif %}
+            data-required="{{ m.required | int }}"
+            data-missing="{{ m.missing | int }}"
+            data-buy-price="{{ m.buy_price or 0 }}"
+            data-total-price="{{ m.total_price or 0 }}"
+            data-stocked="{{ 'true' if m.missing == 0 else 'false' }}">
           <td><img src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32" width="32" height="32" class="rounded" alt=""></td>
           <td>{{ m.name }}</td>
-          <td class="text-end fw-semibold text-danger">{{ m.missing | int | format_number }}</td>
+          <td class="text-end fw-semibold text-danger shop-qty">{{ m.missing | int | format_number }}</td>
           <td class="text-end text-isk">{% if m.unit_price %}{{ m.unit_price | isk }}{% else %}<span class="text-muted">N/A</span>{% endif %}</td>
-          <td class="text-end fw-semibold text-warning">{% if m.buy_price %}{{ m.buy_price | isk }}{% else %}<span class="text-muted">N/A</span>{% endif %}</td>
+          <td class="text-end fw-semibold text-warning shop-cost">{% if m.buy_price %}{{ m.buy_price | isk }}{% else %}<span class="text-muted">N/A</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr style="border-top:2px solid #30363d;">
           <td colspan="4" class="fw-bold">CELKEM</td>
-          <td class="text-end fw-bold text-warning">{{ result.total_buy | isk }}</td>
+          <td class="text-end fw-bold text-warning"
+              id="shop-footer-total"
+              data-with="{{ result.total_buy or 0 }}"
+              data-without="{{ full_cost }}">{{ result.total_buy | isk }}</td>
         </tr>
       </tfoot>
     </table>
@@ -646,18 +823,20 @@
 </style>
 
 <script>
-(function () {
-  const display = document.getElementById('station-display');
-  const hidden  = document.getElementById('station-id');
-  const box     = document.getElementById('station-suggestions');
+// Generický tovární selector stanice — použit pro výrobní i reakční stanici
+function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
+  const display = document.getElementById(displayId);
+  const hidden  = document.getElementById(hiddenId);
+  const box     = document.getElementById(boxId);
   if (!display) return;
 
   let timer, activeIdx = -1, items = [];
+  const pfx = displayId; // unikátní prefix pro DOM elementy uvnitř dropdownu
 
   display.addEventListener('input', () => {
     clearTimeout(timer);
+    hidden.value = '';
     const q = display.value.trim();
-    hidden.value = '';   // Při psaní vymažeme vybranou hodnotu
     if (q.length < 2) { hide(); return; }
     timer = setTimeout(() => fetchSuggestions(q), 200);
   });
@@ -674,13 +853,6 @@
     if (!box.contains(e.target) && e.target !== display) hide();
   });
 
-  // Submit: pokud hidden je prázdné a display obsahuje číslo, použij jako ID
-  document.getElementById('plan-form').addEventListener('submit', () => {
-    if (!hidden.value && /^\d+$/.test(display.value.trim())) {
-      hidden.value = display.value.trim();
-    }
-  });
-
   function move(dir) {
     activeIdx = Math.max(-1, Math.min(items.length - 1, activeIdx + dir));
     box.querySelectorAll('.suggest-item').forEach((el, i) =>
@@ -692,33 +864,7 @@
     hidden.value  = item.location_id;
     hide();
     display.focus();
-    loadStationIndustryInfo(item.location_id);
-  }
-
-  async function loadStationIndustryInfo(locationId) {
-    try {
-      const r = await fetch(`/api/station-industry-info?location_id=${locationId}`);
-      const info = await r.json();
-      // Auto-vyplnění facility tax pokud ESI vrátí hodnotu
-      const ftInput = document.getElementById('facility-tax-input');
-      if (ftInput && info.facility_tax_pct !== null && info.facility_tax_pct !== undefined) {
-        ftInput.value = info.facility_tax_pct.toFixed(1);
-      }
-      // Zobraz SCI
-      const sciDiv  = document.getElementById('sci-display');
-      const sciMfg  = document.getElementById('sci-mfg-val');
-      const sciRxn  = document.getElementById('sci-rxn-val');
-      if (sciDiv && sciMfg) {
-        sciMfg.textContent = `výr. ${(info.mfg_sci * 100).toFixed(2)}%`;
-        if (sciRxn) {
-          sciRxn.textContent = info.rxn_sci > 0
-            ? `· reak. ${(info.rxn_sci * 100).toFixed(2)}%`
-            : '';
-        }
-        sciDiv.classList.remove('d-none');
-        sciDiv.classList.add('d-flex');
-      }
-    } catch {}
+    if (onSelect) onSelect(item);
   }
 
   function hide() { box.style.display = 'none'; activeIdx = -1; }
@@ -734,53 +880,41 @@
     if (!items.length) { hide(); return; }
 
     let html = '';
-
-    if (data.owned && data.owned.length) {
+    if (data.owned?.length) {
       html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Moje stanice</div>`;
       data.owned.forEach(item => {
-        html += `
-          <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
-            <i class="bi bi-geo-alt-fill" style="color:#58a6ff;flex-shrink:0"></i>
-            <div style="flex:1;min-width:0">
-              <div class="fw-semibold text-truncate">${item.name}</div>
-              <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div>
-            </div>
-          </div>`;
+        html += `<div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
+          <i class="bi bi-geo-alt-fill" style="color:#58a6ff;flex-shrink:0"></i>
+          <div style="flex:1;min-width:0"><div class="fw-semibold text-truncate">${item.name}</div>
+          <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div></div></div>`;
       });
     }
-
-    if (data.other && data.other.length) {
+    if (data.other?.length) {
       html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-top:1px solid #30363d;border-bottom:1px solid #30363d;padding-top:8px!important">Ostatní stanice</div>`;
       data.other.forEach(item => {
-        html += `
-          <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
-            <i class="bi bi-geo-alt" style="color:#8b949e;flex-shrink:0"></i>
-            <div style="flex:1;min-width:0">
-              <div class="text-truncate">${item.name}</div>
-              <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div>
-            </div>
-          </div>`;
+        html += `<div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
+          <i class="bi bi-geo-alt" style="color:#8b949e;flex-shrink:0"></i>
+          <div style="flex:1;min-width:0"><div class="text-truncate">${item.name}</div>
+          <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div></div></div>`;
       });
     }
 
-    // Přidat strukturu — vždy na konci
-    html += `
-      <div style="border-top:1px solid #30363d;padding:6px 12px 6px">
-        <div style="color:#8b949e;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Přidat strukturu</div>
-        <div class="d-flex gap-1 mb-1">
-          <input id="add-struct-raw" type="text" placeholder="ID, &quot;ID Jméno&quot; nebo EVE URL link"
-                 class="form-control form-control-sm"
-                 style="flex:1;background:#0d1117;border-color:#30363d;color:#e6edf3;font-size:.8rem">
-          <button id="add-struct-btn" type="button" class="btn btn-sm"
-                  style="background:#21262d;border-color:#30363d;color:#e6edf3;white-space:nowrap;font-size:.8rem">
-            Přidat
-          </button>
-        </div>
-        <button id="add-loc-btn" type="button" class="btn btn-sm w-100"
-                style="background:#0d1117;border-color:#30363d;color:#8b949e;font-size:.75rem">
-          <i class="bi bi-crosshair me-1"></i>Přidat moji aktuální lokaci
+    html += `<div style="border-top:1px solid #30363d;padding:6px 12px 6px">
+      <div style="color:#8b949e;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Přidat strukturu</div>
+      <div class="d-flex gap-1 mb-1">
+        <input id="${pfx}-add-raw" type="text" placeholder="ID, &quot;ID Jméno&quot; nebo EVE URL link"
+               class="form-control form-control-sm"
+               style="flex:1;background:#0d1117;border-color:#30363d;color:#e6edf3;font-size:.8rem">
+        <button id="${pfx}-add-btn" type="button" class="btn btn-sm"
+                style="background:#21262d;border-color:#30363d;color:#e6edf3;white-space:nowrap;font-size:.8rem">
+          Přidat
         </button>
-      </div>`;
+      </div>
+      <button id="${pfx}-loc-btn" type="button" class="btn btn-sm w-100"
+              style="background:#0d1117;border-color:#30363d;color:#8b949e;font-size:.75rem">
+        <i class="bi bi-crosshair me-1"></i>Přidat moji aktuální lokaci
+      </button>
+    </div>`;
 
     box.innerHTML = html;
     box.style.display = 'block';
@@ -795,54 +929,372 @@
       el.addEventListener('click', () => selectItem(items[i]));
     });
 
-    // Přidat strukturu ručně
-    const addBtn  = document.getElementById('add-struct-btn');
-    const addRaw  = document.getElementById('add-struct-raw');
-    const addLocBtn = document.getElementById('add-loc-btn');
-
-    async function postAddStation(fd) {
-      const r = await fetch('/api/add-station', { method: 'POST', body: fd });
-      return r.json();
-    }
+    const addBtn  = document.getElementById(`${pfx}-add-btn`);
+    const addRaw  = document.getElementById(`${pfx}-add-raw`);
+    const locBtn  = document.getElementById(`${pfx}-loc-btn`);
 
     if (addBtn) {
       addBtn.addEventListener('click', async () => {
-        const raw = addRaw.value.trim();
-        if (!raw) return;
+        const raw = addRaw.value.trim(); if (!raw) return;
         addBtn.textContent = '…'; addBtn.disabled = true;
         try {
           const fd = new FormData(); fd.append('raw', raw);
-          const data = await postAddStation(fd);
-          if (data.error) { addBtn.textContent = 'Chyba'; }
-          else { selectItem({ location_id: data.location_id, name: data.name }); }
+          const r  = await fetch('/api/add-station', { method: 'POST', body: fd });
+          const d  = await r.json();
+          if (d.error) addBtn.textContent = 'Chyba';
+          else selectItem({ location_id: d.location_id, name: d.name });
         } catch { addBtn.textContent = 'Chyba'; }
         addBtn.disabled = false; addBtn.textContent = 'Přidat';
       });
       addRaw.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
     }
 
-    if (addLocBtn) {
-      addLocBtn.addEventListener('click', async () => {
-        addLocBtn.textContent = '…'; addLocBtn.disabled = true;
+    if (locBtn) {
+      locBtn.addEventListener('click', async () => {
+        locBtn.textContent = '…'; locBtn.disabled = true;
         try {
           const r = await fetch('/api/my-location');
-          const data = await r.json();
-          if (data.in_space) {
-            addLocBtn.textContent = `V prostoru: ${data.solar_system_name}`;
-          } else if (data.location_id) {
-            selectItem({ location_id: data.location_id, name: data.name });
-          } else {
-            addLocBtn.textContent = data.error || 'Chyba';
-          }
-        } catch { addLocBtn.textContent = 'Chyba'; }
-        addLocBtn.disabled = false;
+          const d = await r.json();
+          if (d.in_space) locBtn.textContent = `V prostoru: ${d.solar_system_name}`;
+          else if (d.location_id) selectItem({ location_id: d.location_id, name: d.name });
+          else locBtn.textContent = d.error || 'Chyba';
+        } catch { locBtn.textContent = 'Chyba'; }
+        locBtn.disabled = false;
       });
     }
 
-    // Zabráníme zavření dropdownu při kliknutí v sekci "přidat"
     box.querySelector('div[style*="border-top"]')
       ?.addEventListener('click', e => e.stopPropagation());
   }
-})();
+}
+
+// === Výrobní stanice ===
+makeStationSelector({
+  displayId: 'station-display', hiddenId: 'station-id', boxId: 'station-suggestions',
+  onSelect(item) {
+    loadStationInfo(item.location_id, {
+      taxId: 'facility-tax-input',
+      sciDivId: 'sci-display',
+      sciMfgId: 'sci-mfg-val',
+      rigPrefix: 'mfg',
+    });
+  },
+});
+
+// Submit fallback — pokud hidden je prázdné a display obsahuje číslo
+document.getElementById('plan-form')?.addEventListener('submit', () => {
+  ['station-display|station-id', 'rxn-station-display|rxn-station-id'].forEach(pair => {
+    const [dId, hId] = pair.split('|');
+    const d = document.getElementById(dId), h = document.getElementById(hId);
+    if (d && h && !h.value && /^\d+$/.test(d.value.trim())) h.value = d.value.trim();
+  });
+});
+
+// === Reakční stanice ===
+makeStationSelector({
+  displayId: 'rxn-station-display', hiddenId: 'rxn-station-id', boxId: 'rxn-station-suggestions',
+  onSelect(item) {
+    loadStationInfo(item.location_id, {
+      taxId: 'rxn-facility-tax-input',
+      sciDivId: 'rxn-sci-display',
+      sciRxnId: 'rxn-sci-val',
+      rigPrefix: 'rxn',
+    });
+  },
+});
+
+// === Přepínač zásoby / bez zásob ===
+let _stockMode = 'with';
+
+function _isk(n) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+                  .replace(/,/g, ' ');
+}
+
+function _fmtInt(n) {
+  const v = parseInt(n) || 0;
+  return v.toLocaleString('en-US').replace(/,/g, ' ');
+}
+
+function toggleStockMode(checked) {
+  _stockMode = checked ? 'with' : 'without';
+  const withMode = checked;
+
+  // stock badge
+  const badge = document.getElementById('stock-badge');
+  if (badge) badge.innerHTML = withMode ? badge.dataset.withHtml : badge.dataset.withoutHtml;
+
+  // summary buy
+  const buyVal = document.getElementById('summary-buy-val');
+  if (buyVal) {
+    const v = parseFloat(withMode ? buyVal.dataset.with : buyVal.dataset.without);
+    buyVal.textContent = isNaN(v) ? '—' : _isk(v);
+    const lbl = buyVal.parentElement?.querySelector('.summary-buy-label');
+    if (lbl) lbl.textContent = withMode ? 'Nákup surovin' : 'Nákup surovin (vše)';
+  }
+
+  // summary profit
+  const profitVal = document.getElementById('summary-profit-val');
+  if (profitVal) {
+    const v = parseFloat(withMode ? profitVal.dataset.with : profitVal.dataset.without);
+    if (!isNaN(v)) {
+      const cls = v >= 0 ? 'text-profit' : 'text-loss';
+      profitVal.innerHTML = `<span class="${cls}">${v >= 0 ? '+' : ''}${_isk(v)}</span>`;
+    }
+  }
+
+  // material rows
+  document.querySelectorAll('#tab-materials .table tbody tr[data-required]').forEach(row => {
+    const required = parseInt(row.dataset.required) || 0;
+    const avail    = parseInt(row.dataset.avail)    || 0;
+    const missing  = parseInt(row.dataset.missing)  || 0;
+    const totalP   = parseFloat(row.dataset.totalPrice) || 0;
+    const buyP     = parseFloat(row.dataset.buyPrice)   || 0;
+    const coverage = parseInt(row.dataset.coverage)    || 0;
+    const ok       = row.dataset.ok === 'true';
+
+    const cellAvail    = row.querySelector('.cell-avail');
+    const cellMissing  = row.querySelector('.cell-missing');
+    const cellBuy      = row.querySelector('.cell-buy');
+    const cellCoverage = row.querySelector('.cell-coverage');
+
+    if (withMode) {
+      row.className = ok ? 'material-ok' : (coverage >= 50 ? 'material-partial' : 'material-missing');
+      if (cellAvail) cellAvail.textContent = _fmtInt(avail);
+      if (cellMissing) cellMissing.innerHTML = missing > 0
+        ? `<span class="text-danger fw-semibold">${_fmtInt(missing)}</span>`
+        : '<span class="text-muted">—</span>';
+      if (cellBuy) cellBuy.innerHTML = buyP > 0
+        ? `<span class="text-warning fw-semibold">${_isk(buyP)}</span>`
+        : '<span class="text-muted">—</span>';
+      if (cellCoverage) {
+        const bc = ok ? 'bg-success' : (coverage >= 50 ? 'bg-warning' : 'bg-danger');
+        const tc = ok ? 'text-success' : (coverage >= 50 ? 'text-warning' : 'text-danger');
+        cellCoverage.innerHTML = `<div><span class="${tc} fw-semibold">${coverage}%</span></div>
+          <div class="coverage-bar mt-1" style="width:60px;display:inline-block">
+            <div class="coverage-fill ${bc}" style="width:${Math.min(coverage, 100)}%"></div>
+          </div>`;
+      }
+    } else {
+      row.className = required > 0 ? 'material-missing' : 'material-ok';
+      if (cellAvail) cellAvail.textContent = '0';
+      if (cellMissing) cellMissing.innerHTML = required > 0
+        ? `<span class="text-danger fw-semibold">${_fmtInt(required)}</span>`
+        : '<span class="text-muted">—</span>';
+      if (cellBuy) cellBuy.innerHTML = totalP > 0
+        ? `<span class="text-warning fw-semibold">${_isk(totalP)}</span>`
+        : '<span class="text-muted">—</span>';
+      if (cellCoverage) {
+        cellCoverage.innerHTML = required > 0
+          ? `<div><span class="text-danger fw-semibold">0%</span></div>
+             <div class="coverage-bar mt-1" style="width:60px;display:inline-block">
+               <div class="coverage-fill bg-danger" style="width:0%"></div>
+             </div>`
+          : `<div><span class="text-success fw-semibold">100%</span></div>
+             <div class="coverage-bar mt-1" style="width:60px;display:inline-block">
+               <div class="coverage-fill bg-success" style="width:100%"></div>
+             </div>`;
+      }
+    }
+  });
+
+  // material table footer
+  const footerTotal = document.getElementById('mat-footer-total');
+  if (footerTotal) {
+    const v = parseFloat(withMode ? footerTotal.dataset.with : footerTotal.dataset.without);
+    footerTotal.textContent = (!isNaN(v) && v > 0) ? _isk(v) : '—';
+  }
+
+  // shopping list rows
+  let visibleCount = 0;
+  document.querySelectorAll('#shopping-list tbody tr').forEach(row => {
+    const stocked  = row.dataset.stocked === 'true';
+    const required = parseInt(row.dataset.required) || 0;
+    const missing  = parseInt(row.dataset.missing)  || 0;
+    const buyP     = parseFloat(row.dataset.buyPrice)   || 0;
+    const totalP   = parseFloat(row.dataset.totalPrice) || 0;
+
+    row.hidden = withMode ? stocked : false;
+    if (!row.hidden) visibleCount++;
+
+    const qty  = withMode ? missing  : required;
+    const cost = withMode ? buyP     : totalP;
+    const shopQty  = row.querySelector('.shop-qty');
+    const shopCost = row.querySelector('.shop-cost');
+    if (shopQty)  shopQty.textContent = _fmtInt(qty);
+    if (shopCost) shopCost.innerHTML  = cost > 0
+      ? _isk(cost)
+      : '<span class="text-muted">N/A</span>';
+  });
+
+  const countEl = document.getElementById('shop-item-count');
+  if (countEl) countEl.textContent = visibleCount;
+
+  const shopTotal = document.getElementById('shop-footer-total');
+  if (shopTotal) {
+    const v = parseFloat(withMode ? shopTotal.dataset.with : shopTotal.dataset.without);
+    shopTotal.textContent = (!isNaN(v) && v > 0) ? _isk(v) : '—';
+  }
+}
+
+// Validní typy struktur per sekce
+const _MFG_STRUCTURES = new Set(['raitaru', 'azbel', 'sotiyo']);
+const _RXN_STRUCTURES = new Set(['athanor', 'tatara']);
+
+function _isValidStructureForPrefix(structureType, prefix) {
+  if (prefix === 'mfg') return _MFG_STRUCTURES.has(structureType);
+  if (prefix === 'rxn') return _RXN_STRUCTURES.has(structureType);
+  return false;
+}
+
+// Načte SCI + facility tax + rig info pro stanici
+async function loadStationInfo(locationId, { taxId, sciDivId, sciMfgId, sciRxnId, rigPrefix }) {
+  try {
+    const r    = await fetch(`/api/station-industry-info?location_id=${locationId}`);
+    const info = await r.json();
+    const ftInput = document.getElementById(taxId);
+    if (ftInput) {
+      if (info.facility_tax_pct != null) {
+        ftInput.value = info.facility_tax_pct.toFixed(1);
+      }
+      const badge = document.getElementById(`${taxId}-badge`);
+      if (badge) {
+        if (info.tax_auto) {
+          badge.textContent = '✓ auto';
+          badge.className = 'badge bg-success';
+          badge.title = 'Odvozeno z nedávných výrobních jobů přes ESI';
+        } else if (info.facility_tax_pct != null) {
+          badge.textContent = '⏱ cache';
+          badge.className = 'badge bg-secondary';
+          badge.title = 'Načteno z cache — žádný nový job od posledního downtimeu EVE';
+        } else {
+          badge.textContent = '? ručně';
+          badge.className = 'badge bg-warning text-dark';
+          badge.title = 'Nepodařilo se odvodit — žádné joby na této stanici. Zadej ručně.';
+        }
+        badge.style.display = '';
+      }
+    }
+    const sciDiv = document.getElementById(sciDivId);
+    if (sciDiv) {
+      if (sciMfgId) {
+        const el = document.getElementById(sciMfgId);
+        if (el) el.textContent = `výr. ${(info.mfg_sci * 100).toFixed(2)}%`;
+      }
+      if (sciRxnId) {
+        const el = document.getElementById(sciRxnId);
+        if (el) el.textContent = info.rxn_sci > 0 ? `reak. ${(info.rxn_sci * 100).toFixed(2)}%` : '';
+      }
+      sciDiv.classList.remove('d-none');
+      sciDiv.classList.add('d-flex');
+    }
+    if (rigPrefix) {
+      const validType = info.structure_type && _isValidStructureForPrefix(info.structure_type, rigPrefix)
+        ? info.structure_type : null;
+      const stSel = document.getElementById(`${rigPrefix}-structure-type`);
+      if (stSel) stSel.value = validType || 'npc';
+      await _loadRigOptions(rigPrefix, validType, validType ? (info.rigs || [null, null, null]) : []);
+    }
+  } catch {}
+}
+
+// Načte dostupné rigy pro daný typ struktury a naplní selecty
+async function _loadRigOptions(prefix, structureType, selectedRigs = [null, null, null]) {
+  const container = document.getElementById(`${prefix}-rig-container`);
+  const bonusInput = document.getElementById(`${prefix}-me-bonus-input`);
+
+  if (!structureType || structureType === 'npc') {
+    container?.classList.add('d-none');
+    if (bonusInput) bonusInput.value = '0';
+    const disp = document.getElementById(`${prefix}-me-bonus-display`);
+    if (disp) disp.textContent = '−0%';
+    return;
+  }
+
+  try {
+    const r = await fetch(`/api/rig-types?structure_type=${structureType}`);
+    const data = await r.json();
+    container?.classList.remove('d-none');
+
+    ['rig1', 'rig2', 'rig3'].forEach((slot, i) => {
+      const sel = document.getElementById(`${prefix}-${slot}-select`);
+      if (!sel) return;
+      const curVal = selectedRigs[i] ? String(selectedRigs[i]) : '';
+      sel.innerHTML = '<option value="">— žádný —</option>';
+      (data.rigs || []).forEach(rig => {
+        const opt = document.createElement('option');
+        opt.value = rig.type_id;
+        opt.textContent = rig.name.replace('Standup ', '');
+        opt.dataset.meBonus = rig.me_bonus;
+        opt.title = rig.name;
+        if (String(rig.type_id) === curVal) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    });
+
+    _recalcMeBonus(prefix);
+  } catch {}
+}
+
+function _recalcMeBonus(prefix) {
+  let total = 0;
+  ['rig1', 'rig2', 'rig3'].forEach(slot => {
+    const sel = document.getElementById(`${prefix}-${slot}-select`);
+    if (sel?.value) {
+      total += parseFloat(sel.options[sel.selectedIndex]?.dataset.meBonus || 0);
+    }
+  });
+  const bonusInput = document.getElementById(`${prefix}-me-bonus-input`);
+  if (bonusInput) bonusInput.value = total.toFixed(1);
+  const disp = document.getElementById(`${prefix}-me-bonus-display`);
+  if (disp) disp.textContent = total > 0 ? `−${total.toFixed(1)}%` : '−0%';
+}
+
+async function onStructureTypeChange(prefix, structureType) {
+  await _loadRigOptions(prefix, structureType);
+  _autoSaveRigs(prefix);
+}
+
+function onRigChange(prefix) {
+  _recalcMeBonus(prefix);
+  _autoSaveRigs(prefix);
+}
+
+function _autoSaveRigs(prefix) {
+  const locIdEl = prefix === 'mfg'
+    ? document.getElementById('station-id')
+    : (document.getElementById('rxn-station-id')?.value
+        ? document.getElementById('rxn-station-id')
+        : document.getElementById('station-id'));
+  const locId = parseInt(locIdEl?.value);
+  if (!locId) return;
+
+  const structureType = document.getElementById(`${prefix}-structure-type`)?.value || 'npc';
+  const rig1 = parseInt(document.getElementById(`${prefix}-rig1-select`)?.value) || null;
+  const rig2 = parseInt(document.getElementById(`${prefix}-rig2-select`)?.value) || null;
+  const rig3 = parseInt(document.getElementById(`${prefix}-rig3-select`)?.value) || null;
+
+  fetch('/api/station-rigs', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ location_id: locId, structure_type: structureType,
+                           rig1_type_id: rig1, rig2_type_id: rig2, rig3_type_id: rig3 }),
+  });
+}
+
+// Auto-load při page load (pokud je stanice již vybrána)
+document.addEventListener('DOMContentLoaded', () => {
+  const stId = parseInt(document.getElementById('station-id')?.value);
+  if (stId) loadStationInfo(stId, {
+    taxId: 'facility-tax-input', sciDivId: 'sci-display',
+    sciMfgId: 'sci-mfg-val', rigPrefix: 'mfg',
+  });
+  const rxnId = parseInt(document.getElementById('rxn-station-id')?.value);
+  if (rxnId) loadStationInfo(rxnId, {
+    taxId: 'rxn-facility-tax-input', sciDivId: 'rxn-sci-display',
+    sciRxnId: 'rxn-sci-val', rigPrefix: 'rxn',
+  });
+});
 </script>
 {% endblock %}

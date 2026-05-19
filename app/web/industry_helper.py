@@ -31,6 +31,184 @@ def ensure_industry_tables(conn: sqlite3.Connection):
             cached_at   INTEGER NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS station_rigs (
+            location_id    INTEGER PRIMARY KEY,
+            me_bonus_pct   REAL NOT NULL DEFAULT 0,
+            updated_at     INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+            structure_type TEXT,
+            rig1_type_id   INTEGER,
+            rig2_type_id   INTEGER,
+            rig3_type_id   INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS rig_bonuses (
+            type_id  INTEGER PRIMARY KEY,
+            name     TEXT NOT NULL,
+            set_size TEXT NOT NULL,
+            category TEXT NOT NULL,
+            me_bonus REAL NOT NULL DEFAULT 0,
+            te_bonus REAL NOT NULL DEFAULT 0
+        )
+    """)
+    # Migrate old station_rigs table (add columns if missing)
+    for col, defn in [
+        ("structure_type", "TEXT"),
+        ("rig1_type_id", "INTEGER"),
+        ("rig2_type_id", "INTEGER"),
+        ("rig3_type_id", "INTEGER"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE station_rigs ADD COLUMN {col} {defn}")
+        except Exception:
+            pass
+    conn.commit()
+
+
+# Group ID → (set_size, category) for Standup structure rigs
+_RIG_GROUP_MAP: dict[int, tuple[str, str]] = {
+    **{gid: ("M", "manufacturing") for gid in [
+        1816, 1819, 1820, 1821, 1822, 1823, 1824, 1825,
+        1826, 1827, 1828, 1829, 1830, 1831, 1832, 1833,
+        1834, 1835, 1836, 1837, 1838, 1839, 1840, 1841,
+    ]},
+    **{gid: ("L", "manufacturing") for gid in [
+        1850, 1851, 1852, 1853, 1854, 1855, 1856, 1857,
+        1858, 1859, 1860, 1861, 1862,
+    ]},
+    **{gid: ("XL", "manufacturing") for gid in [1867, 1868, 1869]},
+    **{gid: ("M", "reaction") for gid in [1933, 1934, 1935, 1936, 1937, 1938]},
+    1939: ("L", "reaction"),
+}
+
+# Structure type → (set_size, category)
+STRUCTURE_TYPE_MAP: dict[str, tuple[str, str]] = {
+    "raitaru": ("M",  "manufacturing"),
+    "azbel":   ("L",  "manufacturing"),
+    "sotiyo":  ("XL", "manufacturing"),
+    "athanor": ("M",  "reaction"),
+    "tatara":  ("L",  "reaction"),
+}
+
+
+def populate_rig_bonuses(conn: sqlite3.Connection) -> None:
+    """Populate rig_bonuses from local SDE. No-op if already populated."""
+    if conn.execute("SELECT COUNT(*) FROM rig_bonuses").fetchone()[0] > 0:
+        return
+
+    group_ids = list(_RIG_GROUP_MAP.keys())
+    ph = ",".join("?" * len(group_ids))
+    rows = conn.execute(
+        f"SELECT type_id, name, group_id FROM sde_types WHERE group_id IN ({ph}) AND published=1",
+        group_ids,
+    ).fetchall()
+
+    entries = []
+    for type_id, name, group_id in rows:
+        if "Standup" not in name:
+            continue  # skip non-rig items accidentally in these groups
+
+        set_size, category = _RIG_GROUP_MAP[group_id]
+        n = name.lower()
+        is_t2 = name.endswith(" II")
+        is_thukker = "thukker" in n
+        enhanced = is_t2 or is_thukker
+
+        me_base = 2.4 if enhanced else 2.0
+        te_base = 24.0 if enhanced else 20.0
+
+        has_mat = "material efficiency" in n
+        has_time = "time efficiency" in n
+        has_both = "efficiency" in n and not has_mat and not has_time
+
+        me_bonus = me_base if (has_mat or has_both) else 0.0
+        te_bonus = te_base if (has_time or has_both) else 0.0
+
+        entries.append((type_id, name, set_size, category, me_bonus, te_bonus))
+
+    conn.executemany(
+        "INSERT OR REPLACE INTO rig_bonuses (type_id, name, set_size, category, me_bonus, te_bonus) VALUES (?,?,?,?,?,?)",
+        entries,
+    )
+    conn.commit()
+
+
+def get_rig_types(conn: sqlite3.Connection, structure_type: str) -> list[dict]:
+    """Return available rigs for the given structure type (raitaru/azbel/etc)."""
+    mapping = STRUCTURE_TYPE_MAP.get(structure_type)
+    if not mapping:
+        return []
+    set_size, category = mapping
+    rows = conn.execute(
+        "SELECT type_id, name, me_bonus, te_bonus FROM rig_bonuses WHERE set_size=? AND category=? ORDER BY name",
+        (set_size, category),
+    ).fetchall()
+    return [{"type_id": r[0], "name": r[1], "me_bonus": r[2], "te_bonus": r[3]} for r in rows]
+
+
+def save_station_rigs_full(
+    conn: sqlite3.Connection,
+    location_id: int,
+    structure_type: str | None,
+    rig1_type_id: int | None,
+    rig2_type_id: int | None,
+    rig3_type_id: int | None,
+) -> float:
+    """Save rig configuration for a station and return the computed ME bonus (%)."""
+    rig_ids = [r for r in [rig1_type_id, rig2_type_id, rig3_type_id] if r]
+    me_bonus = 0.0
+    if rig_ids:
+        # Query each unique rig type once, then sum counting duplicates
+        unique_ids = list(set(rig_ids))
+        ph = ",".join("?" * len(unique_ids))
+        bonus_map = {r[0]: r[1] for r in conn.execute(
+            f"SELECT type_id, me_bonus FROM rig_bonuses WHERE type_id IN ({ph})", unique_ids
+        ).fetchall()}
+        me_bonus = sum(bonus_map.get(rid, 0.0) for rid in rig_ids)
+
+    conn.execute(
+        """INSERT OR REPLACE INTO station_rigs
+           (location_id, me_bonus_pct, updated_at, structure_type, rig1_type_id, rig2_type_id, rig3_type_id)
+           VALUES (?,?,?,?,?,?,?)""",
+        (location_id, me_bonus, int(time.time()), structure_type or None,
+         rig1_type_id or None, rig2_type_id or None, rig3_type_id or None),
+    )
+    conn.commit()
+    return me_bonus
+
+
+def get_station_rigs_full(conn: sqlite3.Connection, location_id: int) -> dict:
+    """Return rig configuration for a station."""
+    row = conn.execute(
+        "SELECT me_bonus_pct, structure_type, rig1_type_id, rig2_type_id, rig3_type_id"
+        " FROM station_rigs WHERE location_id=?",
+        (location_id,),
+    ).fetchone()
+    if not row:
+        return {"me_bonus_pct": 0.0, "structure_type": None, "rigs": [None, None, None]}
+    return {
+        "me_bonus_pct": float(row[0] or 0.0),
+        "structure_type": row[1],
+        "rigs": [row[2], row[3], row[4]],
+    }
+
+
+def get_station_me_bonus(conn: sqlite3.Connection, location_id: int) -> float:
+    """Vrátí uložený ME bonus (%) pro danou stanici/strukturu, nebo 0.0."""
+    ensure_industry_tables(conn)
+    row = conn.execute(
+        "SELECT me_bonus_pct FROM station_rigs WHERE location_id=?", (location_id,)
+    ).fetchone()
+    return float(row[0]) if row else 0.0
+
+
+def save_station_me_bonus(conn: sqlite3.Connection, location_id: int, me_bonus_pct: float):
+    ensure_industry_tables(conn)
+    conn.execute(
+        "INSERT OR REPLACE INTO station_rigs (location_id, me_bonus_pct, updated_at) VALUES (?,?,?)",
+        (location_id, max(0.0, min(25.0, me_bonus_pct)), int(time.time()))
+    )
     conn.commit()
 
 

@@ -179,9 +179,9 @@
            data-bs-toggle="collapse" data-bs-target="#cont-{{ ckey }}" style="cursor:pointer">
         <span class="d-flex align-items-center gap-2">
           {% if container.type_id %}
-          <img src="https://images.evetech.net/types/{{ container.type_id }}/render?size=24"
-               width="24" height="24" class="rounded" alt="" loading="lazy"
-               onerror="this.onerror=function(){this.style.visibility='hidden'};this.src='https://images.evetech.net/types/{{ container.type_id }}/icon?size=24'">
+          <img data-render="https://images.evetech.net/types/{{ container.type_id }}/render?size=32"
+               data-icon="https://images.evetech.net/types/{{ container.type_id }}/icon?size=32"
+               width="24" height="24" class="rounded eve-icon" alt="">
           {% else %}
           <i class="bi bi-box text-muted" style="font-size:.85em"></i>
           {% endif %}
@@ -408,6 +408,24 @@ sortBtns.forEach(btn => {
     }
 
     sortStations(sortState.key, sortState.dir);
+  });
+});
+
+// Ikony kontejnerů/lodí — nastavení src přes JS fetchne obrázek i v display:none.
+// (Oproti HTML atributu src, který Chromium v display:none odkládá.)
+document.querySelectorAll('img.eve-icon[data-render]').forEach(img => {
+  img.onerror = () => {
+    img.onerror = () => { img.style.visibility = 'hidden'; };
+    img.src = img.dataset.icon;
+  };
+  img.src = img.dataset.render;
+});
+
+// Lazy item ikony v tabulkách — force-reload po rozbalení sekce.
+document.addEventListener('shown.bs.collapse', e => {
+  e.target.querySelectorAll('img[loading="lazy"]').forEach(img => {
+    const src = img.src;
+    if (src) { img.removeAttribute('src'); img.src = src; }
   });
 });
 </script>

@@ -21,9 +21,9 @@
       {% for bp in bps %}
       <tr>
         <td>
-          <img src="https://images.evetech.net/types/{{ bp.product_type_id }}/render?size=32"
+          <img src="https://images.evetech.net/types/{{ bp.type_id }}/{% if bp.is_original %}bp{% else %}bpc{% endif %}?size=32"
                width="32" height="32" class="rounded" alt="" loading="lazy"
-               onerror="this.onerror=function(){this.style.visibility='hidden'};this.src='https://images.evetech.net/types/{{ bp.product_type_id }}/icon?size=32'">
+               onerror="this.onerror=function(){this.style.visibility='hidden'};this.src='https://images.evetech.net/types/{{ bp.type_id }}/icon?size=32'">
         </td>
         <td><span class="fw-medium">{{ bp.name }}</span></td>
         <td class="text-center">
@@ -251,6 +251,15 @@ document.querySelectorAll('.loc-rename-wrap input').forEach(input => {
     const id = input.closest('.loc-rename-wrap').id.replace('loc-rename-', '');
     if (e.key === 'Enter')  document.querySelector(`.loc-rename-save[data-id="${id}"]`)?.click();
     if (e.key === 'Escape') document.querySelector(`.loc-rename-cancel[data-id="${id}"]`)?.click();
+  });
+});
+
+document.addEventListener('shown.bs.collapse', e => {
+  e.target.querySelectorAll('img').forEach(img => {
+    if (!img.complete || img.naturalWidth === 0) {
+      const src = img.src;
+      if (src) { img.removeAttribute('src'); img.src = src; }
+    }
   });
 });
 </script>
