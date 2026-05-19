@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Databáze a citlivá data
+*.db
+*.db-shm
+*.db-wal
+data/tokens.json
+
+# EVE SDE data (velké soubory, stahují se separátně)
+data/sde.zip
+data/fsd/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

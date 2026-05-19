@@ -1,0 +1,1441 @@
+"""FastAPI web aplikace pro EVE Retroindustry."""
+from __future__ import annotations
+import asyncio
+import os
+import json
+import sqlite3
+import threading
+from pathlib import Path
+
+import httpx
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+
+from app.auth.token_store import get_valid_token, get_character, is_logged_in
+from app.auth.esi_oauth import start_web_login
+from app.character.blueprints import fetch_blueprints, ensure_bp_table
+from app.character.assets import fetch_assets, ensure_assets_table, assets_at_location
+from app.db.type_resolver import resolve_names_bulk
+from app.esi.client import search_type_by_name
+from app.cache.blueprint_cache import resolve_type
+from app.db.database import get_session
+from app.manufacturing.planner import build_plan, find_blueprint_for_product
+from app.bom.resolver import BOMResolver
+from app.market.prices import ensure_price_table, fetch_station_volumes, get_cached_station_volumes, fetch_structure_market
+from app.web.prices_helper import (
+    get_prices_for_ids,
+    get_price_cache_stats,
+    refresh_jita_prices_all,
+    get_all_price_items,
+    set_custom_price,
+    stream_jita_refresh,
+)
+from app.web.location_resolver import (
+    resolve_station_names_bulk,
+    ensure_location_name_table,
+    load_location_names_from_db,
+    locations_in_system,
+    get_region_for_location,
+)
+from app.web.industry_helper import (
+    ensure_industry_tables,
+    get_adjusted_prices,
+    get_sci_for_system,
+    derive_facility_tax,
+)
+
+DB_ABS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "eve_cache.db"))
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+app = FastAPI(title="EVE Retroindustry")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+def _isk(v: float | None) -> str:
+    if v is None:
+        return "N/A"
+    return f"{v:,.2f}".replace(",", " ")
+
+
+def _format_number(v) -> str:
+    try:
+        return f"{int(v):,}".replace(",", " ")
+    except (TypeError, ValueError):
+        return str(v)
+
+
+templates.env.filters["isk"] = _isk
+templates.env.filters["format_number"] = _format_number
+
+
+def _tr(name: str, request: Request, context: dict) -> HTMLResponse:
+    """Starlette nové API: request jako první argument."""
+    context.setdefault("character", get_character())
+    return templates.TemplateResponse(request, name, context)
+
+
+def get_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_ABS)
+    ensure_bp_table(conn)
+    ensure_assets_table(conn)
+    ensure_price_table(conn)
+    ensure_location_name_table(conn)
+    ensure_industry_tables(conn)
+    return conn
+
+
+def _collect_type_ids(node) -> list[int]:
+    ids = [node.type_id]
+    for child in node.children:
+        ids.extend(_collect_type_ids(child))
+    return ids
+
+
+def _is_real_location(loc_id: int) -> bool:
+    """Vrátí True pokud je ID skutečná stanice/struktura, ne item_id kontejneru/lodi."""
+    # NPC stanice: 60_000_000 – 64_000_000
+    # Player struktury: > 1_000_000_000_000
+    # Solární systémy: 30_000_000 – 34_000_000 (věci ve vesmíru)
+    # Item_id lodí/kontejnerů: typicky miliardová čísla ale < 1 bilion
+    if 60_000_000 <= loc_id < 64_000_000:
+        return True
+    if loc_id > 1_000_000_000_000:
+        return True
+    if 30_000_000 <= loc_id < 34_000_000:
+        return True  # sluneční soustava — věci v prostoru
+    return False
+
+
+def _resolve_root_locations(assets: list) -> dict[int, int]:
+    """
+    Vrátí {item_id: root_location_id} kde root_location_id je skutečná stanice/struktura.
+    Prochází řetězec item_id → location_id dokud nedosáhne reálné lokace.
+    """
+    # Mapa item_id → location_id pro rychlé hledání rodiče
+    parent: dict[int, int] = {a.item_id: a.location_id for a in assets}
+
+    result: dict[int, int] = {}
+    for a in assets:
+        loc = a.location_id
+        seen: set[int] = set()
+        while not _is_real_location(loc) and loc in parent and loc not in seen:
+            seen.add(loc)
+            loc = parent[loc]
+        result[a.item_id] = loc
+    return result
+
+
+def _load_blueprints_from_cache(conn: sqlite3.Connection, char_id: int) -> list[dict]:
+    row = conn.execute(
+        "SELECT data_json FROM char_blueprints_cache WHERE character_id=?", (char_id,)
+    ).fetchone()
+    if not row:
+        return []
+    return json.loads(row[0])
+
+
+def _load_assets_from_cache(conn: sqlite3.Connection, char_id: int) -> list[dict]:
+    """Načte assety přímo z JSON cache bez ESI volání."""
+    row = conn.execute(
+        "SELECT data_json FROM char_assets_cache WHERE character_id=?", (char_id,)
+    ).fetchone()
+    if not row:
+        return []
+    return json.loads(row[0])
+
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+@app.get("/auth/login")
+async def auth_login():
+    url = start_web_login()
+    if not url:
+        return HTMLResponse("<p>Login už probíhá nebo chybí client_id.</p>", status_code=400)
+    return RedirectResponse(url)
+
+
+# Dashboard
+# ---------------------------------------------------------------------------
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    logged_in = is_logged_in()
+    char_name = char_id = None
+    bp_count = asset_locations = 0
+    price_stats = {}
+
+    conn = get_conn()
+    if logged_in:
+        char = get_character()
+        if char:
+            char_id, char_name = char
+
+        row = conn.execute("SELECT COUNT(*) FROM char_blueprints_cache").fetchone()
+        bp_count = row[0] if row else 0
+
+        total_assets_value = None
+        if char_id:
+            raw = _load_assets_from_cache(conn, char_id)
+            non_singletons = [a for a in raw if not a.get("is_singleton", False)]
+            locs = {a["location_id"] for a in non_singletons}
+            asset_locations = len(locs)
+
+            all_type_ids = list({a["type_id"] for a in non_singletons})
+            if all_type_ids:
+                prices = await get_prices_for_ids(conn, all_type_ids)
+                total_assets_value = sum(
+                    prices.get(a["type_id"], (None, None))[0] * a.get("quantity", 1)
+                    for a in non_singletons
+                    if prices.get(a["type_id"], (None, None))[0] is not None
+                )
+
+        price_stats = get_price_cache_stats(conn)
+
+    conn.close()
+    return _tr("index.html", request, {
+        "logged_in": logged_in,
+        "char_name": char_name,
+        "char_id": char_id,
+        "bp_count": bp_count,
+        "asset_locations": asset_locations,
+        "total_assets_value": total_assets_value,
+        "price_stats": price_stats,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Výrobní plán
+# ---------------------------------------------------------------------------
+
+@app.get("/plan", response_class=HTMLResponse)
+async def plan_form(request: Request):
+    conn = get_conn()
+    char = get_character()
+    location_ids = []
+    if char:
+        raw = _load_assets_from_cache(conn, char[0])
+        location_ids = sorted({a["location_id"] for a in raw if not a.get("is_singleton", False)})
+    conn.close()
+    return _tr("plan.html", request, {
+        "locations": location_ids,
+        "result": None,
+        "error": None,
+    })
+
+
+@app.post("/plan", response_class=HTMLResponse)
+async def plan_result(
+    request: Request,
+    product: str = Form(...),
+    station: int = Form(...),
+    qty: int = Form(1),
+    mode: str = Form("full"),
+    form_me: str = Form(""),
+    form_te: str = Form(""),
+    facility_tax: str = Form("5"),
+):
+    conn = get_conn()
+    error = None
+    plan_data = None
+
+    # Převeď ME/TE na int pokud zadány
+    me_override: int | None = int(form_me) if form_me.strip().isdigit() else None
+    te_override: int | None = int(form_te) if form_te.strip().isdigit() else None
+
+    try:
+        token = get_valid_token()
+        char = get_character()
+        if not token or not char:
+            raise ValueError("Nejsi přihlášen.")
+        char_id, _ = char
+
+        async with httpx.AsyncClient() as client:
+            session = get_session()
+            if product.strip().isdigit():
+                type_id = int(product.strip())
+                type_name = await resolve_type(client, session, type_id)
+            else:
+                results = await search_type_by_name(client, product.strip())
+                if not results:
+                    raise ValueError(f"Produkt '{product}' nenalezen.")
+                type_id = results[0]
+                type_name = await resolve_type(client, session, type_id)
+            session.close()
+
+        async with httpx.AsyncClient() as client:
+            blueprints = await fetch_blueprints(client, char_id, token, conn)
+            all_assets = await fetch_assets(client, char_id, token, conn)
+
+        available = assets_at_location(all_assets, station)
+
+        bp = find_blueprint_for_product(blueprints, type_id, conn)
+        me = float(me_override if me_override is not None else (bp.material_efficiency if bp else 0))
+        te = int(te_override if te_override is not None else (bp.time_efficiency if bp else 0))
+
+        resolver = BOMResolver(DB_ABS)
+        root = resolver.resolve(type_id, qty, me=me)
+        resolver.close()
+
+        all_ids = list(set(_collect_type_ids(root) + [type_id]))
+        prices = await get_prices_for_ids(conn, all_ids)
+
+        plan = build_plan(
+            product_type_id=type_id,
+            quantity=qty,
+            location_id=station,
+            available_assets=available,
+            blueprints=blueprints,
+            db_path=DB_ABS,
+            mode=mode,
+            prices=prices,
+        )
+        plan_data = _plan_to_dict(plan, prices, type_name)
+        # Přepis ME/TE v plan_data pokud bylo zadáno ručně
+        if plan_data.get("blueprint"):
+            plan_data["blueprint"]["me"] = int(me)
+            plan_data["blueprint"]["te"] = te
+        elif me_override is not None:
+            plan_data["blueprint"] = {"kind": "—", "me": int(me), "te": te, "runs": "—", "manual": True}
+        plan_data["manufacturing_steps"] = _build_manufacturing_steps(root, prices, available)
+
+        # === Výrobní poplatky ===
+        def _safe_pct(s: str, default: float) -> float:
+            try:
+                return float(s.replace(",", "."))
+            except (ValueError, AttributeError):
+                return default
+
+        fac_tax_pct  = _safe_pct(facility_tax, 5.0)
+        fac_tax_rate = fac_tax_pct / 100
+
+        # Solar system ID stanice
+        sys_row = conn.execute(
+            "SELECT solar_system_id FROM location_name_cache WHERE location_id=?", (station,)
+        ).fetchone()
+        solar_system_id: int | None = sys_row[0] if sys_row and sys_row[0] else None
+
+        adj_prices = await get_adjusted_prices(conn)
+        if solar_system_id:
+            mfg_sci = await get_sci_for_system(conn, solar_system_id, "manufacturing")
+            rxn_sci = await get_sci_for_system(conn, solar_system_id, "reaction")
+        else:
+            mfg_sci = rxn_sci = 0.0
+
+        total_job_fee = 0.0
+        for step in plan_data["manufacturing_steps"]:
+            for job in step["jobs"]:
+                sci = rxn_sci if job.get("activity") == "reaction" else mfg_sci
+                eiv = sum(
+                    adj_prices.get(inp["type_id"], 0.0) * inp["quantity"]
+                    for inp in job["inputs"]
+                )
+                job_fee = eiv * (sci + fac_tax_rate)
+                job["eiv"] = eiv
+                job["sci"] = sci
+                job["job_fee"] = job_fee
+                total_job_fee += job_fee
+
+        # Tržní cena všech surovin (bez ohledu na sklad)
+        full_mat_cost = sum(
+            m.get("total_price") or 0.0 for m in plan_data.get("materials", [])
+        )
+        # Cena jen chybějících surovin (co je potřeba dokoupit)
+        buy_cost = plan_data.get("total_buy") or 0.0
+        rev = plan_data.get("revenue")
+
+        # Tržní zisk: revenue − všechny suroviny za tržní cenu − job fee
+        profit_market = (rev - full_mat_cost - total_job_fee) if rev is not None else None
+        # Zisk se zásobami: revenue − jen chybějící suroviny − job fee
+        profit_stock  = (rev - buy_cost - total_job_fee) if rev is not None else None
+
+        plan_data["fees"] = {
+            "solar_system_id": solar_system_id,
+            "mfg_sci":         mfg_sci,
+            "rxn_sci":         rxn_sci,
+            "facility_tax":    fac_tax_pct,
+            "total_job_fee":   total_job_fee,
+            "full_mat_cost":   full_mat_cost,
+            "profit_market":   profit_market,
+            "profit_stock":    profit_stock,
+        }
+
+    except Exception as e:
+        error = str(e)
+
+    char2 = get_character()
+    location_ids = []
+    if char2:
+        raw = _load_assets_from_cache(conn, char2[0])
+        location_ids = sorted({a["location_id"] for a in raw if not a.get("is_singleton", False)})
+
+    # Načti jméno stanice pro zobrazení ve formuláři
+    loc_names = load_location_names_from_db(conn)
+    station_name = loc_names.get(station, str(station))
+    conn.close()
+
+    return _tr("plan.html", request, {
+        "locations": location_ids,
+        "result": plan_data,
+        "error": error,
+        "form_product": product,
+        "form_station": station,
+        "form_station_name": station_name,
+        "form_qty": qty,
+        "form_mode": mode,
+        "form_me": str(int(me)) if me_override is not None else "",
+        "form_te": str(te) if te_override is not None else "",
+        "form_facility_tax": facility_tax,
+    })
+
+
+def _build_manufacturing_steps(root, prices: dict, available: dict) -> list[dict]:
+    """
+    Výrobní kroky: level 1 = první vyrábět (vše z RAW), level N = poslední.
+    Deduplikuje stejný type_id napříč větvemi, agreguje množství.
+    """
+    from collections import defaultdict
+
+    level_memo: dict[int, int] = {}
+
+    def manufacture_level(node) -> int:
+        if node.is_leaf:
+            return 0
+        if node.type_id in level_memo:
+            return level_memo[node.type_id]
+        child_levels = [manufacture_level(c) for c in node.children]
+        non_zero = [l for l in child_levels if l > 0]
+        result = 1 + max(non_zero) if non_zero else 1
+        level_memo[node.type_id] = result
+        return result
+
+    aggregated: dict[int, dict] = {}
+    inputs_agg: dict[int, dict[int, dict]] = {}
+
+    def collect(node):
+        if node.is_leaf:
+            return
+        for child in node.children:
+            collect(child)
+
+        tid   = node.type_id
+        level = manufacture_level(node)
+        sell_p = prices.get(tid, (None, None))[0]
+
+        if tid not in aggregated:
+            aggregated[tid] = {
+                "type_id":    tid,
+                "name":       node.name,
+                "quantity":   node.quantity,
+                "level":      level,
+                "activity":   node.activity,
+                "unit_price": sell_p,
+                "total_price": sell_p * node.quantity if sell_p else None,
+                "available":  available.get(tid, 0),
+            }
+            inputs_agg[tid] = {}
+        else:
+            aggregated[tid]["quantity"] += node.quantity
+            if sell_p:
+                aggregated[tid]["total_price"] = sell_p * aggregated[tid]["quantity"]
+
+        for c in node.children:
+            c_sell = prices.get(c.type_id, (None, None))[0]
+            if c.type_id not in inputs_agg[tid]:
+                inputs_agg[tid][c.type_id] = {
+                    "type_id":    c.type_id,
+                    "name":       c.name,
+                    "quantity":   c.quantity,
+                    "is_leaf":    c.is_leaf,
+                    "activity":   c.activity,
+                    "unit_price": c_sell,
+                    "total_price": c_sell * c.quantity if c_sell else None,
+                    "available":  available.get(c.type_id, 0),
+                }
+            else:
+                inputs_agg[tid][c.type_id]["quantity"] += c.quantity
+                if c_sell:
+                    inputs_agg[tid][c.type_id]["total_price"] = (
+                        c_sell * inputs_agg[tid][c.type_id]["quantity"]
+                    )
+
+    collect(root)
+
+    for tid, job in aggregated.items():
+        job["inputs"] = sorted(inputs_agg[tid].values(), key=lambda x: x["name"])
+        job["input_cost"] = sum(i["total_price"] for i in job["inputs"] if i["total_price"]) or None
+
+    by_level: defaultdict[int, list] = defaultdict(list)
+    for job in aggregated.values():
+        by_level[job["level"]].append(job)
+
+    max_level = max(by_level.keys()) if by_level else 1
+    steps = []
+    for level in sorted(by_level.keys()):
+        jobs = sorted(by_level[level], key=lambda x: x["name"])
+        steps.append({
+            "step":       level,
+            "jobs":       jobs,
+            "total_cost": sum(j["total_price"] for j in jobs if j["total_price"]) or None,
+            "is_final":   level == max_level,
+        })
+    return steps
+
+
+def _plan_to_dict(plan, prices, type_name: str) -> dict:
+    bp = plan.blueprint
+    bp_info = None
+    if bp:
+        bp_info = {
+            "kind": "BPO" if bp.is_original else "BPC",
+            "me": plan.me,
+            "te": plan.te,
+            "runs": "∞" if bp.runs == -1 else bp.runs,
+        }
+
+    materials = []
+    for m in sorted(plan.materials, key=lambda x: (x.ok, x.coverage_pct)):
+        sell_p, _ = prices.get(m.type_id, (None, None))
+        materials.append({
+            "type_id": m.type_id,
+            "name": m.name,
+            "required": m.required,
+            "available": m.available,
+            "missing": m.missing,
+            "ok": m.ok,
+            "coverage_pct": m.coverage_pct,
+            "unit_price": sell_p,
+            "total_price": sell_p * m.required if sell_p else None,
+            "buy_price": sell_p * m.missing if (sell_p and m.missing > 0) else None,
+        })
+
+    total_buy = sum(m["buy_price"] for m in materials if m["buy_price"])
+    sell_p, _ = prices.get(plan.product_type_id, (None, None))
+    revenue = sell_p * plan.quantity if sell_p else None
+    profit = (revenue - total_buy) if (revenue and total_buy) else None
+
+    return {
+        "product_name": type_name,
+        "product_type_id": plan.product_type_id,
+        "quantity": plan.quantity,
+        "mode": plan.mode,
+        "blueprint": bp_info,
+        "location_id": plan.location_id,
+        "can_manufacture": plan.can_manufacture,
+        "total_missing_types": plan.total_missing_types,
+        "materials": materials,
+        "opt_total_cost": plan.opt_total_cost,
+        "opt_naive_cost": plan.opt_naive_cost,
+        "total_buy": total_buy,
+        "sell_price": sell_p,
+        "revenue": revenue,
+        "profit": profit,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Assety
+# ---------------------------------------------------------------------------
+
+@app.get("/assets", response_class=HTMLResponse)
+async def assets_page(request: Request, search: str = ""):
+    conn = get_conn()
+    token = get_valid_token()
+    char = get_character()
+    stations: list[dict] = []
+
+    if char and token:
+        char_id, _ = char
+        async with httpx.AsyncClient() as client:
+            all_assets = await fetch_assets(client, char_id, token, conn)
+            unique_ids = list({a.type_id for a in all_assets})
+            names = await resolve_names_bulk(conn, unique_ids, client)
+
+        parent_map: dict[int, int] = {a.item_id: a.location_id for a in all_assets}
+
+        # item_ids existujících assetů — kontejnery/lodě jsou v této množině
+        asset_item_ids = {a.item_id for a in all_assets}
+
+        def _hierarchy(a) -> tuple[int, int | None]:
+            """Vrátí (station_id, container_id|None).
+            Kontejner/loď = location_id je item_id jiného assetu.
+            """
+            loc = a.location_id
+            if loc not in asset_item_ids:
+                return loc, None  # přímá stanice/struktura
+            # Přímý rodič je kontejner/loď — najdi kořenovou stanici
+            container_id = loc
+            cur = loc
+            seen: set[int] = set()
+            while cur in asset_item_ids and cur not in seen:
+                seen.add(cur)
+                cur = parent_map.get(cur, cur)
+                if cur not in asset_item_ids:
+                    break
+            return cur, container_id
+
+        # {station_id: {"hangar": {type_id: item}, "containers": {container_id: {type_id: item}}}}
+        station_data: dict[int, dict] = {}
+
+        def _get_st(sid: int) -> dict:
+            if sid not in station_data:
+                station_data[sid] = {"hangar": {}, "containers": {}}
+            return station_data[sid]
+
+        for a in all_assets:
+            item_name = names.get(a.type_id, f"Unknown ({a.type_id})")
+            if search and search.lower() not in item_name.lower():
+                continue
+            sid, cid = _hierarchy(a)
+            st = _get_st(sid)
+            bucket = st["hangar"] if cid is None else st["containers"].setdefault(cid, {})
+            if a.type_id in bucket:
+                bucket[a.type_id]["quantity"] += a.quantity
+            else:
+                bucket[a.type_id] = {
+                    "type_id": a.type_id,
+                    "name": item_name,
+                    "quantity": a.quantity,
+                    "is_blueprint_copy": a.is_blueprint_copy,
+                }
+
+        # Ceny
+        all_type_ids = list({
+            tid
+            for sd in station_data.values()
+            for tid in list(sd["hangar"]) + [t for c in sd["containers"].values() for t in c]
+        })
+        prices = await get_prices_for_ids(conn, all_type_ids)
+
+        def _add_prices(bucket: dict):
+            for item in bucket.values():
+                if item.get("is_blueprint_copy"):
+                    item["unit_price"] = None
+                    item["total_value"] = None
+                else:
+                    sell_p, _ = prices.get(item["type_id"], (None, None))
+                    item["unit_price"] = sell_p
+                    item["total_value"] = sell_p * item["quantity"] if sell_p else None
+
+        for sd in station_data.values():
+            _add_prices(sd["hangar"])
+            for c in sd["containers"].values():
+                _add_prices(c)
+
+        # Jména stanic
+        loc_names = await resolve_station_names_bulk(list(station_data), token, conn)
+
+        # Jména kontejnerů
+        all_container_ids = [cid for sd in station_data.values() for cid in sd["containers"]]
+        assets_raw = _load_assets_from_cache(conn, char_id)
+        container_info = await _resolve_container_names(char_id, token, all_container_ids, assets_raw) \
+            if all_container_ids else {}
+        container_type_map = {item["item_id"]: item["type_id"] for item in assets_raw}
+
+        # Sestavení výsledku
+        def _sort_items(bucket: dict) -> list:
+            return sorted(bucket.values(), key=lambda x: x["name"])
+
+        for sid, sd in station_data.items():
+            containers = []
+            for cid, items in sd["containers"].items():
+                cname = container_info.get(cid, (f"Kontejner {cid}", sid))[0]
+                containers.append({
+                    "container_id": cid,
+                    "name": cname,
+                    "type_id": container_type_map.get(cid),
+                    "assets": _sort_items(items),
+                })
+            containers.sort(key=lambda c: c["name"])
+
+            hangar_items = _sort_items(sd["hangar"])
+            total_items = len(hangar_items) + sum(len(c["assets"]) for c in containers)
+            total_value = (
+                sum(i.get("total_value") or 0 for i in hangar_items)
+                + sum(i.get("total_value") or 0 for c in containers for i in c["assets"])
+            )
+            stations.append({
+                "loc_id": sid,
+                "name": loc_names.get(sid, str(sid)),
+                "hangar": hangar_items,
+                "containers": containers,
+                "total_items": total_items,
+                "total_value": total_value,
+            })
+
+        stations.sort(key=lambda s: -s["total_items"])
+
+        # Přidej solar_system_id pro výpočet vzdáleností
+        sys_rows = conn.execute(
+            "SELECT location_id, solar_system_id FROM location_name_cache WHERE solar_system_id IS NOT NULL"
+        ).fetchall()
+        sys_map = {r[0]: r[1] for r in sys_rows}
+        for s in stations:
+            s["solar_system_id"] = sys_map.get(s["loc_id"])
+
+    conn.close()
+    return _tr("assets.html", request, {
+        "stations": stations,
+        "search": search,
+    })
+
+
+@app.get("/api/assets/distances")
+async def assets_distances():
+    """Vrátí počet jumpů z aktuální pozice postavy ke každé lokaci v assets."""
+    char = get_character()
+    token = get_valid_token()
+    if not char or not token:
+        return {"ok": False, "error": "Nepřihlášen"}
+    char_id, _ = char
+    conn = get_conn()
+
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"https://esi.evetech.net/latest/characters/{char_id}/location/",
+            params={"datasource": "tranquility"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    if r.status_code != 200:
+        conn.close()
+        return {"ok": False, "error": "Nepodařilo se zjistit lokaci postavy"}
+    origin_sys = r.json().get("solar_system_id")
+    if not origin_sys:
+        conn.close()
+        return {"ok": False, "error": "Postava není v solárním systému"}
+
+    rows = conn.execute(
+        "SELECT location_id, solar_system_id FROM location_name_cache WHERE solar_system_id IS NOT NULL"
+    ).fetchall()
+    conn.close()
+    loc_to_sys = {row[0]: row[1] for row in rows}
+
+    # Deduplikuj systémy — jeden ESI call na unikátní destinaci
+    unique_sys = list(set(loc_to_sys.values()))
+
+    async def _jumps(client: httpx.AsyncClient, dest: int) -> int:
+        if dest == origin_sys:
+            return 0
+        try:
+            resp = await client.get(
+                f"https://esi.evetech.net/latest/route/{origin_sys}/{dest}/",
+                params={"datasource": "tranquility"},
+                timeout=10,
+            )
+            return len(resp.json()) - 1 if resp.status_code == 200 else -1
+        except Exception:
+            return -1
+
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(*[_jumps(client, s) for s in unique_sys])
+    sys_jumps = dict(zip(unique_sys, results))
+
+    distances = {loc_id: sys_jumps.get(sys_id, -1) for loc_id, sys_id in loc_to_sys.items()}
+    return {"ok": True, "origin_sys": origin_sys, "distances": distances}
+
+
+# ---------------------------------------------------------------------------
+# Blueprinty
+# ---------------------------------------------------------------------------
+
+async def _resolve_container_names(
+    char_id: int,
+    token: str,
+    container_ids: list[int],
+    assets: list[dict],
+) -> dict[int, tuple[str, int]]:
+    """Pro container item_ids vrátí {container_id: (display_name, parent_location_id)}.
+
+    display_name je custom jméno kontejneru z ESI assets/names,
+    nebo typ kontejneru (Small Secure Container apod.) jako fallback.
+    parent_location_id je location_id kontejneru v assets (stanice/struktura).
+    """
+    asset_map = {item["item_id"]: item for item in assets}
+    result: dict[int, tuple[str, int]] = {}
+
+    parent_ids = {asset_map[cid]["location_id"] for cid in container_ids if cid in asset_map}
+    _ = parent_ids  # parent IDs se resolvují zvlášť přes resolve_station_names_bulk
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"https://esi.evetech.net/latest/characters/{char_id}/assets/names/",
+                params={"datasource": "tranquility"},
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                content=json.dumps(container_ids),
+                timeout=10,
+            )
+            custom_names = {e["item_id"]: e["name"] for e in r.json()} if r.status_code == 200 else {}
+    except Exception:
+        custom_names = {}
+
+    type_id_set = {asset_map[cid]["type_id"] for cid in container_ids if cid in asset_map}
+    type_names: dict[int, str] = {}
+    if type_id_set:
+        conn_local = get_conn()
+        ph = ",".join("?" * len(type_id_set))
+        rows = conn_local.execute(
+            f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(type_id_set)
+        ).fetchall()
+        conn_local.close()
+        type_names = {r[0]: r[1] for r in rows}
+
+    for cid in container_ids:
+        asset = asset_map.get(cid)
+        if not asset:
+            continue
+        parent_loc = asset["location_id"]
+        raw_name = custom_names.get(cid, "")
+        if raw_name:
+            display = raw_name
+        else:
+            display = type_names.get(asset["type_id"], f"Kontejner {cid}")
+        result[cid] = (display, parent_loc)
+
+    return result
+
+
+@app.get("/blueprints", response_class=HTMLResponse)
+async def blueprints_page(request: Request, search: str = ""):
+    conn = get_conn()
+    token = get_valid_token()
+    char = get_character()
+    bp_list = []
+
+    if char and token:
+        char_id, _ = char
+        async with httpx.AsyncClient() as client:
+            bps = await fetch_blueprints(client, char_id, token, conn)
+            unique_ids = list({bp.type_id for bp in bps})
+            names = await resolve_names_bulk(conn, unique_ids, client)
+
+        bp_type_ids_list = list({bp.type_id for bp in bps})
+        ph = ",".join("?" * len(bp_type_ids_list))
+        prod_rows = conn.execute(
+            f"SELECT blueprint_type_id, product_type_id FROM sde_blueprint_products"
+            f" WHERE blueprint_type_id IN ({ph}) AND activity IN ('manufacturing','reaction')",
+            bp_type_ids_list,
+        ).fetchall() if bp_type_ids_list else []
+        product_type_map = {r[0]: r[1] for r in prod_rows}
+
+        for bp in sorted(bps, key=lambda b: names.get(b.type_id, "")):
+            name = names.get(bp.type_id, f"Unknown ({bp.type_id})")
+            if search and search.lower() not in name.lower():
+                continue
+            bp_list.append({
+                "name": name,
+                "type_id": bp.type_id,
+                "product_type_id": product_type_map.get(bp.type_id, bp.type_id),
+                "is_original": bp.is_original,
+                "me": bp.material_efficiency,
+                "te": bp.time_efficiency,
+                "runs": "∞" if bp.runs == -1 else bp.runs,
+                "location_id": bp.location_id,
+            })
+
+    from collections import defaultdict
+
+    # Rozliš kontejnery od stanic pomocí assets cache
+    assets = _load_assets_from_cache(conn, char_id if char else 0)
+    asset_item_ids = {item["item_id"] for item in assets}
+
+    all_raw_loc_ids = list({bp["location_id"] for bp in bp_list})
+    container_ids = [lid for lid in all_raw_loc_ids if lid in asset_item_ids]
+    structure_ids = [lid for lid in all_raw_loc_ids if lid not in asset_item_ids]
+
+    # Resolvuj jména stanic
+    loc_names = await resolve_station_names_bulk(structure_ids, token, conn) if structure_ids else {}
+
+    # Resolvuj jména kontejnerů + jejich parent stanice
+    container_info: dict[int, tuple[str, int]] = {}
+    if container_ids and token and char:
+        char_id, _ = char
+        container_info = await _resolve_container_names(char_id, token, container_ids, assets)
+        parent_ids_to_resolve = list({info[1] for info in container_info.values()
+                                      if info[1] not in loc_names})
+        if parent_ids_to_resolve:
+            parent_names = await resolve_station_names_bulk(parent_ids_to_resolve, token, conn)
+            loc_names.update(parent_names)
+
+    # Sestavení hierarchie: {station_id: {"hangar": [...], "containers": {cid: {"name": ..., "bps": [...]}}}}
+    station_data: dict[int, dict] = {}
+
+    def _get_station(sid: int) -> dict:
+        if sid not in station_data:
+            station_data[sid] = {"hangar": [], "containers": {}}
+        return station_data[sid]
+
+    for bp in bp_list:
+        lid = bp["location_id"]
+        if lid in container_info:
+            container_name, parent_loc = container_info[lid]
+            st = _get_station(parent_loc)
+            if lid not in st["containers"]:
+                st["containers"][lid] = {"name": container_name, "bps": []}
+            st["containers"][lid]["bps"].append(bp)
+        else:
+            _get_station(lid)["hangar"].append(bp)
+
+    # Převeď na seznam seřazený podle celkového počtu
+    def _station_total(sd: dict) -> int:
+        return len(sd["hangar"]) + sum(len(c["bps"]) for c in sd["containers"].values())
+
+    stations = sorted(
+        [
+            {
+                "loc_id": sid,
+                "name": loc_names.get(sid, str(sid)),
+                "hangar": sd["hangar"],
+                "containers": sorted(sd["containers"].values(), key=lambda c: c["name"]),
+                "total": _station_total(sd),
+            }
+            for sid, sd in station_data.items()
+        ],
+        key=lambda s: -s["total"],
+    )
+
+    conn.close()
+    return _tr("blueprints.html", request, {
+        "stations": stations,
+        "search": search,
+        "total": len(bp_list),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Ceny
+# ---------------------------------------------------------------------------
+
+@app.get("/prices", response_class=HTMLResponse)
+async def prices_page(request: Request):
+    conn = get_conn()
+    stats = get_price_cache_stats(conn)
+    items = get_all_price_items(conn)
+    conn.close()
+    return _tr("prices.html", request, {
+        "stats": stats,
+        "refreshed_count": None,
+        "total_requested": None,
+        "items": items,
+    })
+
+
+@app.get("/api/station-industry-info")
+async def station_industry_info(location_id: int):
+    """
+    Vrátí SCI a facility tax pro zadanou stanici/strukturu.
+    Facility tax se odvozuje z nedávných jobů postavy (cost/EIV − SCI).
+    """
+    conn = get_conn()
+    sys_row = conn.execute(
+        "SELECT solar_system_id FROM location_name_cache WHERE location_id=?",
+        (location_id,),
+    ).fetchone()
+    solar_system_id: int | None = sys_row[0] if sys_row and sys_row[0] else None
+
+    mfg_sci = rxn_sci = 0.0
+    if solar_system_id:
+        mfg_sci = await get_sci_for_system(conn, solar_system_id, "manufacturing")
+        rxn_sci = await get_sci_for_system(conn, solar_system_id, "reaction")
+
+    # Odvoď facility tax z jobů postavy
+    facility_tax_pct: float | None = None
+    token = get_valid_token()
+    char  = get_character()
+    if token and char:
+        raw = await derive_facility_tax(conn, location_id, char[0], token)
+        if raw is not None:
+            facility_tax_pct = round(raw * 100, 2)
+
+    conn.close()
+    return {
+        "solar_system_id":  solar_system_id,
+        "mfg_sci":          mfg_sci,
+        "rxn_sci":          rxn_sci,
+        "facility_tax_pct": facility_tax_pct,
+    }
+
+
+@app.get("/api/suggest-station")
+async def suggest_station(q: str = ""):
+    if len(q.strip()) < 2:
+        return {"owned": [], "other": []}
+
+    conn = get_conn()
+    ensure_location_name_table(conn)
+    char = get_character()
+    pattern = q.strip().lower()
+
+    # Lokace kde má postava assety
+    asset_locs: set[int] = set()
+    if char:
+        raw = _load_assets_from_cache(conn, char[0])
+        for a in raw:
+            if not a.get("is_singleton", False):
+                asset_locs.add(a["location_id"])
+
+    all_names = load_location_names_from_db(conn)
+
+    # Stanice s assety — filtruj podle jména
+    owned_ids: set[int] = set()
+    owned = []
+    for loc_id in asset_locs:
+        name = all_names.get(loc_id, str(loc_id))
+        if pattern in name.lower() or pattern in str(loc_id):
+            owned.append({"location_id": loc_id, "name": name})
+            owned_ids.add(loc_id)
+    owned.sort(key=lambda x: x["name"])
+
+    # Ostatní known stanice z cache bez assetů
+    other = []
+    other_ids: set[int] = set()
+    for loc_id, name in all_names.items():
+        if loc_id not in asset_locs and (pattern in name.lower() or pattern in str(loc_id)):
+            other.append({"location_id": loc_id, "name": name})
+            other_ids.add(loc_id)
+    other.sort(key=lambda x: x["name"])
+
+    # Hledej stanice/struktury podle systému
+    if len(q.strip()) >= 3:
+        try:
+            async with httpx.AsyncClient() as client:
+                # POST /universe/ids/ přeloží jméno systému na ID (public, bez auth)
+                ids_r = await client.post(
+                    "https://esi.evetech.net/latest/universe/ids/",
+                    params={"datasource": "tranquility", "language": "en"},
+                    json=[q.strip()],
+                    timeout=4.0,
+                )
+                system_ids: list[int] = []
+                if ids_r.status_code == 200:
+                    system_ids = [s["id"] for s in ids_r.json().get("systems", [])]
+
+                # Stanice/struktury v nalezených systémech (z naší cache)
+                for sys_id in system_ids[:5]:
+                    for entry in locations_in_system(conn, sys_id):
+                        lid = entry["location_id"]
+                        if lid in asset_locs and lid not in owned_ids:
+                            owned.append(entry)
+                            owned_ids.add(lid)
+                        elif lid not in asset_locs and lid not in other_ids:
+                            other.append(entry)
+                            other_ids.add(lid)
+
+                # NPC stanice z ESI: GET /universe/systems/{id}/ → stations[]
+                for sys_id in system_ids[:3]:
+                    sys_r = await client.get(
+                        f"https://esi.evetech.net/latest/universe/systems/{sys_id}/",
+                        params={"datasource": "tranquility"},
+                        timeout=4.0,
+                    )
+                    if sys_r.status_code == 200:
+                        npc_ids = sys_r.json().get("stations", [])
+                        new_ids = [sid for sid in npc_ids if sid not in all_names]
+                        if new_ids:
+                            new_names = await resolve_station_names_bulk(new_ids, token=None, conn=conn)
+                            all_names.update(new_names)
+                        for sid in npc_ids:
+                            if sid not in asset_locs and sid not in other_ids:
+                                other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
+                                other_ids.add(sid)
+
+                other.sort(key=lambda x: x["name"])
+                owned.sort(key=lambda x: x["name"])
+        except Exception:
+            pass
+
+    conn.close()
+    return {"owned": owned[:15], "other": other[:10]}
+
+
+@app.post("/api/add-station")
+async def add_station(raw: str = Form(...)):
+    """
+    Přidá strukturu do cache. Přijímá:
+    - ID struktury (číslo)
+    - EVE URL formát: <url=showinfo:TYPE//ID>Jméno</url>
+    - ID<mezera>Jméno: např. "1045667241057 C-N4OD - Fortizar"
+    """
+    import re
+    conn = get_conn()
+    ensure_location_name_table(conn)
+    token = get_valid_token()
+
+    raw = raw.strip()
+    structure_id: int | None = None
+    hint_name: str | None = None
+
+    # EVE URL format: showinfo:TYPE//ID nebo showinfo:TYPE//ID>Jméno
+    m = re.search(r'showinfo:\d+//(\d+)(?:[^>]*>([^<]+))?', raw)
+    if m:
+        structure_id = int(m.group(1))
+        hint_name = m.group(2).strip() if m.group(2) else None
+    # Jen číslo, nebo "ID jméno"
+    elif raw:
+        parts = raw.split(None, 1)
+        if parts[0].isdigit():
+            structure_id = int(parts[0])
+            hint_name = parts[1].strip() if len(parts) > 1 else None
+
+    if not structure_id:
+        return {"error": "Nelze rozpoznat ID struktury"}, 400
+
+    resolved_name = hint_name
+    sys_id: int | None = None
+
+    # Zkus ESI
+    try:
+        async with httpx.AsyncClient() as client:
+            if structure_id < 1_000_000_000_000:
+                r = await client.get(
+                    f"https://esi.evetech.net/latest/universe/stations/{structure_id}/",
+                    params={"datasource": "tranquility"}, timeout=8,
+                )
+            else:
+                headers = {"Authorization": f"Bearer {token}"} if token else {}
+                r = await client.get(
+                    f"https://esi.evetech.net/latest/universe/structures/{structure_id}/",
+                    params={"datasource": "tranquility"}, headers=headers, timeout=8,
+                )
+            if r.status_code == 200:
+                data = r.json()
+                resolved_name = data.get("name") or resolved_name
+                sys_id = data.get("solar_system_id") or data.get("system_id")
+    except Exception:
+        pass
+
+    if not resolved_name:
+        resolved_name = f"[Struktura {structure_id}]"
+
+    conn.execute(
+        "INSERT OR REPLACE INTO location_name_cache (location_id, name, solar_system_id) VALUES (?,?,?)",
+        (structure_id, resolved_name, sys_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"location_id": structure_id, "name": resolved_name, "solar_system_id": sys_id}
+
+
+@app.post("/api/location/rename")
+async def location_rename(request: Request):
+    """Uloží uživatelem zadaný název lokace do cache."""
+    body = await request.json()
+    location_id = int(body["location_id"])
+    name = str(body.get("name", "")).strip()
+    if not name:
+        return {"ok": False, "error": "Prázdný název"}
+    conn = get_conn()
+    ensure_location_name_table(conn)
+    conn.execute(
+        "INSERT OR REPLACE INTO location_name_cache (location_id, name) VALUES (?,?)",
+        (location_id, name),
+    )
+    conn.commit()
+    conn.close()
+    from app.web.location_resolver import _cache
+    _cache[location_id] = name
+    return {"ok": True, "location_id": location_id, "name": name}
+
+
+@app.get("/api/location/resolve")
+async def location_resolve(location_id: int):
+    """Pokusí se dohledat jméno struktury přes ESI s aktuálním tokenem."""
+    token = get_valid_token()
+    if not token:
+        return {"ok": False, "error": "Nepřihlášen"}
+    conn = get_conn()
+    from app.web.location_resolver import resolve_station_name, _cache
+    _cache.pop(location_id, None)  # vynutí čerstvé ESI volání
+    async with httpx.AsyncClient() as client:
+        name, sys_id = await resolve_station_name(client, location_id, token)
+    resolved = name != str(location_id) and not name.startswith("[Privátní")
+    if resolved:
+        ensure_location_name_table(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO location_name_cache (location_id, name, solar_system_id) VALUES (?,?,?)",
+            (location_id, name, sys_id),
+        )
+        conn.commit()
+    conn.close()
+    return {"ok": resolved, "name": name, "solar_system_id": sys_id}
+
+
+@app.get("/api/my-location")
+async def my_location():
+    """Vrátí aktuální lokaci postavy (structure_id pokud je docknutá ve struktuře)."""
+    token = get_valid_token()
+    char = get_character()
+    if not token or not char:
+        return {"error": "Nepřihlášen"}
+
+    conn = get_conn()
+    ensure_location_name_table(conn)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                f"https://esi.evetech.net/latest/characters/{char[0]}/location/",
+                params={"datasource": "tranquility"},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=8,
+            )
+            if r.status_code != 200:
+                return {"error": f"ESI {r.status_code}"}
+            loc = r.json()
+
+        structure_id: int | None = loc.get("structure_id") or loc.get("station_id")
+        sys_id: int = loc.get("solar_system_id", 0)
+
+        if not structure_id:
+            # Načti jméno systému
+            async with httpx.AsyncClient() as client:
+                sr = await client.get(
+                    f"https://esi.evetech.net/latest/universe/systems/{sys_id}/",
+                    params={"datasource": "tranquility"}, timeout=5,
+                )
+                sys_name = sr.json().get("name", str(sys_id)) if sr.status_code == 200 else str(sys_id)
+            return {"in_space": True, "solar_system_id": sys_id, "solar_system_name": sys_name}
+
+        # Vyřeš jméno struktury/stanice a ulož do cache
+        resolved_name = str(structure_id)
+        try:
+            async with httpx.AsyncClient() as client:
+                if structure_id < 1_000_000_000_000:
+                    r2 = await client.get(
+                        f"https://esi.evetech.net/latest/universe/stations/{structure_id}/",
+                        params={"datasource": "tranquility"}, timeout=8,
+                    )
+                else:
+                    r2 = await client.get(
+                        f"https://esi.evetech.net/latest/universe/structures/{structure_id}/",
+                        params={"datasource": "tranquility"},
+                        headers={"Authorization": f"Bearer {token}"}, timeout=8,
+                    )
+                if r2.status_code == 200:
+                    data = r2.json()
+                    resolved_name = data.get("name", resolved_name)
+                    sys_id = data.get("solar_system_id") or data.get("system_id") or sys_id
+        except Exception:
+            pass
+
+        conn.execute(
+            "INSERT OR REPLACE INTO location_name_cache (location_id, name, solar_system_id) VALUES (?,?,?)",
+            (structure_id, resolved_name, sys_id),
+        )
+        conn.commit()
+        conn.close()
+        return {"location_id": structure_id, "name": resolved_name,
+                "solar_system_id": sys_id, "in_space": False}
+    except Exception as e:
+        conn.close()
+        return {"error": str(e)}
+
+
+@app.get("/api/suggest")
+async def suggest(q: str = ""):
+    if len(q.strip()) < 2:
+        return {"owned": [], "other": []}
+
+    conn = get_conn()
+    char = get_character()
+    pattern = f"%{q.strip().lower()}%"
+    owned: list[dict] = []
+    owned_product_ids: set[int] = set()
+
+    if char:
+        char_id, _ = char
+        raw_bps = _load_blueprints_from_cache(conn, char_id)
+        if raw_bps:
+            bp_type_ids = list({bp["type_id"] for bp in raw_bps})
+            # Seskup podle type_id — vyber nejlepší (BPO > BPC, nejvyšší ME)
+            bp_by_type: dict[int, dict] = {}
+            for bp in raw_bps:
+                tid = bp["type_id"]
+                if tid not in bp_by_type:
+                    bp_by_type[tid] = bp
+                else:
+                    cur = bp_by_type[tid]
+                    if (bp.get("quantity", 1) == -1, bp.get("material_efficiency", 0)) > \
+                       (cur.get("quantity", 1) == -1, cur.get("material_efficiency", 0)):
+                        bp_by_type[tid] = bp
+
+            ph = ",".join("?" * len(bp_type_ids))
+            rows = conn.execute(f"""
+                SELECT sbp.blueprint_type_id, sbp.product_type_id, t.name
+                FROM sde_blueprint_products sbp
+                JOIN sde_types t ON t.type_id = sbp.product_type_id
+                WHERE sbp.blueprint_type_id IN ({ph})
+                  AND sbp.activity IN ('manufacturing', 'reaction')
+                  AND LOWER(t.name) LIKE ?
+                ORDER BY t.name
+            """, bp_type_ids + [pattern]).fetchall()
+
+            for bp_type_id, product_type_id, product_name in rows:
+                owned_product_ids.add(product_type_id)
+                bp = bp_by_type.get(bp_type_id, {})
+                is_original = bp.get("quantity", 1) == -1
+                runs = bp.get("runs", -1)
+                owned.append({
+                    "name": product_name,
+                    "type_id": product_type_id,
+                    "me": bp.get("material_efficiency", 0),
+                    "te": bp.get("time_efficiency", 0),
+                    "is_original": is_original,
+                    "runs": "∞" if runs == -1 else runs,
+                })
+
+    # SDE — ostatní blueprinty (nevlastněné)
+    if owned_product_ids:
+        ph2 = ",".join("?" * len(owned_product_ids))
+        other_rows = conn.execute(f"""
+            SELECT DISTINCT t.type_id, t.name
+            FROM sde_types t
+            JOIN sde_blueprint_products sbp ON sbp.product_type_id = t.type_id
+            WHERE LOWER(t.name) LIKE ?
+              AND sbp.activity IN ('manufacturing', 'reaction')
+              AND t.type_id NOT IN ({ph2})
+            ORDER BY t.name LIMIT 15
+        """, [pattern] + list(owned_product_ids)).fetchall()
+    else:
+        other_rows = conn.execute("""
+            SELECT DISTINCT t.type_id, t.name
+            FROM sde_types t
+            JOIN sde_blueprint_products sbp ON sbp.product_type_id = t.type_id
+            WHERE LOWER(t.name) LIKE ?
+              AND sbp.activity IN ('manufacturing', 'reaction')
+            ORDER BY t.name LIMIT 15
+        """, [pattern]).fetchall()
+
+    conn.close()
+    return {
+        "owned": owned,
+        "other": [{"name": r[1], "type_id": r[0]} for r in other_rows],
+    }
+
+
+@app.post("/prices/refresh", response_class=HTMLResponse)
+async def prices_refresh(request: Request):
+    conn = get_conn()
+    char = get_character()
+    asset_type_ids: set[int] = set()
+    if char:
+        raw = _load_assets_from_cache(conn, char[0])
+        asset_type_ids = {a["type_id"] for a in raw}
+
+    bp_type_ids: set[int] = set()
+    if char:
+        raw_bps = _load_blueprints_from_cache(conn, char[0])
+        bp_type_ids = {bp["type_id"] for bp in raw_bps}
+
+    mat_rows = conn.execute("SELECT DISTINCT material_type_id FROM sde_blueprint_materials").fetchall()
+
+    all_ids = list(asset_type_ids | bp_type_ids | {r[0] for r in mat_rows})
+
+    refreshed = await refresh_jita_prices_all(conn, all_ids)
+    stats = get_price_cache_stats(conn)
+    items = get_all_price_items(conn)
+    conn.close()
+
+    return _tr("prices.html", request, {
+        "stats": stats,
+        "refreshed_count": refreshed,
+        "total_requested": len(all_ids),
+        "items": items,
+    })
+
+
+@app.get("/prices/refresh/stream")
+async def prices_refresh_stream():
+    conn = get_conn()
+    char = get_character()
+    asset_type_ids: set[int] = set()
+    if char:
+        raw = _load_assets_from_cache(conn, char[0])
+        asset_type_ids = {a["type_id"] for a in raw}
+    bp_type_ids: set[int] = set()
+    if char:
+        raw_bps = _load_blueprints_from_cache(conn, char[0])
+        bp_type_ids = {bp["type_id"] for bp in raw_bps}
+    mat_rows = conn.execute("SELECT DISTINCT material_type_id FROM sde_blueprint_materials").fetchall()
+    all_ids = list(asset_type_ids | bp_type_ids | {r[0] for r in mat_rows})
+
+    async def event_gen():
+        try:
+            async for chunk in stream_jita_refresh(conn, all_ids):
+                yield chunk
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/prices/custom")
+async def api_set_custom_price(request: Request):
+    body = await request.json()
+    type_id = int(body["type_id"])
+    price_raw = body.get("price")
+    price = float(price_raw) if price_raw not in (None, "", "null") else None
+    conn = get_conn()
+    set_custom_price(conn, type_id, price)
+    conn.close()
+    return {"ok": True, "type_id": type_id, "price": price}
+
+
+@app.post("/api/prices/station-volume")
+async def api_station_volume(request: Request):
+    body = await request.json()
+    location_id = int(body["location_id"])
+    token = get_valid_token()
+
+    conn = get_conn()
+    ensure_price_table(conn)
+
+    # Zkus cache
+    cached = get_cached_station_volumes(conn, location_id)
+    if cached is not None:
+        conn.close()
+        return {"ok": True, "cached": True, "data": {
+            str(k): {"volume": v[0], "best_sell": v[1], "traded_volume": v[2]}
+            for k, v in cached.items()
+        }}
+
+    type_ids = [r[0] for r in conn.execute("SELECT type_id FROM market_price_cache").fetchall()]
+
+    def _fmt(result):
+        return {"ok": True, "cached": False, "data": {
+            str(k): {"volume": v[0], "best_sell": v[1], "traded_volume": v[2]}
+            for k, v in result.items()
+        }}
+
+    # Player struktura (Upwell citadela, Fortizar, …) — použij strukturový market endpoint
+    if location_id >= 1_000_000_000:
+        if not token:
+            conn.close()
+            return {"ok": False, "error": "Pro přístup k marketu struktury je nutné přihlášení."}
+        region_id = await get_region_for_location(conn, location_id, token)
+        try:
+            result = await fetch_structure_market(conn, location_id, token, set(type_ids), region_id)
+        except PermissionError as e:
+            conn.close()
+            return {"ok": False, "error": str(e)}
+        conn.close()
+        return _fmt(result)
+
+    # NPC stanice — regionální veřejný endpoint
+    region_id = await get_region_for_location(conn, location_id, token)
+    if not region_id:
+        conn.close()
+        return {"ok": False, "error": "Nepodařilo se určit region pro tuto lokaci."}
+
+    result = await fetch_station_volumes(conn, location_id, region_id, type_ids)
+    conn.close()
+    return _fmt(result)

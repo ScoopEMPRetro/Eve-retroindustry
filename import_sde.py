@@ -1,0 +1,210 @@
+"""
+Import CCP SDE dat do SQLite databáze.
+Parsuje fsd/blueprints.yaml a fsd/types.yaml.
+Použití: python import_sde.py
+"""
+import yaml
+import sqlite3
+import os
+import time
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+
+console = Console()
+
+SDE_DIR = os.path.join(os.path.dirname(__file__), "data/fsd")
+DB_PATH = os.path.join(os.path.dirname(__file__), "eve_cache.db")
+
+BLUEPRINTS_YAML = os.path.join(SDE_DIR, "blueprints.yaml")
+TYPES_YAML = os.path.join(SDE_DIR, "types.yaml")
+
+
+def init_db(conn: sqlite3.Connection):
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS sde_types (
+            type_id     INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL,
+            group_id    INTEGER,
+            published   INTEGER DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS sde_blueprint_materials (
+            blueprint_type_id  INTEGER NOT NULL,
+            activity           TEXT NOT NULL,   -- manufacturing / reaction
+            material_type_id   INTEGER NOT NULL,
+            quantity           INTEGER NOT NULL,
+            PRIMARY KEY (blueprint_type_id, activity, material_type_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS sde_blueprint_products (
+            blueprint_type_id  INTEGER NOT NULL,
+            activity           TEXT NOT NULL,
+            product_type_id    INTEGER NOT NULL,
+            quantity           INTEGER NOT NULL,
+            probability        REAL DEFAULT 1.0,
+            PRIMARY KEY (blueprint_type_id, activity, product_type_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS sde_blueprints (
+            blueprint_type_id  INTEGER PRIMARY KEY,
+            max_production_limit INTEGER DEFAULT 1,
+            manufacturing_time   INTEGER DEFAULT 0,
+            reaction_time        INTEGER DEFAULT 0
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_bp_product ON sde_blueprint_products(product_type_id);
+        CREATE INDEX IF NOT EXISTS idx_bp_materials ON sde_blueprint_materials(blueprint_type_id, activity);
+    """)
+    conn.commit()
+
+
+def import_types(conn: sqlite3.Connection):
+    console.print("[cyan]Načítám types.yaml (147 MB, chvíli trvá)...[/]")
+    t0 = time.time()
+
+    with open(TYPES_YAML, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    console.print(f"[dim]YAML načten za {time.time()-t0:.1f}s, importuji {len(data):,} typů...[/]")
+
+    rows = []
+    for type_id, info in data.items():
+        if not isinstance(info, dict):
+            continue
+        name_field = info.get("name", {})
+        name = name_field.get("en", "") if isinstance(name_field, dict) else str(name_field)
+        if not name:
+            continue
+        rows.append((
+            int(type_id),
+            name,
+            info.get("groupID"),
+            1 if info.get("published", True) else 0,
+        ))
+
+    conn.executemany(
+        "INSERT OR REPLACE INTO sde_types (type_id, name, group_id, published) VALUES (?,?,?,?)",
+        rows
+    )
+    conn.commit()
+    console.print(f"[green]Importováno {len(rows):,} typů[/]")
+
+
+def import_blueprints(conn: sqlite3.Connection):
+    console.print("[cyan]Načítám blueprints.yaml...[/]")
+
+    with open(BLUEPRINTS_YAML, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    console.print(f"[dim]Importuji {len(data):,} blueprintů...[/]")
+
+    bp_rows, mat_rows, prod_rows = [], [], []
+
+    for bp_type_id, info in data.items():
+        if not isinstance(info, dict):
+            continue
+
+        activities = info.get("activities", {})
+        max_limit = info.get("maxProductionLimit", 1)
+
+        mfg_time = activities.get("manufacturing", {}).get("time", 0) if "manufacturing" in activities else 0
+        rxn_time = activities.get("reaction", {}).get("time", 0) if "reaction" in activities else 0
+
+        bp_rows.append((int(bp_type_id), max_limit, mfg_time, rxn_time))
+
+        for activity_name in ("manufacturing", "reaction"):
+            activity = activities.get(activity_name)
+            if not activity:
+                continue
+
+            for mat in activity.get("materials") or []:
+                mat_rows.append((
+                    int(bp_type_id),
+                    activity_name,
+                    int(mat["typeID"]),
+                    int(mat["quantity"]),
+                ))
+
+            for prod in activity.get("products") or []:
+                prod_rows.append((
+                    int(bp_type_id),
+                    activity_name,
+                    int(prod["typeID"]),
+                    int(prod.get("quantity", 1)),
+                    float(prod.get("probability", 1.0)),
+                ))
+
+    conn.executemany(
+        "INSERT OR REPLACE INTO sde_blueprints VALUES (?,?,?,?)",
+        bp_rows
+    )
+    conn.executemany(
+        "INSERT OR REPLACE INTO sde_blueprint_materials VALUES (?,?,?,?)",
+        mat_rows
+    )
+    conn.executemany(
+        "INSERT OR REPLACE INTO sde_blueprint_products VALUES (?,?,?,?,?)",
+        prod_rows
+    )
+    conn.commit()
+
+    console.print(f"[green]Importováno: {len(bp_rows):,} blueprintů, "
+                  f"{len(mat_rows):,} materiálových řádků, "
+                  f"{len(prod_rows):,} produktových řádků[/]")
+
+
+def main():
+    console.print("[bold]EVE Retroindustry — Import SDE do SQLite[/]\n")
+
+    if not os.path.exists(BLUEPRINTS_YAML):
+        console.print(f"[red]Nenalezen: {BLUEPRINTS_YAML}[/]")
+        return
+    if not os.path.exists(TYPES_YAML):
+        console.print(f"[red]Nenalezen: {TYPES_YAML}[/]")
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    init_db(conn)
+
+    t_start = time.time()
+    import_types(conn)
+    import_blueprints(conn)
+    conn.close()
+
+    console.print(f"\n[bold green]Hotovo za {time.time()-t_start:.1f}s[/]")
+    console.print(f"Databáze: {DB_PATH}")
+
+    # Rychlý test — Nidhoggur
+    console.print("\n[bold]Test — Nidhoggur (24483):[/]")
+    conn = sqlite3.connect(DB_PATH)
+
+    # Najdeme blueprint pro Nidhoggur
+    bp = conn.execute(
+        "SELECT blueprint_type_id FROM sde_blueprint_products WHERE product_type_id=? AND activity='manufacturing'",
+        (24483,)
+    ).fetchone()
+
+    if bp:
+        bp_id = bp[0]
+        bp_name = conn.execute("SELECT name FROM sde_types WHERE type_id=?", (bp_id,)).fetchone()
+        console.print(f"  Blueprint: {bp_name[0] if bp_name else '?'} (ID: {bp_id})")
+
+        materials = conn.execute("""
+            SELECT t.name, m.quantity
+            FROM sde_blueprint_materials m
+            JOIN sde_types t ON t.type_id = m.material_type_id
+            WHERE m.blueprint_type_id=? AND m.activity='manufacturing'
+            ORDER BY m.quantity DESC
+        """, (bp_id,)).fetchall()
+
+        console.print(f"  Materiály ({len(materials)}):")
+        for name, qty in materials:
+            console.print(f"    - {name}: {qty:,}")
+    else:
+        console.print("  [red]Blueprint nenalezen[/]")
+
+    conn.close()
+
+
+if __name__ == "__main__":
+    main()

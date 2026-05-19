@@ -1,0 +1,485 @@
+{% extends "base.html" %}
+{% block title %}Ceny — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="row mb-4 align-items-center">
+  <div class="col">
+    <h4 class="mb-0"><i class="bi bi-currency-exchange me-2 text-primary"></i>Správa cen</h4>
+  </div>
+</div>
+
+{% if refreshed_count is not none %}
+<div class="alert alert-success">
+  <i class="bi bi-check-circle me-2"></i>
+  Staženo <strong>{{ refreshed_count }}</strong> Jita cen z celkem {{ total_requested }} typů.
+  Cache aktualizována.
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-lg-3">
+    <div class="card stat-card p-3">
+      <div class="text-muted small mb-1">Typy v cache</div>
+      <div class="fs-3 fw-bold">{{ stats.total }}</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card p-3" style="border-left:3px solid #3fb950">
+      <div class="text-muted small mb-1">Čerstvé (&lt; 30 min)</div>
+      <div class="fs-3 fw-bold text-success">{{ stats.fresh }}</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card p-3" style="border-left:3px solid #f85149">
+      <div class="text-muted small mb-1">Stale (starší)</div>
+      <div class="fs-3 fw-bold text-danger">{{ stats.stale }}</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card p-3" style="border-left:3px solid #e3b341">
+      <div class="text-muted small mb-1">Naposledy aktualizováno</div>
+      <div class="fs-6 fw-bold mt-1">{{ stats.last_update_str }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="card p-4 h-100">
+      <h6 class="mb-1"><i class="bi bi-arrow-repeat me-2 text-primary"></i>Refresh Jita cen</h6>
+      <p class="text-muted small mb-3">
+        Stáhne aktuální Jita sell/buy ceny pro všechny materiály, komponenty a blueprinty.
+        Může trvat 1–2 minuty. Cache je platná 30 minut.
+      </p>
+      <button id="refresh-btn" class="btn btn-eve refresh-btn mb-3">
+        <i class="bi bi-arrow-clockwise me-2"></i>Refresh Jita ceny
+      </button>
+      <div id="refresh-progress" class="d-none">
+        <div class="d-flex justify-content-between mb-1">
+          <small id="refresh-progress-text" class="text-muted">Připravuji…</small>
+          <small id="refresh-progress-pct" class="text-muted">0%</small>
+        </div>
+        <div class="progress" style="height:8px">
+          <div id="refresh-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+               role="progressbar" style="width:0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+      </div>
+      <p class="text-muted small mb-0 mt-auto pt-2">
+        <i class="bi bi-info-circle me-1"></i>
+        Bez Jita ceny se zobrazí adjusted price z ESI (méně přesná).
+      </p>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card p-4 h-100">
+      <h6 class="mb-1"><i class="bi bi-geo-alt me-2 text-primary"></i>Objem na stanici</h6>
+      <p class="text-muted small mb-3">
+        Vyhledej stanici nebo citadelu a načti sell stock a zobchodovaný objem pro všechny itemy v tabulce.
+      </p>
+      <div class="d-flex gap-2 align-items-start mb-2">
+        <div class="position-relative flex-grow-1">
+          <input type="text" id="station-vol-display" class="form-control form-control-sm"
+                 placeholder="Hledat stanici…" autocomplete="off">
+          <input type="hidden" id="station-vol-id">
+          <div id="station-vol-suggestions" style="
+            position:absolute; top:100%; left:0; right:0; z-index:1050;
+            background:#161b22; border:1px solid #30363d; border-radius:6px;
+            max-height:260px; overflow-y:auto; display:none;"></div>
+        </div>
+        <button id="station-vol-load" class="btn btn-sm btn-outline-primary flex-shrink-0" disabled>
+          <i class="bi bi-download me-1"></i>Načíst
+        </button>
+      </div>
+      <div id="station-vol-progress" class="d-none">
+        <div class="d-flex justify-content-between mb-1">
+          <small id="station-vol-progress-text" class="text-muted">Načítám…</small>
+          <small id="station-vol-progress-pct" class="text-muted">0%</small>
+        </div>
+        <div class="progress" style="height:6px">
+          <div id="station-vol-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-info"
+               role="progressbar" style="width:0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+      </div>
+      <div id="station-vol-status" class="small text-muted mt-1 d-none"></div>
+    </div>
+  </div>
+</div>
+
+{% if items %}
+<div class="card p-4">
+  <div class="row align-items-center mb-3 g-2">
+    <div class="col">
+      <h6 class="mb-0"><i class="bi bi-table me-2 text-primary"></i>Přehled cen itemů
+        <span class="text-muted fw-normal fs-6 ms-2">({{ items|length }} itemů)</span>
+      </h6>
+    </div>
+    <div class="col-auto">
+      <input type="search" id="price-search" class="form-control form-control-sm"
+             placeholder="Hledat item…" style="width:200px" autocomplete="off">
+    </div>
+  </div>
+
+  <div style="max-height:520px; overflow-y:auto;">
+    <table class="table table-sm table-hover mb-0" id="price-table">
+      <thead class="sticky-top" style="top:0; background:var(--bs-body-bg);">
+        <tr>
+          <th style="width:36px"></th>
+          <th>Název</th>
+          <th class="text-end">Jita sell</th>
+          <th class="text-end">Jita buy</th>
+          <th class="text-end" title="Zobchodovaný objem za posledních 7 dní na Jitě (z ESI history)">Jita objem/7d</th>
+          <th class="text-end" title="Dostupné kusy v sell objednávkách na Jita 4-4">Jita dostupné</th>
+          <th class="text-end station-col" style="display:none" title="Nejlepší sell cena na stanici">
+            <span class="stn-name">Stanice</span> sell
+          </th>
+          <th class="text-end station-col" style="display:none" title="Zobchodovaný objem za posledních 7 dní v regionu stanice (ESI history)">
+            <span class="stn-name">Stanice</span> /7d
+          </th>
+          <th class="text-end station-col" style="display:none" title="Dostupné kusy v sell objednávkách na stanici">
+            <span class="stn-name">Stanice</span> dostupné
+          </th>
+          <th style="width:210px">Custom cena</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr data-name="{{ item.name | lower }}" data-id="{{ item.type_id }}"
+            data-jita-sell="{{ item.sell_price if item.sell_price is not none else '' }}">
+          <td class="py-1">
+            <img src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=32"
+                 width="24" height="24" class="rounded-1" loading="lazy"
+                 onerror="this.style.visibility='hidden'">
+          </td>
+          <td class="py-1 align-middle">
+            {{ item.name }}
+            {% if not item.fresh %}
+              <span class="badge bg-secondary ms-1" style="font-size:.65em">stale</span>
+            {% endif %}
+            {% if item.custom_price is not none %}
+              <span class="badge bg-warning text-dark ms-1 custom-badge" style="font-size:.65em">custom</span>
+            {% endif %}
+          </td>
+          <td class="text-end py-1 align-middle font-monospace small">
+            {% if item.sell_price is not none %}
+              {{ "{:,.2f}".format(item.sell_price) }}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end py-1 align-middle font-monospace small">
+            {% if item.buy_price is not none %}
+              {{ "{:,.2f}".format(item.buy_price) }}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end py-1 align-middle font-monospace small">
+            {% if item.volume is not none %}
+              {{ "{:,}".format(item.volume) }}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end py-1 align-middle font-monospace small">
+            {% if item.jita_available is not none %}
+              {{ "{:,}".format(item.jita_available) }}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">
+            <span class="text-muted">—</span>
+          </td>
+          <td class="text-end py-1 align-middle font-monospace small station-col station-traded-cell" style="display:none">
+            <span class="text-muted">—</span>
+          </td>
+          <td class="text-end py-1 align-middle font-monospace small station-col station-avail-cell" style="display:none">
+            <span class="text-muted">—</span>
+          </td>
+          <td class="py-1">
+            <div class="input-group input-group-sm">
+              <input type="number" class="form-control custom-price-input font-monospace"
+                     min="0" step="0.01"
+                     value="{{ item.custom_price if item.custom_price is not none else '' }}"
+                     placeholder="Jita sell"
+                     data-id="{{ item.type_id }}">
+              <button class="btn btn-outline-secondary custom-price-save" type="button"
+                      data-id="{{ item.type_id }}" title="Uložit custom cenu">
+                <i class="bi bi-check-lg"></i>
+              </button>
+              <button class="btn btn-outline-warning custom-price-reset" type="button"
+                      data-id="{{ item.type_id }}" title="Reset na Jita cenu"
+                      {% if item.custom_price is none %}style="display:none"{% endif %}>
+                <i class="bi bi-arrow-counterclockwise"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div id="price-no-results" class="text-muted text-center py-3 d-none">Žádné výsledky.</div>
+</div>
+{% endif %}
+
+<script>
+(function () {
+  // --- Item search ---
+  const search = document.getElementById('price-search');
+  const rows = document.querySelectorAll('#price-table tbody tr');
+  const noResults = document.getElementById('price-no-results');
+
+  search && search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    let visible = 0;
+    rows.forEach(tr => {
+      const match = !q || tr.dataset.name.includes(q);
+      tr.classList.toggle('d-none', !match);
+      if (match) visible++;
+    });
+    noResults.classList.toggle('d-none', visible > 0);
+  });
+
+  // --- Custom price ---
+  async function saveCustomPrice(typeId, price) {
+    const resp = await fetch('/api/prices/custom', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type_id: typeId, price: price === '' || price === null ? null : parseFloat(price)}),
+    });
+    return resp.ok;
+  }
+
+  function setCustomBadge(row, hasCustom) {
+    const nameTd = row.querySelector('td:nth-child(2)');
+    nameTd.querySelectorAll('.custom-badge').forEach(b => b.remove());
+    if (hasCustom) {
+      const badge = document.createElement('span');
+      badge.className = 'badge bg-warning text-dark ms-1 custom-badge';
+      badge.style.fontSize = '.65em';
+      badge.textContent = 'custom';
+      nameTd.appendChild(badge);
+    }
+  }
+
+  document.querySelectorAll('.custom-price-save').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const input = document.querySelector(`.custom-price-input[data-id="${id}"]`);
+      const val = input.value.trim();
+      const ok = await saveCustomPrice(id, val);
+      if (ok) {
+        btn.innerHTML = '<i class="bi bi-check-lg text-success"></i>';
+        setTimeout(() => btn.innerHTML = '<i class="bi bi-check-lg"></i>', 1200);
+        const row = btn.closest('tr');
+        const hasCustom = val !== '';
+        setCustomBadge(row, hasCustom);
+        row.querySelector('.custom-price-reset').style.display = hasCustom ? '' : 'none';
+      } else {
+        btn.innerHTML = '<i class="bi bi-x-lg text-danger"></i>';
+        setTimeout(() => btn.innerHTML = '<i class="bi bi-check-lg"></i>', 1200);
+      }
+    });
+  });
+
+  document.querySelectorAll('.custom-price-reset').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const row = btn.closest('tr');
+      const input = document.querySelector(`.custom-price-input[data-id="${id}"]`);
+      const ok = await saveCustomPrice(id, null);
+      if (ok) {
+        input.value = row.dataset.jitaSell || '';
+        setCustomBadge(row, false);
+        btn.style.display = 'none';
+      }
+    });
+  });
+
+  document.querySelectorAll('.custom-price-input').forEach(input => {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.querySelector(`.custom-price-save[data-id="${input.dataset.id}"]`)?.click();
+      }
+    });
+  });
+
+  // --- Jita refresh (SSE) ---
+  const refreshBtn      = document.getElementById('refresh-btn');
+  const refreshProgress = document.getElementById('refresh-progress');
+  const refreshBar      = document.getElementById('refresh-bar');
+  const refreshText     = document.getElementById('refresh-progress-text');
+  const refreshPct      = document.getElementById('refresh-progress-pct');
+
+  refreshBtn && refreshBtn.addEventListener('click', () => {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Načítám…';
+    refreshProgress.classList.remove('d-none');
+    refreshBar.style.width = '0%';
+    refreshBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
+    refreshText.textContent = 'Připojuji se…';
+    refreshPct.textContent = '0%';
+
+    const es = new EventSource('/prices/refresh/stream');
+    es.onmessage = (e) => {
+      const d = JSON.parse(e.data);
+      const pct = d.pct || 0;
+      refreshBar.style.width = pct + '%';
+      refreshBar.setAttribute('aria-valuenow', pct);
+      refreshPct.textContent = pct + '%';
+      if (d.done) {
+        es.close();
+        refreshText.textContent = `Hotovo! Staženo ${d.refreshed} z ${d.total} cen.`;
+        refreshBar.className = 'progress-bar bg-success';
+        refreshBar.style.width = '100%';
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        refreshText.textContent = `${d.current} / ${d.total} typů…`;
+      }
+    };
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) return;
+      es.close();
+      refreshText.textContent = 'Chyba spojení.';
+      refreshBar.className = 'progress-bar bg-danger';
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-2"></i>Refresh Jita ceny';
+    };
+  });
+
+  // --- Station volume search ---
+  const stationDisplay = document.getElementById('station-vol-display');
+  const stationId      = document.getElementById('station-vol-id');
+  const stationBox     = document.getElementById('station-vol-suggestions');
+  const stationLoad    = document.getElementById('station-vol-load');
+  const stationStatus  = document.getElementById('station-vol-status');
+  const stationVolProgress  = document.getElementById('station-vol-progress');
+  const stationVolBar       = document.getElementById('station-vol-bar');
+  const stationVolPct       = document.getElementById('station-vol-progress-pct');
+  const stationVolProgText  = document.getElementById('station-vol-progress-text');
+
+  let stationDebounce = null;
+
+  stationDisplay && stationDisplay.addEventListener('input', () => {
+    stationId.value = '';
+    stationLoad.disabled = true;
+    clearTimeout(stationDebounce);
+    const q = stationDisplay.value.trim();
+    if (q.length < 2) { stationBox.style.display = 'none'; return; }
+    stationDebounce = setTimeout(async () => {
+      const r = await fetch('/api/suggest-station?q=' + encodeURIComponent(q));
+      const data = await r.json();
+      const all = [...(data.owned || []), ...(data.other || [])];
+      if (!all.length) { stationBox.style.display = 'none'; return; }
+      stationBox.innerHTML = all.map(s =>
+        `<div class="suggest-item px-3 py-2" style="cursor:pointer;font-size:.875rem"
+              data-id="${s.location_id}" data-name="${s.name.replace(/"/g,'&quot;')}">
+           <i class="bi bi-geo-alt me-2 text-muted"></i>${s.name}
+         </div>`
+      ).join('');
+      stationBox.style.display = 'block';
+      stationBox.querySelectorAll('.suggest-item').forEach(el => {
+        el.addEventListener('mousedown', e => {
+          e.preventDefault();
+          stationDisplay.value = el.dataset.name;
+          stationId.value = el.dataset.id;
+          stationBox.style.display = 'none';
+          stationLoad.disabled = false;
+        });
+      });
+    }, 250);
+  });
+
+  stationDisplay && stationDisplay.addEventListener('blur', () => {
+    setTimeout(() => { stationBox.style.display = 'none'; }, 150);
+  });
+
+  stationLoad && stationLoad.addEventListener('click', async () => {
+    const locId = stationId.value;
+    if (!locId) return;
+    stationLoad.disabled = true;
+    stationLoad.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Načítám…';
+    stationStatus.classList.add('d-none');
+
+    // Animated fake progress bar
+    stationVolProgress.classList.remove('d-none');
+    stationVolBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-info';
+    stationVolBar.style.width = '0%';
+    stationVolBar.setAttribute('aria-valuenow', 0);
+    stationVolPct.textContent = '0%';
+    stationVolProgText.textContent = 'Stahuji objednávky…';
+    let fakeP = 0;
+    const fakeInterval = setInterval(() => {
+      fakeP = Math.min(90, fakeP + (90 - fakeP) * 0.07 + 0.3);
+      const p = Math.round(fakeP);
+      stationVolBar.style.width = p + '%';
+      stationVolBar.setAttribute('aria-valuenow', p);
+      stationVolPct.textContent = p + '%';
+    }, 600);
+
+    try {
+      const r = await fetch('/api/prices/station-volume', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({location_id: parseInt(locId)}),
+      });
+      const json = await r.json();
+      clearInterval(fakeInterval);
+      stationVolBar.style.width = '100%';
+      stationVolBar.setAttribute('aria-valuenow', 100);
+      stationVolPct.textContent = '100%';
+      stationVolBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+
+      if (!json.ok) {
+        stationVolBar.className = 'progress-bar bg-danger';
+        stationVolProgText.textContent = 'Chyba: ' + (json.error || 'neznámá chyba');
+        stationLoad.disabled = false;
+        stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Načíst';
+        setTimeout(() => stationVolProgress.classList.add('d-none'), 4000);
+        return;
+      }
+
+      stationVolBar.className = 'progress-bar bg-success';
+      stationVolProgText.textContent = json.cached ? 'Data z cache (< 30 min).' : 'Hotovo.';
+      setTimeout(() => stationVolProgress.classList.add('d-none'), 2500);
+
+      // Zobraz sloupce a nastav jméno stanice
+      const stationShortName = stationDisplay.value.split(' - ')[0];
+      document.querySelectorAll('.stn-name').forEach(el => el.textContent = stationShortName);
+      document.querySelectorAll('.station-col').forEach(el => el.style.display = '');
+
+      // Naplň buňky
+      const data = json.data;
+      const na = '<span class="text-muted">—</span>';
+      rows.forEach(tr => {
+        const tid = tr.dataset.id;
+        const sellCell   = tr.querySelector('.station-sell-cell');
+        if (!sellCell) return;
+        const tradedCell = tr.querySelector('.station-traded-cell');
+        const availCell  = tr.querySelector('.station-avail-cell');
+
+        const entry  = data[tid];
+        const vol    = entry?.volume;
+        const sell   = entry?.best_sell;
+        const traded = entry?.traded_volume;
+
+        sellCell.innerHTML   = sell   != null ? sell.toLocaleString('cs-CZ', {minimumFractionDigits:2, maximumFractionDigits:2})   : na;
+        tradedCell.innerHTML = traded != null && traded > 0 ? traded.toLocaleString('cs-CZ') : na;
+        availCell.innerHTML  = vol    != null && vol   > 0  ? vol.toLocaleString('cs-CZ')    : na;
+      });
+    } catch(e) {
+      clearInterval(fakeInterval);
+      stationVolBar.className = 'progress-bar bg-danger';
+      stationVolBar.style.width = '100%';
+      stationVolProgText.textContent = 'Chyba spojení.';
+      setTimeout(() => stationVolProgress.classList.add('d-none'), 3000);
+    }
+    stationLoad.disabled = false;
+    stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Načíst';
+  });
+})();
+</script>
+
+{% endblock %}

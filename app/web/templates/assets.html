@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block title %}Assety — EVE Retroindustry{% endblock %}
+{% block content %}
+
+{# === Makro pro tabulku assetů === #}
+{% macro asset_table(items, table_id) %}
+<div class="table-responsive">
+  <table class="table table-hover mb-0 align-middle loc-table" id="tbl-{{ table_id }}" style="font-size:.875rem">
+    <thead>
+      <tr>
+        <th style="width:36px"></th>
+        <th class="sort-col" data-col="0" style="cursor:pointer" title="Seřadit podle názvu">
+          Předmět <span class="sort-icon text-muted ms-1">⇅</span>
+        </th>
+        <th class="text-end sort-col" data-col="1" style="cursor:pointer" title="Seřadit podle množství">
+          Množství <span class="sort-icon text-muted ms-1">⇅</span>
+        </th>
+        <th class="text-end">Cena/ks (ISK)</th>
+        <th class="text-end sort-col" data-col="3" style="cursor:pointer" title="Seřadit podle hodnoty">
+          Hodnota (ISK) <span class="sort-icon text-muted ms-1">⇅</span>
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr data-name="{{ item.name | lower }}"
+          data-qty="{{ item.quantity }}"
+          data-value="{{ item.total_value or 0 }}">
+        <td>
+          <img src="https://images.evetech.net/types/{{ item.type_id }}/render?size=32"
+               width="32" height="32" class="rounded" alt="" loading="lazy"
+               onerror="this.onerror=function(){this.style.visibility='hidden'};this.src='https://images.evetech.net/types/{{ item.type_id }}/icon?size=32'">
+        </td>
+        <td>{{ item.name }}</td>
+        <td class="text-end fw-semibold">{{ item.quantity | int | format_number }}</td>
+        <td class="text-end text-muted">
+          {% if item.unit_price %}{{ item.unit_price | isk }}{% else %}<span class="text-muted opacity-50">—</span>{% endif %}
+        </td>
+        <td class="text-end text-isk fw-semibold">
+          {% if item.total_value %}{{ item.total_value | isk }}{% else %}<span class="text-muted opacity-50">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="border-top:2px solid #30363d">
+        <td colspan="2" class="text-muted small">{{ items | length }} druhů</td>
+        <td></td>
+        <td class="text-end text-muted small">Celkem</td>
+        <td class="text-end fw-bold text-isk">
+          {% set tbl_total = items | selectattr('total_value') | map(attribute='total_value') | sum %}
+          {% if tbl_total > 0 %}{{ tbl_total | isk }}{% else %}—{% endif %}
+        </td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+{% endmacro %}
+
+<div class="row mb-4 align-items-center">
+  <div class="col">
+    <h4 class="mb-0"><i class="bi bi-box-seam me-2 text-primary"></i>Assety</h4>
+  </div>
+  <div class="col-auto d-flex gap-2">
+    <form method="get" action="/assets" class="d-flex gap-2">
+      <input type="text" name="search" class="form-control form-control-sm" placeholder="Hledat…" value="{{ search or '' }}" style="width:200px">
+      <button type="submit" class="btn btn-eve btn-sm">Filtrovat</button>
+      {% if search %}
+      <a href="/assets" class="btn btn-outline-secondary btn-sm">Zrušit</a>
+      {% endif %}
+    </form>
+    <button id="add-loc-btn" type="button" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci
+    </button>
+  </div>
+</div>
+
+{% if not stations %}
+<div class="alert alert-secondary">Žádné assety nenalezeny{% if search %} pro „{{ search }}"{% endif %}.</div>
+{% else %}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <span class="text-muted small">
+    {{ stations | length }} lokací{% if search %} • filtr: „{{ search }}"{% endif %}
+  </span>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-muted small">Seřadit:</span>
+    <div class="btn-group btn-group-sm" id="sort-btns">
+      <button class="btn btn-outline-secondary active" data-sort="items" title="Počet unikátních typů">
+        <i class="bi bi-hash me-1"></i>Druhů
+      </button>
+      <button class="btn btn-outline-secondary" data-sort="isk" title="Celková ISK hodnota">
+        <i class="bi bi-currency-exchange me-1"></i>Hodnota ISK
+      </button>
+      <button class="btn btn-outline-secondary" data-sort="name" title="Název stanice">
+        <i class="bi bi-sort-alpha-down me-1"></i>Název
+      </button>
+      <button class="btn btn-outline-secondary" data-sort="jumps" id="sort-jumps-btn" title="Počet jumpů od aktuální pozice">
+        <i class="bi bi-geo me-1"></i>Vzdálenost
+      </button>
+    </div>
+  </div>
+</div>
+
+<div id="stations-list">
+{% for station in stations %}
+{% set sid = station.loc_id | string %}
+<div class="card mb-3 station-card"
+     data-items="{{ station.total_items }}"
+     data-isk="{{ station.total_value | int }}"
+     data-name="{{ station.name | lower }}"
+     data-loc-id="{{ station.loc_id }}"
+     data-sys-id="{{ station.solar_system_id or '' }}"
+     data-jumps="">
+  {# === Hlavička stanice === #}
+  <div class="card-header d-flex justify-content-between align-items-center py-2"
+       data-bs-toggle="collapse" data-bs-target="#st-{{ sid }}" style="cursor:pointer">
+    <span class="d-flex align-items-center gap-2">
+      <i class="bi bi-geo-alt text-muted"></i>
+      <strong class="loc-label" id="loc-label-{{ station.loc_id }}">{{ station.name }}</strong>
+      <span class="text-muted small">ID: {{ station.loc_id }}</span>
+      <span class="loc-rename-wrap d-none" id="loc-rename-{{ station.loc_id }}" onclick="event.stopPropagation()">
+        <button class="btn btn-sm btn-outline-secondary loc-resolve-btn me-1" data-id="{{ station.loc_id }}"
+                title="Zkusit dohledat jméno přes ESI">
+          <i class="bi bi-search"></i>
+        </button>
+        <input type="text" class="form-control form-control-sm d-inline-block"
+               style="width:280px" value="{{ station.name }}"
+               placeholder="Zadej název struktury…">
+        <button class="btn btn-sm btn-outline-success ms-1 loc-rename-save" data-id="{{ station.loc_id }}">
+          <i class="bi bi-check-lg"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-secondary ms-1 loc-rename-cancel" data-id="{{ station.loc_id }}">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </span>
+      <button class="btn btn-link btn-sm p-0 text-muted loc-rename-btn" data-id="{{ station.loc_id }}"
+              title="Přejmenovat lokaci" onclick="event.stopPropagation()">
+        <i class="bi bi-pencil" style="font-size:.75em"></i>
+      </button>
+    </span>
+    <span class="d-flex align-items-center gap-2">
+      <span class="jumps-badge d-none text-muted small"></span>
+      {% if station.total_value > 0 %}
+      <span class="text-isk fw-semibold">{{ station.total_value | isk }} ISK</span>
+      {% endif %}
+      <span class="badge bg-secondary">{{ station.total_items }} druhů</span>
+    </span>
+  </div>
+
+  <div class="collapse" id="st-{{ sid }}">
+
+    {# === Assety přímo v hangáru === #}
+    {% if station.hangar %}
+    {% set hangar_val = station.hangar | selectattr('total_value') | map(attribute='total_value') | sum %}
+    <div {% if station.containers %}class="border-bottom" style="border-color:#30363d !important"{% endif %}>
+      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+           data-bs-toggle="collapse" data-bs-target="#hng-{{ sid }}" style="cursor:pointer">
+        <span class="d-flex align-items-center gap-2">
+          <i class="bi bi-inbox text-muted" style="font-size:.85em"></i>
+          <span class="fw-medium">Hangár</span>
+        </span>
+        <span class="d-flex align-items-center gap-2">
+          {% if hangar_val > 0 %}<span class="text-isk">{{ hangar_val | isk }} ISK</span>{% endif %}
+          <span class="badge bg-secondary">{{ station.hangar | length }} druhů</span>
+        </span>
+      </div>
+      <div class="collapse" id="hng-{{ sid }}">
+        {{ asset_table(station.hangar, "hangar-" ~ sid) }}
+      </div>
+    </div>
+    {% endif %}
+
+    {# === Kontejnery === #}
+    {% for container in station.containers %}
+    {% set ckey = sid ~ "-" ~ loop.index %}
+    <div class="border-top" style="border-color:#30363d !important">
+      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+           data-bs-toggle="collapse" data-bs-target="#cont-{{ ckey }}" style="cursor:pointer">
+        <span class="d-flex align-items-center gap-2">
+          {% if container.type_id %}
+          <img src="https://images.evetech.net/types/{{ container.type_id }}/render?size=24"
+               width="24" height="24" class="rounded" alt="" loading="lazy"
+               onerror="this.onerror=function(){this.style.visibility='hidden'};this.src='https://images.evetech.net/types/{{ container.type_id }}/icon?size=24'">
+          {% else %}
+          <i class="bi bi-box text-muted" style="font-size:.85em"></i>
+          {% endif %}
+          <span class="fw-medium">{{ container.name }}</span>
+        </span>
+        <span class="d-flex align-items-center gap-2">
+          {% set c_val = container.assets | selectattr('total_value') | map(attribute='total_value') | sum %}
+          {% if c_val > 0 %}<span class="text-isk">{{ c_val | isk }} ISK</span>{% endif %}
+          <span class="badge bg-secondary">{{ container.assets | length }} druhů</span>
+        </span>
+      </div>
+      <div class="collapse" id="cont-{{ ckey }}">
+        {{ asset_table(container.assets, "cont-" ~ ckey) }}
+      </div>
+    </div>
+    {% endfor %}
+
+  </div>
+</div>
+{% endfor %}
+</div>{# end #stations-list #}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.loc-rename-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.id;
+    document.getElementById(`loc-label-${id}`).classList.add('d-none');
+    btn.classList.add('d-none');
+    document.getElementById(`loc-rename-${id}`).classList.remove('d-none');
+    document.getElementById(`loc-rename-${id}`).querySelector('input').focus();
+  });
+});
+document.querySelectorAll('.loc-rename-cancel').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.id;
+    document.getElementById(`loc-label-${id}`).classList.remove('d-none');
+    document.getElementById(`loc-rename-${id}`).classList.add('d-none');
+    document.querySelector(`.loc-rename-btn[data-id="${id}"]`).classList.remove('d-none');
+  });
+});
+document.querySelectorAll('.loc-rename-save').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const id = btn.dataset.id;
+    const input = document.querySelector(`#loc-rename-${id} input`);
+    const name = input.value.trim();
+    if (!name) return;
+    const r = await fetch('/api/location/rename', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({location_id: parseInt(id), name}),
+    });
+    if ((await r.json()).ok) {
+      const label = document.getElementById(`loc-label-${id}`);
+      label.textContent = name;
+      label.classList.remove('d-none');
+      document.getElementById(`loc-rename-${id}`).classList.add('d-none');
+      document.querySelector(`.loc-rename-btn[data-id="${id}"]`).classList.remove('d-none');
+    }
+  });
+});
+document.querySelectorAll('.loc-resolve-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const id = btn.dataset.id;
+    const input = document.querySelector(`#loc-rename-${id} input`);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    const r = await fetch(`/api/location/resolve?location_id=${id}`);
+    const data = await r.json();
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-search"></i>';
+    if (data.ok) {
+      input.value = data.name;
+      input.classList.add('border-success');
+      setTimeout(() => input.classList.remove('border-success'), 2000);
+    } else {
+      input.placeholder = 'ESI: přístup odepřen — zadej ručně';
+      input.classList.add('border-warning');
+      setTimeout(() => input.classList.remove('border-warning'), 2000);
+    }
+  });
+});
+document.querySelectorAll('.loc-rename-wrap input').forEach(input => {
+  input.addEventListener('keydown', e => {
+    const id = input.closest('.loc-rename-wrap').id.replace('loc-rename-', '');
+    if (e.key === 'Enter')  document.querySelector(`.loc-rename-save[data-id="${id}"]`)?.click();
+    if (e.key === 'Escape') document.querySelector(`.loc-rename-cancel[data-id="${id}"]`)?.click();
+  });
+});
+
+document.getElementById('add-loc-btn')?.addEventListener('click', async function() {
+  const btn = this;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>…';
+  try {
+    const r = await fetch('/api/my-location');
+    const data = await r.json();
+    if (data.in_space) {
+      btn.innerHTML = `<i class="bi bi-crosshair me-1"></i>${data.solar_system_name} — v prostoru`;
+      setTimeout(() => { btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci'; btn.disabled = false; }, 3000);
+    } else if (data.location_id) {
+      btn.innerHTML = `<i class="bi bi-check-circle me-1"></i>${data.name}`;
+      btn.classList.replace('btn-outline-secondary', 'btn-outline-success');
+      setTimeout(() => {
+        btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci';
+        btn.classList.replace('btn-outline-success', 'btn-outline-secondary');
+        btn.disabled = false;
+      }, 3000);
+    } else {
+      btn.innerHTML = `<i class="bi bi-x-circle me-1"></i>${data.error || 'Chyba'}`;
+      setTimeout(() => { btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci'; btn.disabled = false; }, 3000);
+    }
+  } catch {
+    btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci';
+    btn.disabled = false;
+  }
+});
+
+document.querySelectorAll('.sort-col').forEach(th => {
+  th.addEventListener('click', () => {
+    const table = th.closest('table');
+    const tbody = table.querySelector('tbody');
+    const col   = th.dataset.col;
+    const icon  = th.querySelector('.sort-icon');
+    const asc   = icon.dataset.dir !== 'asc';
+
+    table.querySelectorAll('.sort-icon').forEach(i => {
+      i.textContent = '⇅';
+      delete i.dataset.dir;
+    });
+    icon.textContent = asc ? '▲' : '▼';
+    icon.dataset.dir = asc ? 'asc' : 'desc';
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+      if (col === '0') {
+        const va = a.dataset.name, vb = b.dataset.name;
+        return asc ? va.localeCompare(vb, 'cs') : vb.localeCompare(va, 'cs');
+      } else {
+        const va = parseFloat(col === '1' ? a.dataset.qty : a.dataset.value) || 0;
+        const vb = parseFloat(col === '1' ? b.dataset.qty : b.dataset.value) || 0;
+        return asc ? va - vb : vb - va;
+      }
+    });
+    rows.forEach(r => tbody.appendChild(r));
+  });
+});
+
+// ── Řazení stanic ──────────────────────────────────────────────────────────
+
+function sortStations(key, dir = 'desc') {
+  const list = document.getElementById('stations-list');
+  if (!list) return;
+  const cards = Array.from(list.querySelectorAll('.station-card'));
+  cards.sort((a, b) => {
+    if (key === 'name') {
+      const va = a.dataset.name, vb = b.dataset.name;
+      return dir === 'asc' ? va.localeCompare(vb, 'cs') : vb.localeCompare(va, 'cs');
+    }
+    if (key === 'jumps') {
+      const va = parseInt(a.dataset.jumps ?? '-1');
+      const vb = parseInt(b.dataset.jumps ?? '-1');
+      // Neznámé (-1) jdou vždy na konec
+      if (va < 0 && vb < 0) return 0;
+      if (va < 0) return 1;
+      if (vb < 0) return -1;
+      return va - vb;  // jumps: vždy ascending (nejbližší první)
+    }
+    const va = parseFloat(a.dataset[key] ?? '0');
+    const vb = parseFloat(b.dataset[key] ?? '0');
+    return dir === 'asc' ? va - vb : vb - va;
+  });
+  cards.forEach(c => list.appendChild(c));
+}
+
+const sortBtns = document.querySelectorAll('#sort-btns [data-sort]');
+const sortState = { key: 'items', dir: 'desc' };
+
+sortBtns.forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const key = btn.dataset.sort;
+    if (key === sortState.key) {
+      sortState.dir = sortState.dir === 'desc' ? 'asc' : 'desc';
+    } else {
+      sortState.key = key;
+      sortState.dir = key === 'name' ? 'asc' : 'desc';
+    }
+    sortBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    if (key === 'jumps') {
+      const jumpBtn = document.getElementById('sort-jumps-btn');
+      const cards = document.querySelectorAll('.station-card[data-jumps=""]');
+      // Načti vzdálenosti jen pokud ještě nejsou
+      if (cards.length > 0) {
+        jumpBtn.disabled = true;
+        jumpBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Vzdálenost';
+        try {
+          const r = await fetch('/api/assets/distances');
+          const data = await r.json();
+          if (data.ok) {
+            document.querySelectorAll('.station-card').forEach(card => {
+              const locId = parseInt(card.dataset.locId);
+              const j = data.distances[locId];
+              const jumps = (j !== undefined && j >= 0) ? j : -1;
+              card.dataset.jumps = jumps;
+              const badge = card.querySelector('.jumps-badge');
+              if (badge) {
+                if (jumps === 0) {
+                  badge.textContent = '📍 zde';
+                } else if (jumps > 0) {
+                  badge.textContent = `${jumps} j`;
+                }
+                badge.classList.toggle('d-none', jumps < 0);
+              }
+            });
+          }
+        } catch {}
+        jumpBtn.disabled = false;
+        jumpBtn.innerHTML = '<i class="bi bi-geo me-1"></i>Vzdálenost';
+      }
+    }
+
+    sortStations(sortState.key, sortState.dir);
+  });
+});
+</script>
+{% endblock %}

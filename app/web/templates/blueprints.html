@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Blueprinty — EVE Retroindustry{% endblock %}
+{% block content %}
+
+{# === Makro pro tabulku blueprintů === #}
+{% macro bp_table(bps, table_id) %}
+<div class="table-responsive">
+  <table class="table table-hover mb-0 align-middle" id="tbl-{{ table_id }}" style="font-size:.875rem">
+    <thead>
+      <tr>
+        <th style="width:36px"></th>
+        <th>Název blueprintu</th>
+        <th class="text-center">Typ</th>
+        <th class="text-center" title="Material Efficiency">ME</th>
+        <th class="text-center" title="Time Efficiency">TE</th>
+        <th class="text-center">Runy</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for bp in bps %}
+      <tr>
+        <td>
+          <img src="https://images.evetech.net/types/{{ bp.product_type_id }}/render?size=32"
+               width="32" height="32" class="rounded" alt="" loading="lazy"
+               onerror="this.onerror=function(){this.style.visibility='hidden'};this.src='https://images.evetech.net/types/{{ bp.product_type_id }}/icon?size=32'">
+        </td>
+        <td><span class="fw-medium">{{ bp.name }}</span></td>
+        <td class="text-center">
+          {% if bp.is_original %}
+          <span class="badge badge-bpo">BPO</span>
+          {% else %}
+          <span class="badge badge-bpc">BPC</span>
+          {% endif %}
+        </td>
+        <td class="text-center">
+          <span class="{% if bp.me >= 9 %}text-success{% elif bp.me >= 5 %}text-warning{% else %}text-muted{% endif %} fw-semibold">
+            {{ bp.me }}
+          </span>
+        </td>
+        <td class="text-center">
+          <span class="{% if bp.te >= 14 %}text-success{% elif bp.te >= 8 %}text-warning{% else %}text-muted{% endif %} fw-semibold">
+            {{ bp.te }}
+          </span>
+        </td>
+        <td class="text-center">
+          {% if bp.runs == '∞' %}<span class="text-muted">∞</span>{% else %}{{ bp.runs }}{% endif %}
+        </td>
+        <td>
+          <a href="/plan?product={{ bp.name | urlencode }}" class="btn btn-outline-secondary btn-sm"
+             title="Otevřít ve výrobním plánu">
+            <i class="bi bi-hammer"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+<div class="row mb-4 align-items-center">
+  <div class="col">
+    <h4 class="mb-0"><i class="bi bi-file-earmark-text me-2 text-primary"></i>Blueprinty
+      <span class="text-muted fs-6 fw-normal ms-2">({{ total }})</span>
+    </h4>
+  </div>
+  <div class="col-auto">
+    <form method="get" action="/blueprints" class="d-flex gap-2">
+      <input type="text" name="search" class="form-control form-control-sm" placeholder="Hledat…"
+             value="{{ search or '' }}" style="width:200px">
+      <button type="submit" class="btn btn-eve btn-sm">Filtrovat</button>
+      {% if search %}
+      <a href="/blueprints" class="btn btn-outline-secondary btn-sm">Zrušit</a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+{% if not stations %}
+<div class="alert alert-secondary">Žádné blueprinty{% if search %} pro „{{ search }}"{% endif %}.</div>
+{% else %}
+
+<div class="mb-3 text-muted small">
+  {{ stations | length }} lokací
+  {% if search %} • filtr: „{{ search }}"{% endif %}
+</div>
+
+{% for station in stations %}
+{% set sid = station.loc_id | string %}
+<div class="card mb-3">
+  {# === Hlavička stanice === #}
+  <div class="card-header d-flex justify-content-between align-items-center py-2"
+       data-bs-toggle="collapse" data-bs-target="#st-{{ sid }}" style="cursor:pointer">
+    <span class="d-flex align-items-center gap-2">
+      <i class="bi bi-geo-alt text-muted"></i>
+      <strong class="loc-label" id="loc-label-{{ station.loc_id }}">{{ station.name }}</strong>
+      <span class="text-muted small">ID: {{ station.loc_id }}</span>
+      <span class="loc-rename-wrap d-none" id="loc-rename-{{ station.loc_id }}" onclick="event.stopPropagation()">
+        <button class="btn btn-sm btn-outline-secondary loc-resolve-btn me-1" data-id="{{ station.loc_id }}"
+                title="Zkusit dohledat jméno přes ESI">
+          <i class="bi bi-search"></i>
+        </button>
+        <input type="text" class="form-control form-control-sm d-inline-block"
+               style="width:280px" value="{{ station.name }}"
+               placeholder="Zadej název struktury…">
+        <button class="btn btn-sm btn-outline-success ms-1 loc-rename-save" data-id="{{ station.loc_id }}">
+          <i class="bi bi-check-lg"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-secondary ms-1 loc-rename-cancel" data-id="{{ station.loc_id }}">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </span>
+      <button class="btn btn-link btn-sm p-0 text-muted loc-rename-btn" data-id="{{ station.loc_id }}"
+              title="Přejmenovat lokaci" onclick="event.stopPropagation()">
+        <i class="bi bi-pencil" style="font-size:.75em"></i>
+      </button>
+    </span>
+    <span class="d-flex align-items-center gap-2">
+      {% set all_bps = station.hangar + station.containers | map(attribute='bps') | sum(start=[]) %}
+      {% set bpo_count = all_bps | selectattr('is_original') | list | length %}
+      {% set bpc_count = all_bps | rejectattr('is_original') | list | length %}
+      {% if bpo_count > 0 %}<span class="badge badge-bpo">{{ bpo_count }} BPO</span>{% endif %}
+      {% if bpc_count > 0 %}<span class="badge badge-bpc">{{ bpc_count }} BPC</span>{% endif %}
+      <span class="badge bg-secondary">{{ station.total }} celkem</span>
+    </span>
+  </div>
+
+  <div class="collapse" id="st-{{ sid }}">
+
+    {# === Blueprinty přímo v hangáru (ne v kontejnerech) === #}
+    {% if station.hangar %}
+    {% set h_bpo = station.hangar | selectattr('is_original') | list | length %}
+    {% set h_bpc = station.hangar | rejectattr('is_original') | list | length %}
+    <div {% if station.containers %}class="border-bottom" style="border-color:#30363d !important"{% endif %}>
+      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+           data-bs-toggle="collapse" data-bs-target="#hng-{{ sid }}" style="cursor:pointer">
+        <span class="d-flex align-items-center gap-2">
+          <i class="bi bi-inbox text-muted" style="font-size:.85em"></i>
+          <span class="fw-medium">Hangár</span>
+        </span>
+        <span class="d-flex align-items-center gap-2">
+          {% if h_bpo > 0 %}<span class="badge badge-bpo">{{ h_bpo }} BPO</span>{% endif %}
+          {% if h_bpc > 0 %}<span class="badge badge-bpc">{{ h_bpc }} BPC</span>{% endif %}
+          <span class="badge bg-secondary">{{ station.hangar | length }}</span>
+        </span>
+      </div>
+      <div class="collapse" id="hng-{{ sid }}">
+        {{ bp_table(station.hangar, "hangar-" ~ sid) }}
+      </div>
+    </div>
+    {% endif %}
+
+    {# === Kontejnery === #}
+    {% for container in station.containers %}
+    {% set ckey = station.loc_id | string ~ "-" ~ loop.index %}
+    <div class="border-top" style="border-color:#30363d !important">
+      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+           data-bs-toggle="collapse" data-bs-target="#cont-{{ ckey }}" style="cursor:pointer">
+        <span class="d-flex align-items-center gap-2">
+          <i class="bi bi-box text-muted" style="font-size:.85em"></i>
+          <span class="fw-medium">{{ container.name }}</span>
+        </span>
+        <span class="d-flex align-items-center gap-2">
+          {% set c_bpo = container.bps | selectattr('is_original') | list | length %}
+          {% set c_bpc = container.bps | rejectattr('is_original') | list | length %}
+          {% if c_bpo > 0 %}<span class="badge badge-bpo">{{ c_bpo }} BPO</span>{% endif %}
+          {% if c_bpc > 0 %}<span class="badge badge-bpc">{{ c_bpc }} BPC</span>{% endif %}
+          <span class="badge bg-secondary">{{ container.bps | length }}</span>
+        </span>
+      </div>
+      <div class="collapse" id="cont-{{ ckey }}">
+        {{ bp_table(container.bps, "cont-" ~ ckey) }}
+      </div>
+    </div>
+    {% endfor %}
+
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.loc-rename-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.id;
+    document.getElementById(`loc-label-${id}`).classList.add('d-none');
+    btn.classList.add('d-none');
+    document.getElementById(`loc-rename-${id}`).classList.remove('d-none');
+    document.getElementById(`loc-rename-${id}`).querySelector('input').focus();
+  });
+});
+
+document.querySelectorAll('.loc-rename-cancel').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.id;
+    document.getElementById(`loc-label-${id}`).classList.remove('d-none');
+    document.getElementById(`loc-rename-${id}`).classList.add('d-none');
+    document.querySelector(`.loc-rename-btn[data-id="${id}"]`).classList.remove('d-none');
+  });
+});
+
+document.querySelectorAll('.loc-rename-save').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const id = btn.dataset.id;
+    const input = document.querySelector(`#loc-rename-${id} input`);
+    const name = input.value.trim();
+    if (!name) return;
+    const r = await fetch('/api/location/rename', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({location_id: parseInt(id), name}),
+    });
+    if ((await r.json()).ok) {
+      const label = document.getElementById(`loc-label-${id}`);
+      label.textContent = name;
+      label.classList.remove('d-none');
+      document.getElementById(`loc-rename-${id}`).classList.add('d-none');
+      document.querySelector(`.loc-rename-btn[data-id="${id}"]`).classList.remove('d-none');
+    }
+  });
+});
+
+document.querySelectorAll('.loc-resolve-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const id = btn.dataset.id;
+    const input = document.querySelector(`#loc-rename-${id} input`);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    const r = await fetch(`/api/location/resolve?location_id=${id}`);
+    const data = await r.json();
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-search"></i>';
+    if (data.ok) {
+      input.value = data.name;
+      input.classList.add('border-success');
+      setTimeout(() => input.classList.remove('border-success'), 2000);
+    } else {
+      input.placeholder = 'ESI: přístup odepřen — zadej ručně';
+      input.classList.add('border-warning');
+      setTimeout(() => input.classList.remove('border-warning'), 2000);
+    }
+  });
+});
+
+document.querySelectorAll('.loc-rename-wrap input').forEach(input => {
+  input.addEventListener('keydown', e => {
+    const id = input.closest('.loc-rename-wrap').id.replace('loc-rename-', '');
+    if (e.key === 'Enter')  document.querySelector(`.loc-rename-save[data-id="${id}"]`)?.click();
+    if (e.key === 'Escape') document.querySelector(`.loc-rename-cancel[data-id="${id}"]`)?.click();
+  });
+});
+</script>
+{% endblock %}

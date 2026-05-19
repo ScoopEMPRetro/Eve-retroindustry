@@ -1,0 +1,848 @@
+{% extends "base.html" %}
+{% block title %}Výrobní plán — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="row mb-4">
+  <div class="col">
+    <h4 class="mb-0"><i class="bi bi-hammer me-2 text-primary"></i>Výrobní plán</h4>
+  </div>
+</div>
+
+{# Formulář #}
+<div class="card mb-4 p-3">
+  <form method="post" action="/plan" id="plan-form">
+    <div class="row g-3 align-items-end">
+
+      {# Produkt #}
+      <div class="col-sm-6 col-lg-4" style="position:relative">
+        <label class="form-label text-muted small">Produkt</label>
+        <input type="text" name="product" id="product-input" class="form-control"
+               placeholder="Phoenix, Raven, 19726…"
+               value="{{ form_product or '' }}" required autocomplete="off">
+        <div id="product-suggestions" style="
+          display:none; position:absolute; z-index:1000; left:0; right:0;
+          background:#1c2128; border:1px solid #30363d; border-radius:6px;
+          box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:420px; overflow-y:auto;
+          font-size:.875rem; margin-top:2px;
+        "></div>
+      </div>
+
+      {# Počet #}
+      <div class="col-4 col-sm-3 col-lg-1">
+        <label class="form-label text-muted small">Počet</label>
+        <input type="number" name="qty" class="form-control" min="1" value="{{ form_qty or 1 }}">
+      </div>
+
+      {# ME #}
+      <div class="col-4 col-sm-3 col-lg-1">
+        <label class="form-label text-muted small" title="Material Efficiency 0–10">ME
+          <span class="text-muted" style="font-size:.7rem">(0–10)</span>
+        </label>
+        <input type="number" name="form_me" id="me-input" class="form-control"
+               min="0" max="10" placeholder="—" value="{{ form_me or '' }}">
+      </div>
+
+      {# TE #}
+      <div class="col-4 col-sm-3 col-lg-1">
+        <label class="form-label text-muted small" title="Time Efficiency 0–20">TE
+          <span class="text-muted" style="font-size:.7rem">(0–20)</span>
+        </label>
+        <input type="number" name="form_te" id="te-input" class="form-control"
+               min="0" max="20" placeholder="—" value="{{ form_te or '' }}">
+      </div>
+
+      {# Mód #}
+      <div class="col-sm-4 col-lg-2">
+        <label class="form-label text-muted small">Mód</label>
+        <select name="mode" class="form-select">
+          <option value="full"       {% if form_mode == 'full'       %}selected{% endif %}>Full — základní suroviny</option>
+          <option value="components" {% if form_mode == 'components' %}selected{% endif %}>Components — 1. úroveň</option>
+          <option value="optimal"    {% if form_mode == 'optimal'    %}selected{% endif %}>Optimal — make vs buy</option>
+        </select>
+      </div>
+
+      {# Stanice — viditelné pole (jen pro UX) + hidden s ID #}
+      <div class="col-sm-8 col-lg-2" style="position:relative">
+        <label class="form-label text-muted small">Stanice</label>
+        <input type="text" id="station-display" class="form-control"
+               placeholder="Jita, 60003760…"
+               value="{{ form_station_name or form_station or '' }}" autocomplete="off">
+        <input type="hidden" name="station" id="station-id"
+               value="{{ form_station or '' }}" required>
+        <div id="station-suggestions" style="
+          display:none; position:absolute; z-index:1000; left:0; right:0;
+          background:#1c2128; border:1px solid #30363d; border-radius:6px;
+          box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:340px; overflow-y:auto;
+          font-size:.875rem; margin-top:2px;
+        "></div>
+      </div>
+
+      {# Submit #}
+      <div class="col-sm-4 col-lg-1">
+        <button type="submit" class="btn btn-eve w-100">
+          <i class="bi bi-calculator me-1"></i>Vypočítat
+        </button>
+      </div>
+
+    </div>
+
+    {# Výrobní poplatky — druhý řádek #}
+    <div class="row g-2 align-items-end mt-2 pt-2" style="border-top:1px solid #21262d">
+      <div class="col-auto d-flex align-items-center pb-1">
+        <span class="text-muted small"><i class="bi bi-receipt me-1"></i>Výrobní poplatky</span>
+      </div>
+      <div class="col-auto">
+        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Facility tax (%)</label>
+        <input type="number" name="facility_tax" id="facility-tax-input"
+               class="form-control form-control-sm"
+               step="0.1" min="0" max="25" value="{{ form_facility_tax or '5' }}"
+               style="width:90px">
+      </div>
+      <div id="sci-display" class="col-auto d-none align-items-end pb-1">
+        <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
+          <span id="sci-mfg-val" class="fw-semibold" style="color:#79c0ff"></span>
+          <span id="sci-rxn-val" class="ms-1" style="color:#a5d6ff"></span>
+        </span>
+      </div>
+    </div>
+
+  </form>
+</div>
+
+{% if error %}
+<div class="alert alert-danger"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
+{% endif %}
+
+{% if result %}
+{# Záhlaví plánu #}
+<div class="card mb-3 p-3">
+  <div class="row g-3 align-items-center">
+    <div class="col-auto">
+      <img src="https://images.evetech.net/types/{{ result.product_type_id }}/icon?size=64"
+           class="rounded" width="64" height="64" alt="{{ result.product_name }}">
+    </div>
+    <div class="col">
+      <h5 class="mb-1">{{ result.product_name }} <span class="text-muted fw-normal">×{{ result.quantity }}</span></h5>
+      {% if result.blueprint %}
+        {% if not result.blueprint.manual %}
+        <span class="badge {% if result.blueprint.kind == 'BPO' %}badge-bpo{% else %}badge-bpc{% endif %} me-1">
+          {{ result.blueprint.kind }}
+        </span>
+        {% endif %}
+        <span class="text-muted small">
+          ME: <strong class="text-success">{{ result.blueprint.me }}</strong>
+          &nbsp;TE: <strong class="text-warning">{{ result.blueprint.te }}</strong>
+          {% if not result.blueprint.manual %}Runy: <strong>{{ result.blueprint.runs }}</strong>{% endif %}
+          {% if result.blueprint.manual %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">zadáno ručně</span>{% endif %}
+        </span>
+      {% else %}
+      <span class="badge bg-danger">Nemáš blueprint</span>
+      {% endif %}
+      <div class="mt-1">
+        <span class="badge bg-secondary">{{ result.mode }}</span>
+        <span class="text-muted small ms-2">Stanice ID: {{ result.location_id }}</span>
+      </div>
+    </div>
+    <div class="col-auto text-end">
+      {% if result.can_manufacture %}
+      <span class="badge bg-success fs-6"><i class="bi bi-check-circle me-1"></i>Máš vše k výrobě</span>
+      {% else %}
+      <span class="badge bg-danger fs-6"><i class="bi bi-x-circle me-1"></i>Chybí {{ result.total_missing_types }} druhů</span>
+      {% endif %}
+      {% if result.opt_total_cost is not none %}
+      <div class="mt-2 small">
+        <span class="text-muted">Optimální: </span><span class="text-isk fw-bold">{{ result.opt_total_cost | isk }} ISK</span>
+        <span class="text-muted ms-2">Naivní: </span><span class="text-muted">{{ result.opt_naive_cost | isk }} ISK</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# Finanční souhrn #}
+{% if result.total_buy %}
+<div class="row g-3 mb-3">
+  <div class="col-sm-6 col-lg-3">
+    <div class="card p-3 text-center">
+      <div class="text-muted small">Nákup surovin</div>
+      <div class="text-isk fw-bold fs-5">{{ result.total_buy | isk }}</div>
+      <div class="text-muted" style="font-size:.7rem">ISK</div>
+    </div>
+  </div>
+  {% if result.sell_price %}
+  <div class="col-sm-6 col-lg-3">
+    <div class="card p-3 text-center">
+      <div class="text-muted small">Jita sell cena</div>
+      <div class="fw-bold fs-5">{{ result.sell_price | isk }}</div>
+      <div class="text-muted" style="font-size:.7rem">ISK / ks</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card p-3 text-center">
+      <div class="text-muted small">Celkový příjem</div>
+      <div class="fw-bold fs-5">{{ result.revenue | isk }}</div>
+      <div class="text-muted" style="font-size:.7rem">ISK</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card p-3 text-center">
+      <div class="text-muted small">Zisk</div>
+      <div class="fw-bold fs-5 {% if result.profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
+        {% if result.profit >= 0 %}+{% endif %}{{ result.profit | isk }}
+      </div>
+      <div class="text-muted" style="font-size:.7rem">ISK</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# Výrobní poplatky #}
+{% if result.fees %}
+<div class="row g-3 mb-3">
+  <div class="col-sm-6 col-lg-4">
+    <div class="card p-3 text-center" style="border-left-color:#e3b341">
+      <div class="text-muted small">Job installation fee</div>
+      <div class="fw-bold text-warning" style="font-size:1.05rem">{{ result.fees.total_job_fee | isk }}</div>
+      <div class="text-muted" style="font-size:.7rem">
+        {% if result.fees.solar_system_id %}
+        výr. SCI {{ (result.fees.mfg_sci * 100) | round(2) }}%
+        {% if result.fees.rxn_sci %}&nbsp;· reak. {{ (result.fees.rxn_sci * 100) | round(2) }}%{% endif %}
+        &nbsp;+ fac. tax {{ result.fees.facility_tax }}%
+        {% else %}SCI neznámo &nbsp;· fac. tax {{ result.fees.facility_tax }}%{% endif %}
+      </div>
+    </div>
+  </div>
+  {% if result.fees.profit_market is not none %}
+  <div class="col-sm-6 col-lg-4">
+    <div class="card p-3 text-center">
+      <div class="text-muted small">Tržní zisk</div>
+      <div class="fw-bold fs-5 {% if result.fees.profit_market >= 0 %}text-profit{% else %}text-loss{% endif %}">
+        {% if result.fees.profit_market >= 0 %}+{% endif %}{{ result.fees.profit_market | isk }}
+      </div>
+      <div class="text-muted" style="font-size:.7rem">příjem − vše za tržní cenu − job fee</div>
+    </div>
+  </div>
+  {% endif %}
+  {% if result.fees.profit_stock is not none %}
+  <div class="col-sm-6 col-lg-4">
+    <div class="card p-3 text-center">
+      <div class="text-muted small">Zisk se zásobami</div>
+      <div class="fw-bold fs-5 {% if result.fees.profit_stock >= 0 %}text-profit{% else %}text-loss{% endif %}">
+        {% if result.fees.profit_stock >= 0 %}+{% endif %}{{ result.fees.profit_stock | isk }}
+      </div>
+      <div class="text-muted" style="font-size:.7rem">příjem − chybějící suroviny − job fee</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# Tabnav #}
+<ul class="nav nav-tabs mb-0" id="planTabs" role="tablist" style="border-bottom:1px solid #30363d">
+  <li class="nav-item">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-materials" type="button">
+      <i class="bi bi-list-ul me-1"></i>Materiály
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-process" type="button">
+      <i class="bi bi-diagram-3 me-1"></i>Výrobní postup
+      {% if result.manufacturing_steps %}
+      <span class="badge bg-secondary ms-1">{{ result.manufacturing_steps | length }} kroků</span>
+      {% endif %}
+    </button>
+  </li>
+</ul>
+<div class="tab-content mb-3">
+
+{# === TAB: Materiály === #}
+<div class="tab-pane fade show active" id="tab-materials">
+<div class="card" style="border-top:none;border-radius:0 0 6px 6px">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span class="fw-semibold"><i class="bi bi-list-ul me-2"></i>Materiály ({{ result.materials | length }})</span>
+    <span class="text-muted small">Ceny: Jita z cache / adjusted</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
+      <thead>
+        <tr>
+          <th style="width:36px"></th>
+          <th>Surovina</th>
+          <th class="text-end">Potřeba</th>
+          <th class="text-end">Cena/ks (ISK)</th>
+          <th class="text-end">Celkem (ISK)</th>
+          <th class="text-end">Na stanici</th>
+          <th class="text-end">Chybí</th>
+          <th class="text-end">Dokoupit (ISK)</th>
+          <th class="text-end" style="width:80px">Krytí</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in result.materials %}
+        <tr class="{% if m.ok %}material-ok{% elif m.coverage_pct >= 50 %}material-partial{% else %}material-missing{% endif %}">
+          <td>
+            <img src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32"
+                 width="32" height="32" class="rounded" alt="">
+          </td>
+          <td>
+            <span>{{ m.name }}</span>
+          </td>
+          <td class="text-end">{{ m.required | int | format_number }}</td>
+          <td class="text-end">
+            {% if m.unit_price %}
+            <span class="text-isk">{{ m.unit_price | isk }}</span>
+            {% else %}
+            <span class="text-muted">N/A</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            {% if m.total_price %}
+            {{ m.total_price | isk }}
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end">{{ m.available | int | format_number }}</td>
+          <td class="text-end">
+            {% if m.missing > 0 %}
+            <span class="text-danger fw-semibold">{{ m.missing | int | format_number }}</span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            {% if m.buy_price %}
+            <span class="text-warning fw-semibold">{{ m.buy_price | isk }}</span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            <div>
+              <span class="{% if m.ok %}text-success{% elif m.coverage_pct >= 50 %}text-warning{% else %}text-danger{% endif %} fw-semibold">
+                {{ m.coverage_pct | int }}%
+              </span>
+            </div>
+            <div class="coverage-bar mt-1" style="width:60px; display:inline-block">
+              <div class="coverage-fill {% if m.ok %}bg-success{% elif m.coverage_pct >= 50 %}bg-warning{% else %}bg-danger{% endif %}"
+                   style="width:{{ [m.coverage_pct, 100] | min }}%"></div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {# Součtový řádek #}
+      <tfoot>
+        <tr class="fw-semibold" style="border-top:2px solid #30363d;">
+          <td colspan="4" class="text-muted">Celkem k dokoupení</td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td class="text-end text-warning">
+            {% if result.total_buy %}{{ result.total_buy | isk }}{% else %}—{% endif %}
+          </td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+{# Nákupní seznam — jen chybějící #}
+{# (uzavírá se tab-pane materials níže) #}
+{% set missing = result.materials | selectattr('missing', '>', 0) | list %}
+{% if missing %}
+<div class="card mb-3">
+  <div class="card-header py-2">
+    <span class="fw-semibold text-danger"><i class="bi bi-cart me-2"></i>Nákupní seznam ({{ missing | length }} položek)</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
+      <thead>
+        <tr>
+          <th style="width:36px"></th>
+          <th>Surovina</th>
+          <th class="text-end">Dokoupit</th>
+          <th class="text-end">Cena/ks (ISK)</th>
+          <th class="text-end">Celkem (ISK)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in missing | sort(attribute='buy_price', reverse=True) %}
+        <tr>
+          <td><img src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32" width="32" height="32" class="rounded" alt=""></td>
+          <td>{{ m.name }}</td>
+          <td class="text-end fw-semibold text-danger">{{ m.missing | int | format_number }}</td>
+          <td class="text-end text-isk">{% if m.unit_price %}{{ m.unit_price | isk }}{% else %}<span class="text-muted">N/A</span>{% endif %}</td>
+          <td class="text-end fw-semibold text-warning">{% if m.buy_price %}{{ m.buy_price | isk }}{% else %}<span class="text-muted">N/A</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="border-top:2px solid #30363d;">
+          <td colspan="4" class="fw-bold">CELKEM</td>
+          <td class="text-end fw-bold text-warning">{{ result.total_buy | isk }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endif %}
+</div>{# end tab-pane materials #}
+
+{# === TAB: Výrobní postup === #}
+<div class="tab-pane fade" id="tab-process" style="padding-top:1rem">
+{% if result.manufacturing_steps %}
+
+{% for step in result.manufacturing_steps %}
+<div class="mb-3">
+  {# Hlavička kroku #}
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <span class="badge {% if step.is_final %}bg-primary{% else %}bg-secondary{% endif %} fs-6 px-3 py-2">
+      Krok {{ step.step }}
+    </span>
+    <span class="text-muted small">
+      {{ step.jobs | length }} {% if step.jobs | length == 1 %}výrobní job{% elif step.jobs | length < 5 %}výrobní joby{% else %}výrobních jobů{% endif %}
+    </span>
+    {% if step.total_cost %}
+    <span class="ms-auto text-isk fw-semibold">{{ step.total_cost | isk }} ISK</span>
+    {% endif %}
+  </div>
+
+  {# Joby v tomto kroku — accordion #}
+  <div class="accordion" id="step{{ step.step }}acc">
+    {% for job in step.jobs %}
+    {% set job_id = "step" ~ step.step ~ "job" ~ loop.index %}
+    <div class="accordion-item" style="background:#161b22;border-color:#30363d">
+      <h2 class="accordion-header">
+        <button class="accordion-button {% if not loop.first or not step.is_final %}collapsed{% endif %}"
+                type="button" data-bs-toggle="collapse" data-bs-target="#{{ job_id }}"
+                style="background:#161b22;color:#e6edf3;border-color:#30363d;font-size:.875rem">
+          <img src="https://images.evetech.net/types/{{ job.type_id }}/icon?size=32"
+               width="28" height="28" class="rounded me-2" style="flex-shrink:0">
+          {% if job.activity == 'reaction' %}
+          <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REAKCE</span>
+          {% else %}
+          <span class="badge me-2 px-2" style="background:#0d6efd;font-size:.65rem;flex-shrink:0">VÝROBA</span>
+          {% endif %}
+          <span class="fw-semibold me-1">{{ job.name }}</span>
+          <span class="text-muted ms-2" style="flex-shrink:0">×{{ job.quantity | int | format_number }}</span>
+          <span style="flex:1"></span>
+          {% if job.available > 0 %}
+          <span class="badge bg-success me-3" title="Máš na skladě" style="flex-shrink:0">{{ job.available | int | format_number }}</span>
+          {% endif %}
+          <span class="text-isk small" style="width:19ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;margin-right:1.5rem;white-space:nowrap">
+            {% if job.total_price %}{{ job.total_price | isk }} ISK{% endif %}
+          </span>
+        </button>
+      </h2>
+      <div id="{{ job_id }}" class="accordion-collapse collapse {% if loop.first and step.is_final %}show{% endif %}">
+        <div class="accordion-body p-0">
+          <table class="table table-sm mb-0 align-middle" style="font-size:.8rem;font-variant-numeric:tabular-nums">
+            <colgroup>
+              <col style="width:32px">
+              <col>
+              <col style="width:9ch">
+              <col style="width:9ch">
+              <col style="width:9ch">
+              <col style="width:14ch">
+            </colgroup>
+            <thead style="background:#1c2128">
+              <tr>
+                <th></th>
+                <th>Vstupní materiál</th>
+                <th class="text-end">Množství</th>
+                <th class="text-end">Na skladě</th>
+                <th class="text-end">Chybí</th>
+                <th class="text-end">Hodnota (ISK)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for inp in job.inputs %}
+              {% set missing_qty = [inp.quantity - inp.available, 0] | max %}
+              <tr {% if missing_qty > 0 %}style="border-left:2px solid #f85149"{% else %}style="border-left:2px solid #3fb950"{% endif %}>
+                <td>
+                  <img src="https://images.evetech.net/types/{{ inp.type_id }}/icon?size=32"
+                       width="24" height="24" class="rounded">
+                </td>
+                <td>
+                  {{ inp.name }}
+                  {% if not inp.is_leaf %}
+                    {% if inp.activity == 'reaction' %}
+                    <span class="badge ms-1 px-1" style="background:#6f42c1;font-size:.6rem">reakce</span>
+                    {% else %}
+                    <span class="badge ms-1 px-1" style="background:#0d6efd;font-size:.6rem">výroba</span>
+                    {% endif %}
+                  {% endif %}
+                </td>
+                <td class="text-end">{{ inp.quantity | int | format_number }}</td>
+                <td class="text-end {% if inp.available >= inp.quantity %}text-success{% elif inp.available > 0 %}text-warning{% else %}text-muted{% endif %}">
+                  {{ inp.available | int | format_number }}
+                </td>
+                <td class="text-end">
+                  {% if missing_qty > 0 %}
+                  <span class="text-danger fw-semibold">{{ missing_qty | int | format_number }}</span>
+                  {% else %}
+                  <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td class="text-end text-isk">
+                  {% if inp.total_price %}{{ inp.total_price | isk }}{% else %}<span class="text-muted opacity-50">—</span>{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              {% if job.input_cost %}
+              <tr style="border-top:1px solid #30363d">
+                <td colspan="5" class="text-muted small">Celkem vstupní náklady</td>
+                <td class="text-end fw-semibold text-isk">{{ job.input_cost | isk }}</td>
+              </tr>
+              {% endif %}
+              {% if job.job_fee is defined and job.job_fee > 0 %}
+              <tr style="background:#16191f">
+                <td colspan="5" class="text-muted small">
+                  Job fee &nbsp;·&nbsp; EIV {{ job.eiv | isk }} ISK
+                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">SCI {{ (job.sci * 100) | round(2) }}%</span>
+                </td>
+                <td class="text-end fw-semibold" style="color:#e3b341;font-size:.85rem">{{ job.job_fee | isk }}</td>
+              </tr>
+              {% endif %}
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="text-muted p-3">Výrobní postup není k dispozici.</div>
+{% endif %}
+</div>{# end tab-pane process #}
+
+</div>{# end tab-content #}
+
+{% endif %} {# end if result #}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const input = document.getElementById('product-input');
+  const box   = document.getElementById('product-suggestions');
+  if (!input) return;
+
+  let timer, activeIdx = -1, items = [];
+
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { hide(); return; }
+    timer = setTimeout(() => fetchSuggestions(q), 200);
+  });
+
+  input.addEventListener('keydown', e => {
+    if (!box.style.display || box.style.display === 'none') return;
+    if (e.key === 'ArrowDown')  { e.preventDefault(); move(1); }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); move(-1); }
+    if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); selectItem(items[activeIdx]); }
+    if (e.key === 'Escape')     { hide(); }
+  });
+
+  document.addEventListener('click', e => {
+    if (!box.contains(e.target) && e.target !== input) hide();
+  });
+
+  function move(dir) {
+    activeIdx = Math.max(-1, Math.min(items.length - 1, activeIdx + dir));
+    box.querySelectorAll('.suggest-item').forEach((el, i) => {
+      el.classList.toggle('suggest-active', i === activeIdx);
+    });
+  }
+
+  function selectItem(item) {
+    input.value = item.name;
+    // Předvyplň ME/TE z blueprintu pokud jsou dostupné
+    const meIn = document.getElementById('me-input');
+    const teIn = document.getElementById('te-input');
+    if (meIn && item.me !== undefined) meIn.value = item.me;
+    if (teIn && item.te !== undefined) teIn.value = item.te;
+    hide();
+    input.focus();
+  }
+
+  function hide() {
+    box.style.display = 'none';
+    activeIdx = -1;
+  }
+
+  async function fetchSuggestions(q) {
+    let data;
+    try {
+      const r = await fetch('/api/suggest?q=' + encodeURIComponent(q));
+      data = await r.json();
+    } catch { return; }
+
+    items = [...data.owned, ...data.other];
+    if (!items.length) { hide(); return; }
+
+    let html = '';
+
+    if (data.owned.length) {
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Moje blueprinty</div>`;
+      data.owned.forEach(item => {
+        const kind = item.is_original
+          ? `<span style="background:#1f6feb;color:#fff;border-radius:3px;padding:1px 5px;font-size:.7rem">BPO</span>`
+          : `<span style="background:#6e40c9;color:#fff;border-radius:3px;padding:1px 5px;font-size:.7rem">BPC</span>`;
+        const runs = item.is_original ? '' : `<span style="color:#8b949e;font-size:.75rem"> · ${item.runs} run${item.runs !== 1 ? 's' : ''}</span>`;
+        html += `
+          <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer" data-idx="${items.indexOf(item)}">
+            <img src="https://images.evetech.net/types/${item.type_id}/icon?size=32" width="28" height="28" class="rounded" style="flex-shrink:0">
+            <div style="flex:1;min-width:0">
+              <div class="fw-semibold text-truncate">${item.name}</div>
+              <div class="d-flex align-items-center gap-1 mt-1">
+                ${kind}
+                <span style="color:#3fb950;font-size:.75rem">ME ${item.me}</span>
+                <span style="color:#8b949e;font-size:.75rem">·</span>
+                <span style="color:#e3b341;font-size:.75rem">TE ${item.te}</span>
+                ${runs}
+              </div>
+            </div>
+          </div>`;
+      });
+    }
+
+    if (data.other.length) {
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-top:1px solid #30363d;border-bottom:1px solid #30363d;padding-top:8px!important">Všechny blueprinty</div>`;
+      data.other.forEach(item => {
+        html += `
+          <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer" data-idx="${items.indexOf(item)}">
+            <img src="https://images.evetech.net/types/${item.type_id}/icon?size=32" width="28" height="28" class="rounded" style="flex-shrink:0">
+            <span class="text-truncate">${item.name}</span>
+          </div>`;
+      });
+    }
+
+    box.innerHTML = html;
+    box.style.display = 'block';
+    activeIdx = -1;
+
+    box.querySelectorAll('.suggest-item').forEach((el, i) => {
+      el.addEventListener('mouseenter', () => {
+        activeIdx = i;
+        box.querySelectorAll('.suggest-item').forEach((e2, j) => e2.classList.toggle('suggest-active', j === i));
+      });
+      el.addEventListener('click', () => selectItem(items[i]));
+    });
+  }
+})();
+</script>
+<style>
+.suggest-item:hover, .suggest-active { background: #21262d; }
+</style>
+
+<script>
+(function () {
+  const display = document.getElementById('station-display');
+  const hidden  = document.getElementById('station-id');
+  const box     = document.getElementById('station-suggestions');
+  if (!display) return;
+
+  let timer, activeIdx = -1, items = [];
+
+  display.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = display.value.trim();
+    hidden.value = '';   // Při psaní vymažeme vybranou hodnotu
+    if (q.length < 2) { hide(); return; }
+    timer = setTimeout(() => fetchSuggestions(q), 200);
+  });
+
+  display.addEventListener('keydown', e => {
+    if (!box.style.display || box.style.display === 'none') return;
+    if (e.key === 'ArrowDown')  { e.preventDefault(); move(1); }
+    if (e.key === 'ArrowUp')    { e.preventDefault(); move(-1); }
+    if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); selectItem(items[activeIdx]); }
+    if (e.key === 'Escape')     { hide(); }
+  });
+
+  document.addEventListener('click', e => {
+    if (!box.contains(e.target) && e.target !== display) hide();
+  });
+
+  // Submit: pokud hidden je prázdné a display obsahuje číslo, použij jako ID
+  document.getElementById('plan-form').addEventListener('submit', () => {
+    if (!hidden.value && /^\d+$/.test(display.value.trim())) {
+      hidden.value = display.value.trim();
+    }
+  });
+
+  function move(dir) {
+    activeIdx = Math.max(-1, Math.min(items.length - 1, activeIdx + dir));
+    box.querySelectorAll('.suggest-item').forEach((el, i) =>
+      el.classList.toggle('suggest-active', i === activeIdx));
+  }
+
+  function selectItem(item) {
+    display.value = item.name;
+    hidden.value  = item.location_id;
+    hide();
+    display.focus();
+    loadStationIndustryInfo(item.location_id);
+  }
+
+  async function loadStationIndustryInfo(locationId) {
+    try {
+      const r = await fetch(`/api/station-industry-info?location_id=${locationId}`);
+      const info = await r.json();
+      // Auto-vyplnění facility tax pokud ESI vrátí hodnotu
+      const ftInput = document.getElementById('facility-tax-input');
+      if (ftInput && info.facility_tax_pct !== null && info.facility_tax_pct !== undefined) {
+        ftInput.value = info.facility_tax_pct.toFixed(1);
+      }
+      // Zobraz SCI
+      const sciDiv  = document.getElementById('sci-display');
+      const sciMfg  = document.getElementById('sci-mfg-val');
+      const sciRxn  = document.getElementById('sci-rxn-val');
+      if (sciDiv && sciMfg) {
+        sciMfg.textContent = `výr. ${(info.mfg_sci * 100).toFixed(2)}%`;
+        if (sciRxn) {
+          sciRxn.textContent = info.rxn_sci > 0
+            ? `· reak. ${(info.rxn_sci * 100).toFixed(2)}%`
+            : '';
+        }
+        sciDiv.classList.remove('d-none');
+        sciDiv.classList.add('d-flex');
+      }
+    } catch {}
+  }
+
+  function hide() { box.style.display = 'none'; activeIdx = -1; }
+
+  async function fetchSuggestions(q) {
+    let data;
+    try {
+      const r = await fetch('/api/suggest-station?q=' + encodeURIComponent(q));
+      data = await r.json();
+    } catch { return; }
+
+    items = [...(data.owned || []), ...(data.other || [])];
+    if (!items.length) { hide(); return; }
+
+    let html = '';
+
+    if (data.owned && data.owned.length) {
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Moje stanice</div>`;
+      data.owned.forEach(item => {
+        html += `
+          <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
+            <i class="bi bi-geo-alt-fill" style="color:#58a6ff;flex-shrink:0"></i>
+            <div style="flex:1;min-width:0">
+              <div class="fw-semibold text-truncate">${item.name}</div>
+              <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div>
+            </div>
+          </div>`;
+      });
+    }
+
+    if (data.other && data.other.length) {
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-top:1px solid #30363d;border-bottom:1px solid #30363d;padding-top:8px!important">Ostatní stanice</div>`;
+      data.other.forEach(item => {
+        html += `
+          <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
+            <i class="bi bi-geo-alt" style="color:#8b949e;flex-shrink:0"></i>
+            <div style="flex:1;min-width:0">
+              <div class="text-truncate">${item.name}</div>
+              <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div>
+            </div>
+          </div>`;
+      });
+    }
+
+    // Přidat strukturu — vždy na konci
+    html += `
+      <div style="border-top:1px solid #30363d;padding:6px 12px 6px">
+        <div style="color:#8b949e;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Přidat strukturu</div>
+        <div class="d-flex gap-1 mb-1">
+          <input id="add-struct-raw" type="text" placeholder="ID, &quot;ID Jméno&quot; nebo EVE URL link"
+                 class="form-control form-control-sm"
+                 style="flex:1;background:#0d1117;border-color:#30363d;color:#e6edf3;font-size:.8rem">
+          <button id="add-struct-btn" type="button" class="btn btn-sm"
+                  style="background:#21262d;border-color:#30363d;color:#e6edf3;white-space:nowrap;font-size:.8rem">
+            Přidat
+          </button>
+        </div>
+        <button id="add-loc-btn" type="button" class="btn btn-sm w-100"
+                style="background:#0d1117;border-color:#30363d;color:#8b949e;font-size:.75rem">
+          <i class="bi bi-crosshair me-1"></i>Přidat moji aktuální lokaci
+        </button>
+      </div>`;
+
+    box.innerHTML = html;
+    box.style.display = 'block';
+    activeIdx = -1;
+
+    box.querySelectorAll('.suggest-item').forEach((el, i) => {
+      el.addEventListener('mouseenter', () => {
+        activeIdx = i;
+        box.querySelectorAll('.suggest-item').forEach((e2, j) =>
+          e2.classList.toggle('suggest-active', j === i));
+      });
+      el.addEventListener('click', () => selectItem(items[i]));
+    });
+
+    // Přidat strukturu ručně
+    const addBtn  = document.getElementById('add-struct-btn');
+    const addRaw  = document.getElementById('add-struct-raw');
+    const addLocBtn = document.getElementById('add-loc-btn');
+
+    async function postAddStation(fd) {
+      const r = await fetch('/api/add-station', { method: 'POST', body: fd });
+      return r.json();
+    }
+
+    if (addBtn) {
+      addBtn.addEventListener('click', async () => {
+        const raw = addRaw.value.trim();
+        if (!raw) return;
+        addBtn.textContent = '…'; addBtn.disabled = true;
+        try {
+          const fd = new FormData(); fd.append('raw', raw);
+          const data = await postAddStation(fd);
+          if (data.error) { addBtn.textContent = 'Chyba'; }
+          else { selectItem({ location_id: data.location_id, name: data.name }); }
+        } catch { addBtn.textContent = 'Chyba'; }
+        addBtn.disabled = false; addBtn.textContent = 'Přidat';
+      });
+      addRaw.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
+    }
+
+    if (addLocBtn) {
+      addLocBtn.addEventListener('click', async () => {
+        addLocBtn.textContent = '…'; addLocBtn.disabled = true;
+        try {
+          const r = await fetch('/api/my-location');
+          const data = await r.json();
+          if (data.in_space) {
+            addLocBtn.textContent = `V prostoru: ${data.solar_system_name}`;
+          } else if (data.location_id) {
+            selectItem({ location_id: data.location_id, name: data.name });
+          } else {
+            addLocBtn.textContent = data.error || 'Chyba';
+          }
+        } catch { addLocBtn.textContent = 'Chyba'; }
+        addLocBtn.disabled = false;
+      });
+    }
+
+    // Zabráníme zavření dropdownu při kliknutí v sekci "přidat"
+    box.querySelector('div[style*="border-top"]')
+      ?.addEventListener('click', e => e.stopPropagation());
+  }
+})();
+</script>
+{% endblock %}
