@@ -74,9 +74,11 @@ def main() -> None:
     print("  Press Ctrl+C to quit.")
     print("=" * 56)
 
+    # Import the app object directly — string-based import fails in frozen mode.
+    from app.web.main import app as _app  # noqa: PLC0415
     import uvicorn
     uvicorn.run(
-        "app.web.main:app",
+        _app,
         host="127.0.0.1",
         port=8000,
         log_level="warning",
