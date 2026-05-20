@@ -403,8 +403,12 @@ async def dashboard(request: Request):
         if char:
             char_id, char_name = char
 
-        row = conn.execute("SELECT COUNT(*) FROM char_blueprints_cache").fetchone()
-        bp_count = row[0] if row else 0
+        if char_id:
+            row = conn.execute(
+                "SELECT json_array_length(data_json) FROM char_blueprints_cache WHERE character_id=?",
+                (char_id,)
+            ).fetchone()
+            bp_count = row[0] if row and row[0] else 0
 
         total_assets_value = None
         if char_id:
