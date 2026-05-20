@@ -5,19 +5,51 @@
 <div class="row justify-content-center mt-5">
   <div class="col-lg-5 text-center">
 
-    <div class="card p-5">
+    {# Phase 1 — ESI sync #}
+    <div id="phase-sync" class="card p-5">
       <div id="spinner-wrap" class="mb-4">
         <div class="spinner-border text-primary" style="width:3rem;height:3rem" role="status">
           <span class="visually-hidden">Loading...</span>
         </div>
       </div>
-
       <h5 class="mb-2">Loading your character data</h5>
       <p class="text-muted small mb-4">
         Fetching blueprints and assets from ESI.<br>This usually takes a few seconds.
       </p>
-
       <div id="status-line" class="text-muted small mb-3">Connecting to ESI...</div>
+      <a href="/" class="btn btn-outline-secondary btn-sm">Skip — go to dashboard</a>
+    </div>
+
+    {# Phase 2 — price prompt #}
+    <div id="phase-prices" class="card p-5 d-none">
+      <div class="mb-4">
+        <i class="bi bi-check-circle-fill text-success" style="font-size:3rem"></i>
+      </div>
+      <h5 class="mb-2">Character data loaded</h5>
+      <p class="text-muted small mb-4">
+        Do you want to download current Jita prices?<br>
+        This improves asset values and production cost estimates.
+      </p>
+      <div class="d-flex gap-2 justify-content-center">
+        <button class="btn btn-eve" onclick="startPrices()">
+          <i class="bi bi-currency-exchange me-1"></i>Download Jita prices
+        </button>
+        <a href="/" class="btn btn-outline-secondary">Skip</a>
+      </div>
+    </div>
+
+    {# Phase 3 — price progress #}
+    <div id="phase-price-progress" class="card p-5 d-none">
+      <div class="mb-4">
+        <div class="spinner-border text-warning" style="width:3rem;height:3rem" role="status"></div>
+      </div>
+      <h5 class="mb-2">Fetching Jita prices</h5>
+      <p class="text-muted small mb-3">Downloading market data from ESI...</p>
+
+      <div class="progress mb-3" style="height:6px">
+        <div id="price-bar" class="progress-bar bg-warning" style="width:0%"></div>
+      </div>
+      <div id="price-status" class="text-muted small mb-3">Starting...</div>
 
       <a href="/" class="btn btn-outline-secondary btn-sm">Skip — go to dashboard</a>
     </div>
@@ -28,36 +60,63 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let attempts = 0;
+// ── Phase 1: poll ESI sync status ──────────────────────────────────────────
+let syncAttempts = 0;
 
-async function poll() {
+async function pollSync() {
   try {
     const r = await fetch('/api/sync-status');
     const d = await r.json();
-
     if (d.done) {
-      document.getElementById('status-line').textContent = 'Done! Redirecting...';
-      document.getElementById('spinner-wrap').innerHTML =
-        '<i class="bi bi-check-circle-fill text-success" style="font-size:3rem"></i>';
-      setTimeout(() => window.location.href = '/', 800);
+      showPhase('prices');
       return;
     }
-
-    attempts++;
-    const msgs = [
-      'Fetching blueprints...',
-      'Loading assets...',
-      'Almost done...',
-    ];
+    syncAttempts++;
+    const msgs = ['Fetching blueprints...', 'Loading assets...', 'Almost done...'];
     document.getElementById('status-line').textContent =
-      msgs[Math.min(Math.floor(attempts / 3), msgs.length - 1)];
-
-    setTimeout(poll, 1500);
+      msgs[Math.min(Math.floor(syncAttempts / 3), msgs.length - 1)];
+    setTimeout(pollSync, 1500);
   } catch {
-    setTimeout(poll, 2000);
+    setTimeout(pollSync, 2000);
   }
 }
 
-poll();
+// ── Phase 2 → 3: start price stream ────────────────────────────────────────
+function startPrices() {
+  showPhase('price-progress');
+
+  const es = new EventSource('/prices/refresh/stream');
+  const bar = document.getElementById('price-bar');
+  const statusEl = document.getElementById('price-status');
+
+  es.onmessage = e => {
+    try {
+      const d = JSON.parse(e.data);
+      bar.style.width = (d.pct || 0) + '%';
+      if (d.done) {
+        es.close();
+        bar.style.width = '100%';
+        statusEl.textContent = 'Done! Redirecting...';
+        setTimeout(() => window.location.href = '/', 800);
+      } else {
+        statusEl.textContent = `${d.current} / ${d.total} prices loaded`;
+      }
+    } catch {}
+  };
+
+  es.onerror = () => {
+    es.close();
+    window.location.href = '/';
+  };
+}
+
+// ── helpers ─────────────────────────────────────────────────────────────────
+function showPhase(name) {
+  ['sync', 'prices', 'price-progress'].forEach(p =>
+    document.getElementById('phase-' + p).classList.toggle('d-none', p !== name)
+  );
+}
+
+pollSync();
 </script>
 {% endblock %}
