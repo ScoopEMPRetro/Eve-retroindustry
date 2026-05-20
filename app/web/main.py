@@ -320,12 +320,9 @@ def _load_assets_from_cache(conn: sqlite3.Connection, char_id: int) -> list[dict
 
 @app.get("/auth/login")
 async def auth_login():
-    from app.auth.token_store import get_client_id
-    if not get_client_id():
-        return RedirectResponse("/settings")
     url = start_web_login()
     if not url:
-        return RedirectResponse("/settings")
+        return RedirectResponse("/?login_busy=1")
     return RedirectResponse(url)
 
 
@@ -398,6 +395,7 @@ async def dashboard(request: Request):
         "asset_locations": asset_locations,
         "total_assets_value": total_assets_value,
         "price_stats": price_stats,
+        "login_busy": request.query_params.get("login_busy") == "1",
     })
 
 

@@ -9,15 +9,20 @@
 
     {# EVE Application setup #}
     <h6 class="text-muted text-uppercase mb-2" style="font-size:.75rem;letter-spacing:.06em">
-      <i class="bi bi-person-lock me-1"></i>EVE Application (required for login)
+      <i class="bi bi-person-lock me-1"></i>EVE Application (advanced)
     </h6>
     <div class="card mb-4">
       <div class="card-body">
 
+        <div class="alert alert-info py-2 small mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          EVE Retroindustry ships with a built-in Client ID — <strong>no setup needed</strong>.
+          Use this only if you want to use your own EVE application.
+        </div>
+
         <p class="small text-muted mb-3">
-          EVE Retroindustry uses the EVE Online ESI API. You need to register a personal
-          application on the <a href="https://developers.eveonline.com/" target="_blank" rel="noopener">
-          EVE Developer Portal</a> and paste your <strong>Client ID</strong> below.
+          Register a personal application on the <a href="https://developers.eveonline.com/" target="_blank" rel="noopener">
+          EVE Developer Portal</a> and paste your <strong>Client ID</strong> below to override the default.
         </p>
 
         {# Step 1 #}

@@ -11,6 +11,8 @@ _APP_DIR = os.environ.get("EVE_APP_DIR") or os.path.join(os.path.dirname(__file_
 CONFIG_PATH = os.path.join(_APP_DIR, ".eve_config.json")
 TOKEN_ENDPOINT = "https://login.eveonline.com/v2/oauth/token"
 
+_DEFAULT_CLIENT_ID = "50cc73daf13d4109a06821c143cb5ca4"
+
 
 def _load() -> dict:
     if not os.path.exists(CONFIG_PATH):
@@ -26,7 +28,7 @@ def _save(data: dict):
 
 
 def get_client_id() -> str | None:
-    return _load().get("client_id")
+    return _load().get("client_id") or _DEFAULT_CLIENT_ID
 
 
 def save_client_id(client_id: str):

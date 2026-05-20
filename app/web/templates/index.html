@@ -15,6 +15,14 @@
   {% endif %}
 </div>
 
+{% if login_busy %}
+<div class="alert alert-warning alert-dismissible fade show">
+  <i class="bi bi-hourglass-split me-2"></i>
+  Login is already in progress in another tab. Please wait a moment and try again.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
 {% if not logged_in %}
 <div class="alert alert-warning">
   <i class="bi bi-exclamation-triangle me-2"></i>
