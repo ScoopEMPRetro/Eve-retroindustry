@@ -304,11 +304,27 @@
         const data = await r.json();
 
         if (data.mode === 'group' && data.items.length) {
-          // Skupinový mód: nahraď tabulku výsledky skupiny
           data_group_name = data.group_name;
           tbody.innerHTML = data.items.map(makeGroupRow).join('');
           inGroupMode = true;
           noResults.classList.toggle('d-none', data.items.length > 0);
+          if (data.fetching_prices) {
+            // Prices are being fetched in the background — auto-refresh results after 6 s
+            const fetchingBanner = document.createElement('tr');
+            fetchingBanner.id = 'fetching-banner';
+            fetchingBanner.innerHTML = '<td colspan="7" class="text-center text-muted py-2" style="font-size:.8rem"><span class="spinner-border spinner-border-sm me-1"></span>Fetching prices… results will update automatically.</td>';
+            tbody.insertBefore(fetchingBanner, tbody.firstChild);
+            setTimeout(async () => {
+              try {
+                const r2 = await fetch('/api/prices/search?q=' + encodeURIComponent(q));
+                const d2 = await r2.json();
+                if (d2.mode === 'group' && d2.items.length && search.value.trim().toLowerCase() === q) {
+                  data_group_name = d2.group_name;
+                  tbody.innerHTML = d2.items.map(makeGroupRow).join('');
+                }
+              } catch { /* ignore */ }
+            }, 6000);
+          }
         } else {
           // Name mód: obnov originál + client-side filter
           restoreOriginal();

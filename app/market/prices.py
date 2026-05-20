@@ -15,8 +15,8 @@ JITA_REGION = 10000002   # The Forge
 JITA_STATION = 60003760  # Jita 4-4 CNAP
 PRICE_CACHE_TTL = 60 * 30  # 30 minut
 
-_JITA_SEM = asyncio.Semaphore(20)
-_HIST_SEM = asyncio.Semaphore(20)
+_JITA_SEM = asyncio.Semaphore(10)
+_HIST_SEM = asyncio.Semaphore(10)
 
 
 # ---------------------------------------------------------------------------
@@ -146,19 +146,38 @@ async def fetch_jita_price(
         if sell_c is not None or buy_c is not None:
             return sell_c, buy_c
 
-    async with _JITA_SEM:
-        orders_req = client.get(
-            f"{ESI_BASE}/markets/{JITA_REGION}/orders/",
-            params={"type_id": type_id, "order_type": "all", "datasource": "tranquility"},
-            timeout=15,
-        )
-        volume_req = _fetch_jita_volume(client, type_id)
-        orders_resp, volume = await asyncio.gather(orders_req, volume_req)
+    orders_resp = None
+    for attempt in range(3):
+        try:
+            async with _JITA_SEM:
+                orders_resp = await client.get(
+                    f"{ESI_BASE}/markets/{JITA_REGION}/orders/",
+                    params={"type_id": type_id, "order_type": "all", "datasource": "tranquility"},
+                    timeout=15,
+                )
+        except (httpx.TimeoutException, httpx.ConnectError):
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt * 3)
+                continue
+            return None, None
 
-    if orders_resp.status_code == 404:
-        _save_cached_price(conn, type_id, None, None, None, None)
+        if orders_resp.status_code in (420, 429):
+            retry_after = int(orders_resp.headers.get("Retry-After", 60))
+            await asyncio.sleep(min(retry_after, 120))
+            continue
+        if orders_resp.status_code == 404:
+            _save_cached_price(conn, type_id, None, None, None, None)
+            return None, None
+        if orders_resp.status_code != 200:
+            if attempt < 2:
+                await asyncio.sleep(5)
+                continue
+            return None, None
+        break
+    else:
         return None, None
-    orders_resp.raise_for_status()
+
+    volume = await _fetch_jita_volume(client, type_id)
 
     orders = orders_resp.json()
     sell_orders = [o for o in orders if not o["is_buy_order"]]

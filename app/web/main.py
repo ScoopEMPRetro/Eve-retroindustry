@@ -1681,23 +1681,38 @@ async def suggest(q: str = ""):
     }
 
 
+async def _bg_fetch_prices(type_ids: list[int]) -> None:
+    """Fire-and-forget: fetch Jita prices for the given type_ids using a fresh connection."""
+    import httpx as _httpx
+    from app.market.prices import fetch_jita_prices_bulk as _bulk
+    conn = get_conn()
+    try:
+        async with _httpx.AsyncClient() as client:
+            await _bulk(client, conn, type_ids, force=True)
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def _refresh_type_ids(conn) -> list[int]:
+    """Return the full set of type_ids to refresh: assets + blueprints + SDE materials + anything already cached."""
+    char = get_character()
+    asset_type_ids: set[int] = set()
+    bp_type_ids: set[int] = set()
+    if char:
+        asset_type_ids = {a["type_id"] for a in _load_assets_from_cache(conn, char[0])}
+        bp_type_ids = {bp["type_id"] for bp in _load_blueprints_from_cache(conn, char[0])}
+    mat_ids = {r[0] for r in conn.execute("SELECT DISTINCT material_type_id FROM sde_blueprint_materials").fetchall()}
+    cached_ids = {r[0] for r in conn.execute("SELECT type_id FROM market_price_cache").fetchall()}
+    return list(asset_type_ids | bp_type_ids | mat_ids | cached_ids)
+
+
 @app.post("/prices/refresh", response_class=HTMLResponse)
 async def prices_refresh(request: Request):
     conn = get_conn()
-    char = get_character()
-    asset_type_ids: set[int] = set()
-    if char:
-        raw = _load_assets_from_cache(conn, char[0])
-        asset_type_ids = {a["type_id"] for a in raw}
 
-    bp_type_ids: set[int] = set()
-    if char:
-        raw_bps = _load_blueprints_from_cache(conn, char[0])
-        bp_type_ids = {bp["type_id"] for bp in raw_bps}
-
-    mat_rows = conn.execute("SELECT DISTINCT material_type_id FROM sde_blueprint_materials").fetchall()
-
-    all_ids = list(asset_type_ids | bp_type_ids | {r[0] for r in mat_rows})
+    all_ids = _refresh_type_ids(conn)
 
     refreshed = await refresh_jita_prices_all(conn, all_ids)
     stats = get_price_cache_stats(conn)
@@ -1715,17 +1730,7 @@ async def prices_refresh(request: Request):
 @app.get("/prices/refresh/stream")
 async def prices_refresh_stream():
     conn = get_conn()
-    char = get_character()
-    asset_type_ids: set[int] = set()
-    if char:
-        raw = _load_assets_from_cache(conn, char[0])
-        asset_type_ids = {a["type_id"] for a in raw}
-    bp_type_ids: set[int] = set()
-    if char:
-        raw_bps = _load_blueprints_from_cache(conn, char[0])
-        bp_type_ids = {bp["type_id"] for bp in raw_bps}
-    mat_rows = conn.execute("SELECT DISTINCT material_type_id FROM sde_blueprint_materials").fetchall()
-    all_ids = list(asset_type_ids | bp_type_ids | {r[0] for r in mat_rows})
+    all_ids = _refresh_type_ids(conn)
 
     async def event_gen():
         try:
@@ -1782,10 +1787,23 @@ async def prices_search(q: str = ""):
         """, group_ids).fetchall()
         found_groups = list(dict.fromkeys(r[1] for r in group_rows))
         label = ", ".join(found_groups[:3])
+
+        # Ensure all returned types are tracked; background-fetch ones with no price yet.
+        uncached = [r[0] for r in rows if r[5] is None]  # cached_at IS NULL → never fetched
+        if uncached:
+            conn.executemany(
+                "INSERT OR IGNORE INTO market_price_cache (type_id, sell_price, buy_price, cached_at) VALUES (?,NULL,NULL,0)",
+                [(tid,) for tid in uncached],
+            )
+            conn.commit()
+            import asyncio as _asyncio
+            _asyncio.create_task(_bg_fetch_prices(uncached))
+
         conn.close()
         return {
             "mode": "group",
             "group_name": label,
+            "fetching_prices": len(uncached) > 0,
             "items": [
                 {
                     "type_id":       r[0],
