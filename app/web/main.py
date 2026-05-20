@@ -83,6 +83,9 @@ SDE_DOWNLOAD_URL = (
 # Set to True once SDE tables are confirmed present. Guards the setup gate.
 _SDE_READY: list[bool] = [False]
 
+# Tracks post-login ESI sync state.
+_sync_state: dict = {"running": False, "done": False}
+
 app = FastAPI(title="EVE Retroindustry")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -320,10 +323,45 @@ def _load_assets_from_cache(conn: sqlite3.Connection, char_id: int) -> list[dict
 
 @app.get("/auth/login")
 async def auth_login():
+    _sync_state["done"] = False
     url = start_web_login()
     if not url:
         return RedirectResponse("/?login_busy=1")
     return RedirectResponse(url)
+
+
+async def _bg_initial_sync():
+    """Fetch blueprints + assets from ESI after login."""
+    try:
+        token = get_valid_token()
+        char = get_character()
+        if not token or not char:
+            return
+        char_id, _ = char
+        conn = get_conn()
+        async with httpx.AsyncClient() as client:
+            await fetch_blueprints(client, char_id, token, conn)
+            await fetch_assets(client, char_id, token, conn)
+        conn.close()
+    finally:
+        _sync_state["running"] = False
+        _sync_state["done"] = True
+
+
+@app.get("/auth/sync", response_class=HTMLResponse)
+async def auth_sync(request: Request):
+    if not is_logged_in():
+        return RedirectResponse("/")
+    if not _sync_state["running"] and not _sync_state["done"]:
+        _sync_state["running"] = True
+        _sync_state["done"] = False
+        asyncio.create_task(_bg_initial_sync())
+    return _tr("sync.html", request, {})
+
+
+@app.get("/api/sync-status")
+async def api_sync_status():
+    return {"done": _sync_state["done"], "running": _sync_state["running"]}
 
 
 @app.get("/settings", response_class=HTMLResponse)

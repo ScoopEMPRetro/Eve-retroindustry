@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Loading — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center mt-5">
+  <div class="col-lg-5 text-center">
+
+    <div class="card p-5">
+      <div id="spinner-wrap" class="mb-4">
+        <div class="spinner-border text-primary" style="width:3rem;height:3rem" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+      </div>
+
+      <h5 class="mb-2">Loading your character data</h5>
+      <p class="text-muted small mb-4">
+        Fetching blueprints and assets from ESI.<br>This usually takes a few seconds.
+      </p>
+
+      <div id="status-line" class="text-muted small mb-3">Connecting to ESI...</div>
+
+      <a href="/" class="btn btn-outline-secondary btn-sm">Skip — go to dashboard</a>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let attempts = 0;
+
+async function poll() {
+  try {
+    const r = await fetch('/api/sync-status');
+    const d = await r.json();
+
+    if (d.done) {
+      document.getElementById('status-line').textContent = 'Done! Redirecting...';
+      document.getElementById('spinner-wrap').innerHTML =
+        '<i class="bi bi-check-circle-fill text-success" style="font-size:3rem"></i>';
+      setTimeout(() => window.location.href = '/', 800);
+      return;
+    }
+
+    attempts++;
+    const msgs = [
+      'Fetching blueprints...',
+      'Loading assets...',
+      'Almost done...',
+    ];
+    document.getElementById('status-line').textContent =
+      msgs[Math.min(Math.floor(attempts / 3), msgs.length - 1)];
+
+    setTimeout(poll, 1500);
+  } catch {
+    setTimeout(poll, 2000);
+  }
+}
+
+poll();
+</script>
+{% endblock %}

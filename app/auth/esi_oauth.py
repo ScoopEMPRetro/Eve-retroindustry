@@ -91,7 +91,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     code: str | None = None
     state: str | None = None
 
-    redirect_to: str = "http://localhost:8000/"
+    redirect_to: str = "http://localhost:8000/auth/sync"
 
     def do_GET(self):
         params = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
