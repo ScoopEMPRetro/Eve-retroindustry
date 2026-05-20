@@ -105,7 +105,18 @@
   </div>
 </div>
 
-{% if items %}
+{% if not items %}
+<div class="card p-4 text-center text-muted">
+  <i class="bi bi-currency-exchange mb-3" style="font-size:2.5rem;opacity:.3"></i>
+  <h6 class="mb-2">No price data yet</h6>
+  <p class="small mb-3">Click <strong>Refresh Jita Prices</strong> above to fetch current market data.<br>
+  This populates the table with sell/buy prices for all your materials and blueprints.</p>
+  <button class="btn btn-eve btn-sm mx-auto" style="width:fit-content"
+          onclick="document.getElementById('refresh-btn').click()">
+    <i class="bi bi-arrow-clockwise me-1"></i>Refresh Jita Prices now
+  </button>
+</div>
+{% else %}
 <div class="card p-4">
   <div class="row align-items-center mb-3 g-2">
     <div class="col">
