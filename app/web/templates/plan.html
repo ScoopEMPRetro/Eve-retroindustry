@@ -706,17 +706,18 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
           <span class="badge me-2 px-2" style="background:#0d6efd;font-size:.65rem;flex-shrink:0">MANUFACTURING</span>
           {% endif %}
           <span class="fw-semibold me-1">{{ job.name }}</span>
-          <span class="text-muted ms-2" style="flex-shrink:0">×{{ job.quantity | int | format_number }}</span>
           <span style="flex:1"></span>
-          {% if job.available > 0 %}
-          <span class="badge bg-success me-3" title="In stock" style="flex-shrink:0">{{ job.available | int | format_number }}</span>
-          {% endif %}
-          {% if job.job_duration is defined %}
-          <span class="text-warning small me-3" style="flex-shrink:0;font-size:.75rem!important;white-space:nowrap">
-            <i class="bi bi-clock me-1"></i>{{ job.job_duration }}
+          {# Pevně zarovnané sloupce vpravo #}
+          <span class="text-muted" style="width:8ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;white-space:nowrap">
+            ×{{ job.quantity | int | format_number }}
           </span>
-          {% endif %}
-          <span class="text-isk small" style="width:19ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;margin-right:1.5rem;white-space:nowrap">
+          <span class="text-muted" style="width:8ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;white-space:nowrap" title="Runs">
+            <i class="bi bi-arrow-repeat" style="font-size:.7rem"></i>{{ job.runs }}
+          </span>
+          <span class="text-warning" style="width:12ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;white-space:nowrap">
+            {% if job.job_duration is defined %}<i class="bi bi-clock me-1" style="font-size:.75rem"></i>{{ job.job_duration }}{% endif %}
+          </span>
+          <span class="text-isk" style="width:16ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;margin-right:1.5rem;white-space:nowrap">
             {% if job.total_price %}{{ job.total_price | isk }} ISK{% endif %}
           </span>
         </button>
