@@ -723,21 +723,21 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
       </h2>
       <div id="{{ job_id }}" class="accordion-collapse collapse {% if loop.first and step.is_final %}show{% endif %}">
         <div class="accordion-body p-0">
-          <table class="table table-sm mb-0 align-middle" style="font-size:.8rem;font-variant-numeric:tabular-nums">
+          <table class="table table-hover mb-0 align-middle" style="font-size:.875rem;font-variant-numeric:tabular-nums">
             <colgroup>
-              <col style="width:32px">
+              <col style="width:36px">
               <col>
-              <col style="width:9ch">
-              <col style="width:9ch">
-              <col style="width:9ch">
+              <col style="width:10ch">
+              <col style="width:10ch">
+              <col style="width:10ch">
               <col style="width:14ch">
             </colgroup>
-            <thead style="background:#1c2128">
+            <thead>
               <tr>
                 <th></th>
                 <th>Input material</th>
-                <th class="text-end">Quantity</th>
-                <th class="text-end">In stock</th>
+                <th class="text-end">Required</th>
+                <th class="text-end">At station</th>
                 <th class="text-end">Missing</th>
                 <th class="text-end">Value (ISK)</th>
               </tr>
@@ -745,10 +745,10 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
             <tbody>
               {% for inp in job.inputs %}
               {% set missing_qty = [inp.quantity - inp.available, 0] | max %}
-              <tr {% if missing_qty > 0 %}style="border-left:2px solid #f85149"{% else %}style="border-left:2px solid #3fb950"{% endif %}>
+              <tr {% if missing_qty > 0 %}class="material-missing"{% else %}class="material-ok"{% endif %}>
                 <td>
                   <img src="https://images.evetech.net/types/{{ inp.type_id }}/icon?size=32"
-                       width="24" height="24" class="rounded">
+                       width="32" height="32" class="rounded">
                 </td>
                 <td>
                   {{ inp.name }}
@@ -756,7 +756,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
                     {% if inp.activity == 'reaction' %}
                     <span class="badge ms-1 px-1" style="background:#6f42c1;font-size:.6rem">reaction</span>
                     {% else %}
-                    <span class="badge ms-1 px-1" style="background:#0d6efd;font-size:.6rem">manufacturing</span>
+                    <span class="badge ms-1 px-1" style="background:#0d6efd;font-size:.6rem">mfg</span>
                     {% endif %}
                   {% endif %}
                 </td>
@@ -779,34 +779,34 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
             </tbody>
             <tfoot>
               {% if job.input_cost %}
-              <tr style="border-top:1px solid #30363d">
+              <tr style="border-top:2px solid #30363d">
                 <td colspan="5" class="text-muted small">Total input costs</td>
                 <td class="text-end fw-semibold text-isk">{{ job.input_cost | isk }}</td>
               </tr>
               {% endif %}
               {% if job.job_duration is defined %}
-              <tr style="background:#16191f">
+              <tr>
                 <td colspan="5" class="text-muted small">
                   <i class="bi bi-clock me-1"></i>Build time
-                  <span class="text-muted" style="font-size:.7rem">({{ job.runs }} run{{ 's' if job.runs != 1 }})</span>
+                  <span class="text-muted ms-1" style="font-size:.75rem">({{ job.runs }} run{{ 's' if job.runs != 1 }})</span>
                   {% if job.science_skills %}
-                  <span class="ms-2" style="font-size:.7rem">
+                  <span class="ms-2" style="font-size:.75rem">
                     {% for sname, slevel, spct in job.science_skills %}
                     <span class="badge bg-secondary" title="{{ spct }}% per level">{{ sname }} L{{ slevel }}</span>
                     {% endfor %}
                   </span>
                   {% endif %}
                 </td>
-                <td class="text-end fw-semibold text-warning" style="font-size:.85rem">{{ job.job_duration }}</td>
+                <td class="text-end fw-semibold text-warning">{{ job.job_duration }}</td>
               </tr>
               {% endif %}
               {% if job.job_fee is defined and job.job_fee > 0 %}
-              <tr style="background:#16191f">
+              <tr>
                 <td colspan="5" class="text-muted small">
                   Job fee &nbsp;·&nbsp; EIV {{ job.eiv | isk }} ISK
                   <span class="badge bg-secondary ms-1" style="font-size:.6rem">SCI {{ (job.sci * 100) | round(2) }}% + SCC 0.25%</span>
                 </td>
-                <td class="text-end fw-semibold" style="color:#e3b341;font-size:.85rem">{{ job.job_fee | isk }}</td>
+                <td class="text-end fw-semibold text-warning">{{ job.job_fee | isk }}</td>
               </tr>
               {% endif %}
             </tfoot>
