@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Settings — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+
+    <h4 class="mb-4"><i class="bi bi-gear me-2 text-primary"></i>Settings</h4>
+
+    {# EVE Application setup #}
+    <h6 class="text-muted text-uppercase mb-2" style="font-size:.75rem;letter-spacing:.06em">
+      <i class="bi bi-person-lock me-1"></i>EVE Application (required for login)
+    </h6>
+    <div class="card mb-4">
+      <div class="card-body">
+
+        <p class="small text-muted mb-3">
+          EVE Retroindustry uses the EVE Online ESI API. You need to register a personal
+          application on the <a href="https://developers.eveonline.com/" target="_blank" rel="noopener">
+          EVE Developer Portal</a> and paste your <strong>Client ID</strong> below.
+        </p>
+
+        {# Step 1 #}
+        <div class="mb-3">
+          <div class="fw-semibold small mb-1">1 — Register an application</div>
+          <ol class="small text-muted ps-3 mb-0">
+            <li>Go to <a href="https://developers.eveonline.com/" target="_blank" rel="noopener">developers.eveonline.com</a> and log in.</li>
+            <li>Click <strong>Create new application</strong>.</li>
+            <li>Set <strong>Connection Type</strong> to <em>Authentication & API Access</em>.</li>
+            <li>Add the following <strong>Callback URL</strong>:</li>
+          </ol>
+          <div class="mt-2 d-flex align-items-center gap-2">
+            <code id="callback-url" class="px-2 py-1 rounded" style="background:#21262d;font-size:.85rem">{{ callback_url }}</code>
+            <button class="btn btn-sm btn-outline-secondary" onclick="copyCallback()">
+              <i class="bi bi-clipboard me-1"></i>Copy
+            </button>
+          </div>
+        </div>
+
+        {# Step 2 — Scopes #}
+        <div class="mb-3">
+          <div class="fw-semibold small mb-1">2 — Add these scopes</div>
+          <div class="d-flex flex-wrap gap-1">
+            {% for s in scopes %}
+            <code style="font-size:.72rem;background:#21262d;padding:2px 6px;border-radius:4px">{{ s }}</code>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# Step 3 — Client ID #}
+        <div class="mb-0">
+          <div class="fw-semibold small mb-2">3 — Paste your Client ID</div>
+          <div class="input-group">
+            <input type="text" id="client-id-input" class="form-control form-control-sm font-monospace"
+                   placeholder="e.g. abc123def456..."
+                   value="{{ client_id }}"
+                   style="background:#0d1117;color:#e6edf3;border-color:#30363d">
+            <button class="btn btn-eve btn-sm" onclick="saveClientId()">
+              <i class="bi bi-check-lg me-1"></i>Save
+            </button>
+          </div>
+          <div id="save-msg" class="small mt-1 d-none"></div>
+        </div>
+
+      </div>
+    </div>
+
+    {% if client_id %}
+    <div class="d-flex gap-2">
+      <a href="/auth/login" class="btn btn-eve">
+        <i class="bi bi-person-lock me-1"></i>Log In with EVE SSO
+      </a>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function copyCallback() {
+  navigator.clipboard.writeText(document.getElementById('callback-url').textContent);
+}
+
+async function saveClientId() {
+  const cid = document.getElementById('client-id-input').value.trim();
+  const msg = document.getElementById('save-msg');
+  if (!cid) { showMsg('Client ID cannot be empty.', false); return; }
+
+  const r = await fetch('/api/settings/client-id', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({client_id: cid}),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    showMsg('Saved! You can now log in.', true);
+    setTimeout(() => window.location.reload(), 800);
+  } else {
+    showMsg(d.error || 'Error saving.', false);
+  }
+}
+
+function showMsg(text, ok) {
+  const el = document.getElementById('save-msg');
+  el.textContent = text;
+  el.className = 'small mt-1 ' + (ok ? 'text-success' : 'text-danger');
+}
+</script>
+{% endblock %}

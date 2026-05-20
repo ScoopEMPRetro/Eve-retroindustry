@@ -7,7 +7,8 @@ import os
 import time
 import httpx
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "../../../.eve_config.json")
+_APP_DIR = os.environ.get("EVE_APP_DIR") or os.path.join(os.path.dirname(__file__), "../../..")
+CONFIG_PATH = os.path.join(_APP_DIR, ".eve_config.json")
 TOKEN_ENDPOINT = "https://login.eveonline.com/v2/oauth/token"
 
 

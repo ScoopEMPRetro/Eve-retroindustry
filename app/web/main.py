@@ -320,10 +320,35 @@ def _load_assets_from_cache(conn: sqlite3.Connection, char_id: int) -> list[dict
 
 @app.get("/auth/login")
 async def auth_login():
+    from app.auth.token_store import get_client_id
+    if not get_client_id():
+        return RedirectResponse("/settings")
     url = start_web_login()
     if not url:
-        return HTMLResponse("<p>Login už probíhá nebo chybí client_id.</p>", status_code=400)
+        return RedirectResponse("/settings")
     return RedirectResponse(url)
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    from app.auth.token_store import get_client_id
+    from app.auth.esi_oauth import CALLBACK_URL, SCOPES
+    return _tr("settings.html", request, {
+        "client_id": get_client_id() or "",
+        "callback_url": CALLBACK_URL,
+        "scopes": SCOPES,
+    })
+
+
+@app.post("/api/settings/client-id")
+async def api_save_client_id(request: Request):
+    body = await request.json()
+    cid = body.get("client_id", "").strip()
+    if not cid:
+        return {"ok": False, "error": "Client ID cannot be empty."}
+    from app.auth.token_store import save_client_id
+    save_client_id(cid)
+    return {"ok": True}
 
 
 # Dashboard
