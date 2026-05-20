@@ -9,12 +9,15 @@ venv/
 # PyInstaller build artifacts
 dist/
 build/
-sde_base.db
 
-# Databáze a citlivá data
+# sde_base.db IS tracked in git (uploaded to GitHub Releases for first-run setup)
+# !sde_base.db  ← override needed because *.db is ignored above
+
+# Databáze a citlivá data (sde_base.db je výjimka — trackován v gitu)
 *.db
 *.db-shm
 *.db-wal
+!sde_base.db
 data/tokens.json
 
 # EVE SDE data (velké soubory, stahují se separátně)
