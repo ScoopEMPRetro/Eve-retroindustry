@@ -1217,12 +1217,24 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
     _renderBox(html);
   }
 
+  function showLoading() {
+    box.innerHTML = `<div class="px-3 py-2 text-muted small d-flex align-items-center gap-2">
+      <div class="spinner-border spinner-border-sm" style="width:.8rem;height:.8rem;border-width:2px"></div>
+      Searching...
+    </div>` + buildAddStructureHtml();
+    box.style.display = 'block';
+  }
+
   async function fetchSuggestions(q) {
+    showLoading();
     let data;
     try {
       const r = await fetch('/api/suggest-station?q=' + encodeURIComponent(q));
       data = await r.json();
-    } catch { return; }
+    } catch {
+      hide();
+      return;
+    }
 
     items = [...(data.owned || []), ...(data.other || [])];
     let html = '';
@@ -1244,9 +1256,11 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
           <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div></div></div>`;
       });
     }
+    if (!items.length) {
+      html += `<div class="px-3 py-2 text-muted small">No stations found — try a system name (e.g. "Jita") or paste a station ID below.</div>`;
+    }
     html += buildAddStructureHtml();
     _renderBox(html);
-    if (!items.length) { hide(); }
   }
 }
 

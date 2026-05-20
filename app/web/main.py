@@ -331,7 +331,7 @@ async def auth_login():
 
 
 async def _bg_initial_sync():
-    """Fetch blueprints + assets from ESI after login."""
+    """Fetch blueprints + assets from ESI after login, then resolve location names."""
     try:
         token = get_valid_token()
         char = get_character()
@@ -341,7 +341,13 @@ async def _bg_initial_sync():
         conn = get_conn()
         async with httpx.AsyncClient() as client:
             await fetch_blueprints(client, char_id, token, conn)
-            await fetch_assets(client, char_id, token, conn)
+            all_assets = await fetch_assets(client, char_id, token, conn)
+
+        # Resolve location names so station autocomplete works immediately
+        loc_ids = list({a["location_id"] for a in all_assets})
+        if loc_ids:
+            await resolve_station_names_bulk(loc_ids, token=token, conn=conn)
+
         conn.close()
     finally:
         _sync_state["running"] = False
