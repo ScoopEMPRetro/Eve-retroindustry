@@ -25,6 +25,9 @@ a = Analysis(
         ("app/web/templates", "app/web/templates"),
     ],
     hiddenimports=[
+        # JWT / auth
+        "jwt",
+        "jwt.algorithms",
         # uvicorn internals not auto-detected
         "uvicorn.logging",
         "uvicorn.loops",
