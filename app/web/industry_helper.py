@@ -6,8 +6,8 @@ import httpx
 
 ESI_BASE = "https://esi.evetech.net/latest"
 
-# SCC Surcharge přidaný ve Viridian (červen 2023) — vždy 0.25 %
-_SCC = 0.0025
+# SCC Surcharge — zvýšen 1. 2. 2024 z 1.5 % na 4.0 % (třetí navýšení od Viridian 2023)
+_SCC = 0.04
 
 
 def ensure_industry_tables(conn: sqlite3.Connection):
@@ -96,11 +96,20 @@ STRUCTURE_TYPE_MAP: dict[str, tuple[str, str]] = {
 
 # Structure type → TE bonus (% reduction of job time)
 STRUCTURE_TE_BONUS: dict[str, float] = {
+    "raitaru": 15.0,
+    "azbel":   20.0,
+    "sotiyo":  30.0,
+    "athanor":  0.0,
+    "tatara":  25.0,
+}
+
+# Structure type → base ME bonus (%) — engineering complexes give 1% ME, refineries 0%
+STRUCTURE_ME_BONUS: dict[str, float] = {
     "raitaru": 1.0,
-    "azbel":   2.0,
-    "sotiyo":  4.0,
-    "athanor": 1.0,
-    "tatara":  2.0,
+    "azbel":   1.0,
+    "sotiyo":  1.0,
+    "athanor": 0.0,
+    "tatara":  0.0,
 }
 
 
@@ -169,7 +178,7 @@ def save_station_rigs_full(
 ) -> float:
     """Save rig configuration for a station and return the computed ME bonus (%)."""
     rig_ids = [r for r in [rig1_type_id, rig2_type_id, rig3_type_id] if r]
-    me_bonus = 0.0
+    me_bonus = STRUCTURE_ME_BONUS.get(structure_type or "", 0.0)
     if rig_ids:
         # Query each unique rig type once, then sum counting duplicates
         unique_ids = list(set(rig_ids))
@@ -177,7 +186,7 @@ def save_station_rigs_full(
         bonus_map = {r[0]: r[1] for r in conn.execute(
             f"SELECT type_id, me_bonus FROM rig_bonuses WHERE type_id IN ({ph})", unique_ids
         ).fetchall()}
-        me_bonus = sum(bonus_map.get(rid, 0.0) for rid in rig_ids)
+        me_bonus += sum(bonus_map.get(rid, 0.0) for rid in rig_ids)
 
     conn.execute(
         """INSERT OR REPLACE INTO station_rigs
@@ -374,7 +383,7 @@ async def derive_facility_tax(
     """
     Odvodí facility tax z charakterových výrobních jobů:
         facility_tax = job.cost / EIV − SCI − SCC
-    kde SCC = 0.0025 (State Compensation Commission surcharge, přidán ve Viridian 2023).
+    kde SCC = 0.04 (State Compensation Commission surcharge, zvýšen 1. 2. 2024).
 
     Spolehlivost:
     - Používá POUZE joby spuštěné PO posledním downtimeu (SCI epoch shoda → přesné).

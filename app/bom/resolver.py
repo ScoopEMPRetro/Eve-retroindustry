@@ -138,8 +138,8 @@ class BOMResolver:
     @staticmethod
     def _apply_me(base_qty: int, runs: int, me: float, facility_me_bonus: float = 0.0) -> int:
         """
-        EVE formula:
-        total = max(runs, ceil(base_qty * runs * (1 - me/100) * (1 - facility_me_bonus/100)))
+        EVE formula (per CCP): max(runs, ceil(round(base * runs * (1-ME/100) * (1-fac/100), 2)))
+        round(..., 2) before ceil prevents floating-point drift on boundary values.
         """
-        adjusted = ceil(base_qty * runs * (1 - me / 100) * (1 - facility_me_bonus / 100))
-        return max(runs, adjusted)
+        raw = base_qty * runs * (1 - me / 100) * (1 - facility_me_bonus / 100)
+        return max(runs, ceil(round(raw, 2)))
