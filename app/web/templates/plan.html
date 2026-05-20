@@ -711,6 +711,11 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
           {% if job.available > 0 %}
           <span class="badge bg-success me-3" title="In stock" style="flex-shrink:0">{{ job.available | int | format_number }}</span>
           {% endif %}
+          {% if job.job_duration is defined %}
+          <span class="text-warning small me-3" style="flex-shrink:0;font-size:.75rem!important;white-space:nowrap">
+            <i class="bi bi-clock me-1"></i>{{ job.job_duration }}
+          </span>
+          {% endif %}
           <span class="text-isk small" style="width:19ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;margin-right:1.5rem;white-space:nowrap">
             {% if job.total_price %}{{ job.total_price | isk }} ISK{% endif %}
           </span>
