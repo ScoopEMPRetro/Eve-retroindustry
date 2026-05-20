@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="cs" data-bs-theme="dark">
+<html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -49,19 +49,19 @@
           <a class="nav-link {% if request.url.path == '/' %}active{% endif %}" href="/"><i class="bi bi-speedometer2 me-1"></i>Dashboard</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/plan') %}active{% endif %}" href="/plan"><i class="bi bi-hammer me-1"></i>Výrobní plán</a>
+          <a class="nav-link {% if request.url.path.startswith('/plan') %}active{% endif %}" href="/plan"><i class="bi bi-hammer me-1"></i>Production Plan</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/assets') %}active{% endif %}" href="/assets"><i class="bi bi-box-seam me-1"></i>Assety</a>
+          <a class="nav-link {% if request.url.path.startswith('/assets') %}active{% endif %}" href="/assets"><i class="bi bi-box-seam me-1"></i>Assets</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/blueprints') %}active{% endif %}" href="/blueprints"><i class="bi bi-file-earmark-text me-1"></i>Blueprinty</a>
+          <a class="nav-link {% if request.url.path.startswith('/blueprints') %}active{% endif %}" href="/blueprints"><i class="bi bi-file-earmark-text me-1"></i>Blueprints</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/prices') %}active{% endif %}" href="/prices"><i class="bi bi-currency-exchange me-1"></i>Ceny</a>
+          <a class="nav-link {% if request.url.path.startswith('/prices') %}active{% endif %}" href="/prices"><i class="bi bi-currency-exchange me-1"></i>Prices</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/projects') %}active{% endif %}" href="/projects"><i class="bi bi-kanban me-1"></i>Projekty</a>
+          <a class="nav-link {% if request.url.path.startswith('/projects') %}active{% endif %}" href="/projects"><i class="bi bi-kanban me-1"></i>Projects</a>
         </li>
       </ul>
       <ul class="navbar-nav ms-auto align-items-center gap-2">
@@ -78,8 +78,8 @@
         {% endif %}
         <li class="nav-item">
           <a href="/auth/login" class="btn btn-sm btn-outline-secondary"
-             title="{% if character %}Znovu přihlásit (aktualizovat token/scope){% else %}Přihlásit se přes EVE SSO{% endif %}">
-            <i class="bi bi-person-lock me-1"></i>{% if character %}Znovu přihlásit{% else %}Přihlásit{% endif %}
+             title="{% if character %}Re-authenticate (refresh token/scope){% else %}Log In via EVE SSO{% endif %}">
+            <i class="bi bi-person-lock me-1"></i>{% if character %}Re-authenticate{% else %}Log In{% endif %}
           </a>
         </li>
       </ul>

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Výrobní plán — EVE Retroindustry{% endblock %}
+{% block title %}Production Plan — EVE Retroindustry{% endblock %}
 {% block content %}
 
 <div class="row mb-4">
   <div class="col">
-    <h4 class="mb-0"><i class="bi bi-hammer me-2 text-primary"></i>Výrobní plán</h4>
+    <h4 class="mb-0"><i class="bi bi-hammer me-2 text-primary"></i>Production Plan</h4>
   </div>
 </div>
 
@@ -15,7 +15,7 @@
     {# Řádek 1: Co a kolik vyrábět #}
     <div class="row g-3 align-items-end">
       <div class="col-sm-6 col-lg-4" style="position:relative">
-        <label class="form-label text-muted small">Produkt</label>
+        <label class="form-label text-muted small">Product</label>
         <input type="text" name="product" id="product-input" class="form-control"
                placeholder="Phoenix, Raven, 19726…"
                value="{{ form_product or '' }}" required autocomplete="off">
@@ -27,7 +27,7 @@
         "></div>
       </div>
       <div class="col-4 col-sm-2 col-lg-1">
-        <label class="form-label text-muted small">Počet</label>
+        <label class="form-label text-muted small">Quantity</label>
         <input type="number" name="qty" class="form-control" min="1" value="{{ form_qty or 1 }}">
       </div>
       <div class="col-4 col-sm-2 col-lg-1">
@@ -45,16 +45,16 @@
                min="0" max="20" placeholder="—" value="{{ form_te or '' }}">
       </div>
       <div class="col-sm-4 col-lg-2">
-        <label class="form-label text-muted small">Mód</label>
+        <label class="form-label text-muted small">Mode</label>
         <select name="mode" class="form-select">
-          <option value="full"       {% if form_mode == 'full'       %}selected{% endif %}>Full — základní suroviny</option>
-          <option value="components" {% if form_mode == 'components' %}selected{% endif %}>Components — 1. úroveň</option>
+          <option value="full"       {% if form_mode == 'full'       %}selected{% endif %}>Full — basic materials</option>
+          <option value="components" {% if form_mode == 'components' %}selected{% endif %}>Components — 1st level</option>
           <option value="optimal"    {% if form_mode == 'optimal'    %}selected{% endif %}>Optimal — make vs buy</option>
         </select>
       </div>
       <div class="col-sm-auto ms-sm-auto">
         <button type="submit" class="btn btn-eve px-4">
-          <i class="bi bi-calculator me-1"></i>Vypočítat
+          <i class="bi bi-calculator me-1"></i>Calculate
         </button>
       </div>
     </div>
@@ -62,7 +62,7 @@
     {# Řádek 2: Stanice — výrobní | reakční | prodejní #}
     <div class="row g-3 align-items-end mt-1">
       <div class="col-sm-4" style="position:relative">
-        <label class="form-label text-muted small">Výrobní stanice</label>
+        <label class="form-label text-muted small">Manufacturing station</label>
         <input type="text" id="station-display" class="form-control"
                placeholder="Jita, 60003760…"
                value="{{ form_station_name or form_station or '' }}" autocomplete="off">
@@ -77,11 +77,11 @@
       </div>
       <div class="col-sm-4" style="position:relative">
         <label class="form-label text-muted small">
-          Reakční stanice
-          <span class="text-muted" style="font-size:.7rem;opacity:.6">(nebo výrobní)</span>
+          Reaction station
+          <span class="text-muted" style="font-size:.7rem;opacity:.6">(or manufacturing)</span>
         </label>
         <input type="text" id="rxn-station-display" class="form-control"
-               placeholder="jako výrobní…"
+               placeholder="same as manufacturing…"
                value="{{ form_rxn_station_name or '' }}" autocomplete="off">
         <input type="hidden" name="reaction_station" id="rxn-station-id"
                value="{{ form_rxn_station or '' }}">
@@ -94,11 +94,11 @@
       </div>
       <div class="col-sm-4" style="position:relative">
         <label class="form-label text-muted small">
-          Prodejní stanice
-          <span class="text-muted" style="font-size:.7rem;opacity:.6">(pro cenu)</span>
+          Sell station
+          <span class="text-muted" style="font-size:.7rem;opacity:.6">(for pricing)</span>
         </label>
         <input type="text" id="sell-station-display" class="form-control"
-               placeholder="jako výrobní…"
+               placeholder="same as manufacturing…"
                value="{{ form_selling_station_name or '' }}" autocomplete="off">
         <input type="hidden" name="selling_station" id="sell-station-id"
                value="{{ form_selling_station or '' }}">
@@ -118,7 +118,7 @@
       <div class="col-12 col-md-6 pe-md-3 pb-2 pb-md-0">
         <div class="d-flex flex-wrap align-items-end gap-2">
           <span class="d-flex align-items-center text-muted small fw-semibold" style="width:4rem;height:31px">
-            <i class="bi bi-hammer me-1" style="color:#79c0ff"></i>Výroba
+            <i class="bi bi-hammer me-1" style="color:#79c0ff"></i>Manufacturing
           </span>
           <div>
             <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
@@ -131,7 +131,7 @@
                      step="0.1" min="0" max="25" value="{{ form_facility_tax or '2.5' }}"
                      style="width:80px">
               <button type="button" class="btn btn-link p-0 text-muted" style="font-size:.65rem;white-space:nowrap"
-                      onclick="saveDefaultTax('mfg')" title="Uložit jako výchozí hodnotu pro nové plány">★ výchozí</button>
+                      onclick="saveDefaultTax('mfg')" title="Save as default value for new plans">★ default</button>
             </div>
           </div>
           <div id="sci-display" class="d-none align-items-end" style="height:31px">
@@ -140,10 +140,10 @@
             </span>
           </div>
           <div>
-            <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Struktura</label>
+            <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Structure</label>
             <select id="mfg-structure-type" class="form-select form-select-sm" style="width:155px"
                     onchange="onStructureTypeChange('mfg', this.value)">
-              <option value="npc">NPC stanice</option>
+              <option value="npc">NPC station</option>
               <option value="raitaru">Raitaru (M-Set)</option>
               <option value="azbel">Azbel (L-Set)</option>
               <option value="sotiyo">Sotiyo (XL-Set)</option>
@@ -157,7 +157,7 @@
       <div class="col-12 col-md-6 ps-md-3 pt-2 pt-md-0 plan-rxn-section">
         <div class="d-flex flex-wrap align-items-end gap-2">
           <span class="d-flex align-items-center text-muted small fw-semibold" style="width:4rem;height:31px">
-            <i class="bi bi-arrows-angle-contract me-1" style="color:#a5d6ff"></i>Reakce
+            <i class="bi bi-arrows-angle-contract me-1" style="color:#a5d6ff"></i>Reaction
           </span>
           <div>
             <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
@@ -170,7 +170,7 @@
                      step="0.1" min="0" max="25" value="{{ form_rxn_facility_tax or '2.5' }}"
                      style="width:80px">
               <button type="button" class="btn btn-link p-0 text-muted" style="font-size:.65rem;white-space:nowrap"
-                      onclick="saveDefaultTax('rxn')" title="Uložit jako výchozí hodnotu pro nové plány">★ výchozí</button>
+                      onclick="saveDefaultTax('rxn')" title="Save as default value for new plans">★ default</button>
             </div>
           </div>
           <div id="rxn-sci-display" class="d-none align-items-end" style="height:31px">
@@ -179,10 +179,10 @@
             </span>
           </div>
           <div>
-            <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Struktura</label>
+            <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Structure</label>
             <select id="rxn-structure-type" class="form-select form-select-sm" style="width:155px"
                     onchange="onStructureTypeChange('rxn', this.value)">
-              <option value="npc">NPC stanice</option>
+              <option value="npc">NPC station</option>
               <option value="athanor">Athanor (M-Set)</option>
               <option value="tatara">Tatara (L-Set)</option>
             </select>
@@ -196,27 +196,27 @@
     {# Rig sloty — výroba #}
     <div id="mfg-rig-container" class="row g-2 align-items-end mt-1 pt-1 d-none" style="border-top:1px solid #21262d">
       <div class="col-auto d-flex align-items-center pb-1">
-        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#79c0ff">Rigy výroby</span></span>
+        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#79c0ff">Manufacturing rigs</span></span>
       </div>
       <div class="col-auto">
         <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 1</label>
         <select id="mfg-rig1-select" class="form-select form-select-sm rig-select" style="width:280px"
                 onchange="onRigChange('mfg')">
-          <option value="">— žádný —</option>
+          <option value="">— none —</option>
         </select>
       </div>
       <div class="col-auto">
         <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 2</label>
         <select id="mfg-rig2-select" class="form-select form-select-sm rig-select" style="width:280px"
                 onchange="onRigChange('mfg')">
-          <option value="">— žádný —</option>
+          <option value="">— none —</option>
         </select>
       </div>
       <div class="col-auto">
         <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 3</label>
         <select id="mfg-rig3-select" class="form-select form-select-sm rig-select" style="width:280px"
                 onchange="onRigChange('mfg')">
-          <option value="">— žádný —</option>
+          <option value="">— none —</option>
         </select>
       </div>
       <div class="col-auto d-flex align-items-end pb-1">
@@ -229,27 +229,27 @@
     {# Rig sloty — reakce #}
     <div id="rxn-rig-container" class="row g-2 align-items-end mt-1 pt-1 d-none" style="border-top:1px solid #21262d">
       <div class="col-auto d-flex align-items-center pb-1">
-        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#a5d6ff">Rigy reakce</span></span>
+        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#a5d6ff">Reaction rigs</span></span>
       </div>
       <div class="col-auto">
         <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 1</label>
         <select id="rxn-rig1-select" class="form-select form-select-sm rig-select" style="width:280px"
                 onchange="onRigChange('rxn')">
-          <option value="">— žádný —</option>
+          <option value="">— none —</option>
         </select>
       </div>
       <div class="col-auto">
         <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 2</label>
         <select id="rxn-rig2-select" class="form-select form-select-sm rig-select" style="width:280px"
                 onchange="onRigChange('rxn')">
-          <option value="">— žádný —</option>
+          <option value="">— none —</option>
         </select>
       </div>
       <div class="col-auto">
         <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 3</label>
         <select id="rxn-rig3-select" class="form-select form-select-sm rig-select" style="width:280px"
                 onchange="onRigChange('rxn')">
-          <option value="">— žádný —</option>
+          <option value="">— none —</option>
         </select>
       </div>
       <div class="col-auto d-flex align-items-end pb-1">
@@ -293,18 +293,18 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
         <span class="text-muted small">
           ME: <strong class="text-success">{{ result.blueprint.me }}</strong>
           &nbsp;TE: <strong class="text-warning">{{ result.blueprint.te }}</strong>
-          {% if not result.blueprint.manual %}Runy: <strong>{{ result.blueprint.runs }}</strong>{% endif %}
+          {% if not result.blueprint.manual %}Runs: <strong>{{ result.blueprint.runs }}</strong>{% endif %}
           {% if form_facility_me_bonus and form_facility_me_bonus != '0' %}
-          &nbsp;·&nbsp;Rigy ME: <strong class="text-info">{{ form_facility_me_bonus }}%</strong>
+          &nbsp;·&nbsp;Rig ME: <strong class="text-info">{{ form_facility_me_bonus }}%</strong>
           {% endif %}
-          {% if result.blueprint.manual %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">zadáno ručně</span>{% endif %}
+          {% if result.blueprint.manual %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">entered manually</span>{% endif %}
         </span>
       {% else %}
-      <span class="badge bg-danger">Nemáš blueprint</span>
+      <span class="badge bg-danger">No blueprint</span>
       {% endif %}
       <div class="mt-1">
         <span class="badge bg-secondary">{{ result.mode }}</span>
-        <span class="text-muted small ms-2">Stanice ID: {{ result.location_id }}</span>
+        <span class="text-muted small ms-2">Station ID: {{ result.location_id }}</span>
       </div>
     </div>
     <div class="col-auto text-end">
@@ -313,24 +313,24 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
                style="cursor:pointer;font-size:1.1rem" checked
                onchange="toggleStockMode(this.checked)">
         <label class="form-check-label small" for="stock-toggle" style="cursor:pointer;color:#8b949e">
-          <i class="bi bi-box-seam me-1"></i>Zásoby
+          <i class="bi bi-box-seam me-1"></i>Stock
         </label>
       </div>
       {% if result.can_manufacture %}
       <span id="stock-badge"
-            data-with-html='<i class="bi bi-check-circle me-1"></i>Máš vše k výrobě'
-            data-without-html='<i class="bi bi-x-circle me-1"></i>Chybí {{ result.materials | selectattr("required", ">", 0) | list | length }} druhů'
-            class="badge bg-success fs-6"><i class="bi bi-check-circle me-1"></i>Máš vše k výrobě</span>
+            data-with-html='<i class="bi bi-check-circle me-1"></i>Ready to manufacture'
+            data-without-html='<i class="bi bi-x-circle me-1"></i>{{ result.materials | selectattr("required", ">", 0) | list | length }} types missing'
+            class="badge bg-success fs-6"><i class="bi bi-check-circle me-1"></i>Ready to manufacture</span>
       {% else %}
       <span id="stock-badge"
-            data-with-html='<i class="bi bi-x-circle me-1"></i>Chybí {{ result.total_missing_types }} druhů'
-            data-without-html='<i class="bi bi-x-circle me-1"></i>Chybí {{ result.materials | selectattr("required", ">", 0) | list | length }} druhů'
-            class="badge bg-danger fs-6"><i class="bi bi-x-circle me-1"></i>Chybí {{ result.total_missing_types }} druhů</span>
+            data-with-html='<i class="bi bi-x-circle me-1"></i>{{ result.total_missing_types }} types missing'
+            data-without-html='<i class="bi bi-x-circle me-1"></i>{{ result.materials | selectattr("required", ">", 0) | list | length }} types missing'
+            class="badge bg-danger fs-6"><i class="bi bi-x-circle me-1"></i>{{ result.total_missing_types }} types missing</span>
       {% endif %}
       {% if result.opt_total_cost is not none %}
       <div class="mt-2 small">
-        <span class="text-muted">Optimální: </span><span class="text-isk fw-bold">{{ result.opt_total_cost | isk }} ISK</span>
-        <span class="text-muted ms-2">Naivní: </span><span class="text-muted">{{ result.opt_naive_cost | isk }} ISK</span>
+        <span class="text-muted">Optimal: </span><span class="text-isk fw-bold">{{ result.opt_total_cost | isk }} ISK</span>
+        <span class="text-muted ms-2">Naive: </span><span class="text-muted">{{ result.opt_naive_cost | isk }} ISK</span>
       </div>
       {% endif %}
     </div>
@@ -350,7 +350,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
     {% if result.sell_price %}
     <span>
       <span class="text-muted">Jita sell&nbsp;</span>
-      <span class="fw-semibold">{{ result.sell_price | isk }} ISK/ks</span>
+      <span class="fw-semibold">{{ result.sell_price | isk }} ISK/unit</span>
     </span>
     {% endif %}
     {% set _sell_loc_id = form_selling_station if form_selling_station else form_station %}
@@ -358,12 +358,12 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
     <span class="d-flex align-items-center gap-1">
       <span class="text-muted" style="font-size:.8rem">{{ selling_station_name }}&nbsp;</span>
       {% if station_sell_price %}
-      <span id="station-sell-price-val" class="fw-semibold">{{ station_sell_price | isk }} ISK/ks</span>
+      <span id="station-sell-price-val" class="fw-semibold">{{ station_sell_price | isk }} ISK/unit</span>
       <button type="button"
               data-location-id="{{ _sell_loc_id }}"
               data-type-id="{{ result.product_type_id }}"
               onclick="fetchStationSellPrice(this)"
-              class="btn btn-link p-0" style="font-size:.75rem;color:#8b949e;line-height:1" title="Obnovit cenu">
+              class="btn btn-link p-0" style="font-size:.75rem;color:#8b949e;line-height:1" title="Refresh price">
         <i class="bi bi-arrow-clockwise"></i>
       </button>
       {% else %}
@@ -372,7 +372,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
               data-type-id="{{ result.product_type_id }}"
               onclick="fetchStationSellPrice(this)"
               class="btn btn-sm" style="background:#21262d;border-color:#30363d;color:#8b949e;font-size:.75rem;padding:1px 7px">
-        <i class="bi bi-cloud-download me-1"></i>Načíst cenu
+        <i class="bi bi-cloud-download me-1"></i>Fetch price
       </button>
       <span id="station-sell-price-val" class="fw-semibold d-none"></span>
       {% endif %}
@@ -385,11 +385,11 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
     {# Tržní — vše nakoupit #}
     <div class="col-sm-6 p-3" style="border-right:1px solid #21262d">
       <div class="mb-2 text-uppercase fw-semibold" style="color:#8b949e;font-size:.68rem;letter-spacing:.07em">
-        <i class="bi bi-shop me-1"></i>Tržní — vše nakoupit
+        <i class="bi bi-shop me-1"></i>Market — buy all
       </div>
       <table class="w-100" style="font-size:.875rem;border-collapse:separate;border-spacing:0 2px">
         <tr>
-          <td class="text-muted">Suroviny</td>
+          <td class="text-muted">Materials</td>
           <td class="text-end fw-semibold text-isk">{{ full_cost | isk }}</td>
         </tr>
         {% if result.fees %}
@@ -399,19 +399,19 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
         </tr>
         {% endif %}
         <tr style="border-top:1px solid #21262d">
-          <td class="text-muted pt-2">Náklady celkem</td>
+          <td class="text-muted pt-2">Total costs</td>
           <td class="text-end fw-bold pt-2">{{ mfg_total_cost | isk }}</td>
         </tr>
         {% if result.revenue is not none %}
         <tr>
-          <td class="text-muted">Příjem</td>
+          <td class="text-muted">Revenue</td>
           <td class="text-end">{{ result.revenue | isk }}</td>
         </tr>
         {% endif %}
       </table>
       {% if m_profit is not none %}
       <div class="mt-2 pt-2" style="border-top:1px solid #21262d">
-        <div class="text-muted" style="font-size:.75rem">Zisk</div>
+        <div class="text-muted" style="font-size:.75rem">Profit</div>
         <div class="fw-bold" style="font-size:1.2rem" class="{% if m_profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
           <span class="{% if m_profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
             {% if m_profit >= 0 %}+{% endif %}{{ m_profit | isk }}
@@ -424,11 +424,11 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
     {# Se zásobami #}
     <div class="col-sm-6 p-3">
       <div class="mb-2 text-uppercase fw-semibold" style="color:#8b949e;font-size:.68rem;letter-spacing:.07em">
-        <i class="bi bi-box-seam me-1"></i>Se zásobami
+        <i class="bi bi-box-seam me-1"></i>With stock
       </div>
       <table class="w-100" style="font-size:.875rem;border-collapse:separate;border-spacing:0 2px">
         <tr>
-          <td class="text-muted">Chybějící suroviny</td>
+          <td class="text-muted">Missing materials</td>
           <td class="text-end fw-semibold text-isk">{{ (result.total_buy or 0) | isk }}</td>
         </tr>
         {% if result.fees %}
@@ -438,19 +438,19 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
         </tr>
         {% endif %}
         <tr style="border-top:1px solid #21262d">
-          <td class="text-muted pt-2">Náklady celkem</td>
+          <td class="text-muted pt-2">Total costs</td>
           <td class="text-end fw-bold pt-2">{{ stock_total_cost | isk }}</td>
         </tr>
         {% if result.revenue is not none %}
         <tr>
-          <td class="text-muted">Příjem</td>
+          <td class="text-muted">Revenue</td>
           <td class="text-end">{{ result.revenue | isk }}</td>
         </tr>
         {% endif %}
       </table>
       {% if s_profit is not none %}
       <div class="mt-2 pt-2" style="border-top:1px solid #21262d">
-        <div class="text-muted" style="font-size:.75rem">Zisk</div>
+        <div class="text-muted" style="font-size:.75rem">Profit</div>
         <div class="fw-bold" style="font-size:1.2rem">
           <span class="{% if s_profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
             {% if s_profit >= 0 %}+{% endif %}{{ s_profit | isk }}
@@ -466,12 +466,12 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
   <div style="border-top:1px solid #21262d;padding:.4rem .75rem;font-size:.68rem;color:#6e7681">
     <i class="bi bi-info-circle me-1"></i>
     {% if result.fees.solar_system_id %}
-    výr. SCI {{ (result.fees.mfg_sci * 100) | round(2) }}% + tax {{ result.fees.facility_tax }}% + SCC 0.25%
+    mfg. SCI {{ (result.fees.mfg_sci * 100) | round(2) }}% + tax {{ result.fees.facility_tax }}% + SCC 0.25%
     {% if result.fees.rxn_sci is not none %}
-    &nbsp;·&nbsp; reak. SCI {{ (result.fees.rxn_sci * 100) | round(2) }}% + tax {{ result.fees.rxn_facility_tax }}% + SCC 0.25%
-    {% if result.fees.sep_rxn_station %}<span class="badge bg-secondary ms-1" style="font-size:.6rem">jiná stanice</span>{% endif %}
+    &nbsp;·&nbsp; rxn. SCI {{ (result.fees.rxn_sci * 100) | round(2) }}% + tax {{ result.fees.rxn_facility_tax }}% + SCC 0.25%
+    {% if result.fees.sep_rxn_station %}<span class="badge bg-secondary ms-1" style="font-size:.6rem">different station</span>{% endif %}
     {% endif %}
-    {% else %}SCI neznámo · fac. tax {{ result.fees.facility_tax }}% + SCC 0.25%{% endif %}
+    {% else %}SCI unknown · fac. tax {{ result.fees.facility_tax }}% + SCC 0.25%{% endif %}
   </div>
   {% endif %}
 
@@ -482,14 +482,14 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
 <ul class="nav nav-tabs mb-0" id="planTabs" role="tablist" style="border-bottom:1px solid #30363d">
   <li class="nav-item">
     <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-materials" type="button">
-      <i class="bi bi-list-ul me-1"></i>Materiály
+      <i class="bi bi-list-ul me-1"></i>Materials
     </button>
   </li>
   <li class="nav-item">
     <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-process" type="button">
-      <i class="bi bi-diagram-3 me-1"></i>Výrobní postup
+      <i class="bi bi-diagram-3 me-1"></i>Manufacturing Steps
       {% if result.manufacturing_steps %}
-      <span class="badge bg-secondary ms-1">{{ result.manufacturing_steps | length }} kroků</span>
+      <span class="badge bg-secondary ms-1">{{ result.manufacturing_steps | length }} steps</span>
       {% endif %}
     </button>
   </li>
@@ -500,22 +500,22 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
 <div class="tab-pane fade show active" id="tab-materials">
 <div class="card" style="border-top:none;border-radius:0 0 6px 6px">
   <div class="card-header d-flex justify-content-between align-items-center py-2">
-    <span class="fw-semibold"><i class="bi bi-list-ul me-2"></i>Materiály ({{ result.materials | length }})</span>
-    <span class="text-muted small">Ceny: Jita z cache / adjusted</span>
+    <span class="fw-semibold"><i class="bi bi-list-ul me-2"></i>Materials ({{ result.materials | length }})</span>
+    <span class="text-muted small">Prices: Jita from cache / adjusted</span>
   </div>
   <div class="table-responsive">
     <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
       <thead>
         <tr>
           <th style="width:36px"></th>
-          <th>Surovina</th>
-          <th class="text-end">Potřeba</th>
-          <th class="text-end">Cena/ks (ISK)</th>
-          <th class="text-end">Celkem (ISK)</th>
-          <th class="text-end">Na stanici</th>
-          <th class="text-end">Chybí</th>
-          <th class="text-end">Dokoupit (ISK)</th>
-          <th class="text-end" style="width:80px">Krytí</th>
+          <th>Material</th>
+          <th class="text-end">Required</th>
+          <th class="text-end">Price/unit (ISK)</th>
+          <th class="text-end">Total (ISK)</th>
+          <th class="text-end">At station</th>
+          <th class="text-end">Missing</th>
+          <th class="text-end">Buy (ISK)</th>
+          <th class="text-end" style="width:80px">Coverage</th>
         </tr>
       </thead>
       <tbody>
@@ -582,7 +582,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
       {# Součtový řádek #}
       <tfoot>
         <tr class="fw-semibold" style="border-top:2px solid #30363d;">
-          <td colspan="4" class="text-muted">Celkem k dokoupení</td>
+          <td colspan="4" class="text-muted">Total to purchase</td>
           <td></td>
           <td></td>
           <td></td>
@@ -607,7 +607,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
 <div class="card mb-3" id="shopping-list">
   <div class="card-header py-2">
     <span class="fw-semibold text-danger" id="shop-header-label">
-      <i class="bi bi-cart me-2"></i>Nákupní seznam (<span id="shop-item-count">{{ missing_count }}</span> položek)
+      <i class="bi bi-cart me-2"></i>Shopping List (<span id="shop-item-count">{{ missing_count }}</span> items)
     </span>
   </div>
   <div class="table-responsive">
@@ -615,10 +615,10 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
       <thead>
         <tr>
           <th style="width:36px"></th>
-          <th>Surovina</th>
-          <th class="text-end">Dokoupit</th>
-          <th class="text-end">Cena/ks (ISK)</th>
-          <th class="text-end">Celkem (ISK)</th>
+          <th>Material</th>
+          <th class="text-end">To buy</th>
+          <th class="text-end">Price/unit (ISK)</th>
+          <th class="text-end">Total (ISK)</th>
         </tr>
       </thead>
       <tbody>
@@ -639,7 +639,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
       </tbody>
       <tfoot>
         <tr style="border-top:2px solid #30363d;">
-          <td colspan="4" class="fw-bold">CELKEM</td>
+          <td colspan="4" class="fw-bold">TOTAL</td>
           <td class="text-end fw-bold text-warning"
               id="shop-footer-total"
               data-with="{{ result.total_buy or 0 }}"
@@ -657,7 +657,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
 {% if result.manufacturing_steps %}
 <div class="mb-3">
   <button class="btn btn-sm btn-primary" onclick="openSaveToProject()">
-    <i class="bi bi-kanban me-1"></i>Uložit do projektu
+    <i class="bi bi-kanban me-1"></i>Save to project
   </button>
 </div>
 
@@ -666,10 +666,10 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
   {# Hlavička kroku #}
   <div class="d-flex align-items-center gap-2 mb-2">
     <span class="badge {% if step.is_final %}bg-primary{% else %}bg-secondary{% endif %} fs-6 px-3 py-2">
-      Krok {{ step.step }}
+      Step {{ step.step }}
     </span>
     <span class="text-muted small">
-      {{ step.jobs | length }} {% if step.jobs | length == 1 %}výrobní job{% elif step.jobs | length < 5 %}výrobní joby{% else %}výrobních jobů{% endif %}
+      {{ step.jobs | length }} {% if step.jobs | length == 1 %}manufacturing job{% else %}manufacturing jobs{% endif %}
     </span>
     {% if step.total_cost %}
     <span class="ms-auto text-isk fw-semibold">{{ step.total_cost | isk }} ISK</span>
@@ -688,15 +688,15 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
           <img src="https://images.evetech.net/types/{{ job.type_id }}/icon?size=32"
                width="28" height="28" class="rounded me-2" style="flex-shrink:0">
           {% if job.activity == 'reaction' %}
-          <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REAKCE</span>
+          <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REACTION</span>
           {% else %}
-          <span class="badge me-2 px-2" style="background:#0d6efd;font-size:.65rem;flex-shrink:0">VÝROBA</span>
+          <span class="badge me-2 px-2" style="background:#0d6efd;font-size:.65rem;flex-shrink:0">MANUFACTURING</span>
           {% endif %}
           <span class="fw-semibold me-1">{{ job.name }}</span>
           <span class="text-muted ms-2" style="flex-shrink:0">×{{ job.quantity | int | format_number }}</span>
           <span style="flex:1"></span>
           {% if job.available > 0 %}
-          <span class="badge bg-success me-3" title="Máš na skladě" style="flex-shrink:0">{{ job.available | int | format_number }}</span>
+          <span class="badge bg-success me-3" title="In stock" style="flex-shrink:0">{{ job.available | int | format_number }}</span>
           {% endif %}
           <span class="text-isk small" style="width:19ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;margin-right:1.5rem;white-space:nowrap">
             {% if job.total_price %}{{ job.total_price | isk }} ISK{% endif %}
@@ -717,11 +717,11 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
             <thead style="background:#1c2128">
               <tr>
                 <th></th>
-                <th>Vstupní materiál</th>
-                <th class="text-end">Množství</th>
-                <th class="text-end">Na skladě</th>
-                <th class="text-end">Chybí</th>
-                <th class="text-end">Hodnota (ISK)</th>
+                <th>Input material</th>
+                <th class="text-end">Quantity</th>
+                <th class="text-end">In stock</th>
+                <th class="text-end">Missing</th>
+                <th class="text-end">Value (ISK)</th>
               </tr>
             </thead>
             <tbody>
@@ -736,9 +736,9 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
                   {{ inp.name }}
                   {% if not inp.is_leaf %}
                     {% if inp.activity == 'reaction' %}
-                    <span class="badge ms-1 px-1" style="background:#6f42c1;font-size:.6rem">reakce</span>
+                    <span class="badge ms-1 px-1" style="background:#6f42c1;font-size:.6rem">reaction</span>
                     {% else %}
-                    <span class="badge ms-1 px-1" style="background:#0d6efd;font-size:.6rem">výroba</span>
+                    <span class="badge ms-1 px-1" style="background:#0d6efd;font-size:.6rem">manufacturing</span>
                     {% endif %}
                   {% endif %}
                 </td>
@@ -762,7 +762,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
             <tfoot>
               {% if job.input_cost %}
               <tr style="border-top:1px solid #30363d">
-                <td colspan="5" class="text-muted small">Celkem vstupní náklady</td>
+                <td colspan="5" class="text-muted small">Total input costs</td>
                 <td class="text-end fw-semibold text-isk">{{ job.input_cost | isk }}</td>
               </tr>
               {% endif %}
@@ -786,7 +786,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
 {% endfor %}
 
 {% else %}
-<div class="text-muted p-3">Výrobní postup není k dispozici.</div>
+<div class="text-muted p-3">Manufacturing steps not available.</div>
 {% endif %}
 </div>{# end tab-pane process #}
 
@@ -797,25 +797,25 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
   <div class="modal-dialog">
     <div class="modal-content" style="background:#1c2128;border-color:#30363d">
       <div class="modal-header" style="border-color:#30363d">
-        <h6 class="modal-title"><i class="bi bi-kanban me-2"></i>Uložit do projektu</h6>
+        <h6 class="modal-title"><i class="bi bi-kanban me-2"></i>Save to project</h6>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
         <div id="project-list-section">
-          <div class="text-muted small mb-2">Načítám projekty…</div>
+          <div class="text-muted small mb-2">Loading projects…</div>
         </div>
         <hr style="border-color:#30363d;margin:12px 0">
         <div>
-          <label class="form-label text-muted small">Nebo vytvořit nový projekt</label>
+          <label class="form-label text-muted small">Or create a new project</label>
           <div class="d-flex gap-2">
             <input type="text" id="save-new-project-name" class="form-control form-control-sm"
-                   placeholder="Název nového projektu…">
-            <button class="btn btn-sm btn-outline-primary" onclick="saveToNewProject()">Vytvořit</button>
+                   placeholder="New project name…">
+            <button class="btn btn-sm btn-outline-primary" onclick="saveToNewProject()">Create</button>
           </div>
         </div>
       </div>
       <div class="modal-footer" style="border-color:#30363d">
-        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Zrušit</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
       </div>
     </div>
   </div>
@@ -988,7 +988,7 @@ function saveRecentStation(item) {
     const recent = _getRecent('eve_recent_bps');
     if (!recent.length) return;
     items = recent;
-    let html = `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Naposledy použité</div>`;
+    let html = `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Recently used</div>`;
     recent.forEach(item => {
       html += `
         <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
@@ -1028,7 +1028,7 @@ function saveRecentStation(item) {
     let html = '';
 
     if (data.owned.length) {
-      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Moje blueprinty</div>`;
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">My blueprints</div>`;
       data.owned.forEach(item => {
         const kind = item.is_original
           ? `<span style="background:#1f6feb;color:#fff;border-radius:3px;padding:1px 5px;font-size:.7rem">BPO</span>`
@@ -1052,7 +1052,7 @@ function saveRecentStation(item) {
     }
 
     if (data.other.length) {
-      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-top:1px solid #30363d;border-bottom:1px solid #30363d;padding-top:8px!important">Všechny blueprinty</div>`;
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-top:1px solid #30363d;border-bottom:1px solid #30363d;padding-top:8px!important">All blueprints</div>`;
       data.other.forEach(item => {
         html += `
           <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer" data-idx="${items.indexOf(item)}">
@@ -1140,17 +1140,17 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
 
   function buildAddStructureHtml() {
     return `<div style="border-top:1px solid #30363d;padding:6px 12px 6px">
-      <div style="color:#8b949e;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Přidat strukturu</div>
+      <div style="color:#8b949e;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Add structure</div>
       <div class="d-flex gap-1 mb-1">
-        <input id="${pfx}-add-raw" type="text" placeholder="ID, &quot;ID Jméno&quot; nebo EVE URL link"
+        <input id="${pfx}-add-raw" type="text" placeholder="ID, &quot;ID Name&quot; or EVE URL link"
                class="form-control form-control-sm"
                style="flex:1;background:#0d1117;border-color:#30363d;color:#e6edf3;font-size:.8rem">
         <button id="${pfx}-add-btn" type="button" class="btn btn-sm"
-                style="background:#21262d;border-color:#30363d;color:#e6edf3;white-space:nowrap;font-size:.8rem">Přidat</button>
+                style="background:#21262d;border-color:#30363d;color:#e6edf3;white-space:nowrap;font-size:.8rem">Add</button>
       </div>
       <button id="${pfx}-loc-btn" type="button" class="btn btn-sm w-100"
               style="background:#0d1117;border-color:#30363d;color:#8b949e;font-size:.75rem">
-        <i class="bi bi-crosshair me-1"></i>Přidat moji aktuální lokaci
+        <i class="bi bi-crosshair me-1"></i>Use my current location
       </button>
     </div>`;
   }
@@ -1177,10 +1177,10 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
           const fd = new FormData(); fd.append('raw', raw);
           const r  = await fetch('/api/add-station', { method: 'POST', body: fd });
           const d  = await r.json();
-          if (d.error) addBtn.textContent = 'Chyba';
+          if (d.error) addBtn.textContent = 'Error';
           else selectItem({ location_id: d.location_id, name: d.name });
-        } catch { addBtn.textContent = 'Chyba'; }
-        addBtn.disabled = false; addBtn.textContent = 'Přidat';
+        } catch { addBtn.textContent = 'Error'; }
+        addBtn.disabled = false; addBtn.textContent = 'Add';
       });
       addRaw.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
     }
@@ -1190,10 +1190,10 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
         try {
           const r = await fetch('/api/my-location');
           const d = await r.json();
-          if (d.in_space) locBtn.textContent = `V prostoru: ${d.solar_system_name}`;
+          if (d.in_space) locBtn.textContent = `In space: ${d.solar_system_name}`;
           else if (d.location_id) selectItem({ location_id: d.location_id, name: d.name });
-          else locBtn.textContent = d.error || 'Chyba';
-        } catch { locBtn.textContent = 'Chyba'; }
+          else locBtn.textContent = d.error || 'Error';
+        } catch { locBtn.textContent = 'Error'; }
         locBtn.disabled = false;
       });
     }
@@ -1205,7 +1205,7 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
     items = recent;
     let html = '';
     if (recent.length) {
-      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Naposledy použité</div>`;
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Recently used</div>`;
       recent.forEach(item => {
         html += `<div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
           <i class="bi bi-clock-history" style="color:#8b949e;flex-shrink:0"></i>
@@ -1227,7 +1227,7 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
     items = [...(data.owned || []), ...(data.other || [])];
     let html = '';
     if (data.owned?.length) {
-      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Moje stanice</div>`;
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">My stations</div>`;
       data.owned.forEach(item => {
         html += `<div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
           <i class="bi bi-geo-alt-fill" style="color:#58a6ff;flex-shrink:0"></i>
@@ -1236,7 +1236,7 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
       });
     }
     if (data.other?.length) {
-      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-top:1px solid #30363d;border-bottom:1px solid #30363d;padding-top:8px!important">Ostatní stanice</div>`;
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-top:1px solid #30363d;border-bottom:1px solid #30363d;padding-top:8px!important">Other stations</div>`;
       data.other.forEach(item => {
         html += `<div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
           <i class="bi bi-geo-alt" style="color:#8b949e;flex-shrink:0"></i>
@@ -1431,15 +1431,15 @@ async function loadStationInfo(locationId, { taxId, sciDivId, sciMfgId, sciRxnId
         if (info.tax_auto) {
           badge.textContent = '✓ auto';
           badge.className = 'badge bg-success';
-          badge.title = 'Odvozeno z nedávných výrobních jobů přes ESI';
+          badge.title = 'Derived from recent manufacturing jobs via ESI';
         } else if (info.facility_tax_pct != null) {
           badge.textContent = '⏱ cache';
           badge.className = 'badge bg-secondary';
-          badge.title = 'Načteno z cache — žádný nový job od posledního downtimeu EVE';
+          badge.title = 'Loaded from cache — no new jobs since last EVE downtime';
         } else {
-          badge.textContent = '? ručně';
+          badge.textContent = '? manual';
           badge.className = 'badge bg-warning text-dark';
-          badge.title = 'Nepodařilo se odvodit — žádné joby na této stanici. Zadej ručně.';
+          badge.title = 'Could not derive — no jobs at this station. Enter manually.';
         }
         badge.style.display = '';
       }
@@ -1448,11 +1448,11 @@ async function loadStationInfo(locationId, { taxId, sciDivId, sciMfgId, sciRxnId
     if (sciDiv) {
       if (sciMfgId) {
         const el = document.getElementById(sciMfgId);
-        if (el) el.textContent = `výr. ${(info.mfg_sci * 100).toFixed(2)}%`;
+        if (el) el.textContent = `mfg. ${(info.mfg_sci * 100).toFixed(2)}%`;
       }
       if (sciRxnId) {
         const el = document.getElementById(sciRxnId);
-        if (el) el.textContent = info.rxn_sci > 0 ? `reak. ${(info.rxn_sci * 100).toFixed(2)}%` : '';
+        if (el) el.textContent = info.rxn_sci > 0 ? `rxn. ${(info.rxn_sci * 100).toFixed(2)}%` : '';
       }
       sciDiv.classList.remove('d-none');
       sciDiv.classList.add('d-flex');
@@ -1489,7 +1489,7 @@ async function _loadRigOptions(prefix, structureType, selectedRigs = [null, null
       const sel = document.getElementById(`${prefix}-${slot}-select`);
       if (!sel) return;
       const curVal = selectedRigs[i] ? String(selectedRigs[i]) : '';
-      sel.innerHTML = '<option value="">— žádný —</option>';
+      sel.innerHTML = '<option value="">— none —</option>';
       (data.rigs || []).forEach(rig => {
         const opt = document.createElement('option');
         opt.value = rig.type_id;
@@ -1567,7 +1567,7 @@ async function fetchStationSellPrice(btn) {
 
     if (d.ok && d.best_sell) {
       if (priceEl) {
-        priceEl.textContent = _isk(d.best_sell) + ' ISK/ks';
+        priceEl.textContent = _isk(d.best_sell) + ' ISK/unit';
         priceEl.style.color = '';
         priceEl.style.fontSize = '';
         priceEl.classList.remove('d-none');
@@ -1575,10 +1575,10 @@ async function fetchStationSellPrice(btn) {
       btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
       btn.className = 'btn btn-link p-0';
       btn.setAttribute('style', 'font-size:.75rem;color:#8b949e;line-height:1');
-      btn.title = 'Obnovit cenu';
+      btn.title = 'Refresh price';
     } else {
       if (priceEl) {
-        priceEl.textContent = d.error || 'Žádné prodejní příkazy';
+        priceEl.textContent = d.error || 'No sell orders';
         priceEl.style.color = '#8b949e';
         priceEl.style.fontSize = '.75rem';
         priceEl.classList.remove('d-none');
@@ -1599,7 +1599,7 @@ function saveDefaultTax(prefix) {
   localStorage.setItem(key, val.toFixed(1));
   const btn = event.currentTarget;
   const orig = btn.textContent;
-  btn.textContent = '✓ uloženo';
+  btn.textContent = '✓ saved';
   setTimeout(() => { btn.textContent = orig; }, 1200);
 }
 
@@ -1636,9 +1636,9 @@ async function openSaveToProject() {
   const d = await r.json();
   const section = document.getElementById('project-list-section');
   if (!d.projects.length) {
-    section.innerHTML = '<div class="text-muted small">Žádné projekty — vytvoř nový níže.</div>';
+    section.innerHTML = '<div class="text-muted small">No projects — create a new one below.</div>';
   } else {
-    let html = '<div class="text-muted small mb-2">Přidat do existujícího projektu:</div>';
+    let html = '<div class="text-muted small mb-2">Add to existing project:</div>';
     html += '<div class="d-flex flex-column gap-1">';
     d.projects.forEach(p => {
       const name = p.name.replace(/'/g, "\\'");
@@ -1646,9 +1646,9 @@ async function openSaveToProject() {
         <button class="btn btn-sm text-start flex-grow-1" style="background:#21262d;border-color:#30363d;color:#e6edf3"
                 onclick="saveToProject(${p.id})">
           <i class="bi bi-kanban me-2" style="color:#58a6ff"></i>${p.name}
-          <span class="text-muted ms-2" style="font-size:.75rem">${p.plan_count} položek</span>
+          <span class="text-muted ms-2" style="font-size:.75rem">${p.plan_count} items</span>
         </button>
-        <button class="btn btn-sm btn-link text-danger p-1" title="Smazat projekt"
+        <button class="btn btn-sm btn-link text-danger p-1" title="Delete project"
                 onclick="deleteProjectFromModal(${p.id}, '${name}')">
           <i class="bi bi-x-lg" style="font-size:.85rem"></i>
         </button>
@@ -1674,7 +1674,7 @@ async function _doSavePlan(projectId) {
     bootstrap.Modal.getInstance(document.getElementById('saveToProjectModal'))?.hide();
     window.location.href = `/projects/${projectId}`;
   } else {
-    alert(d.error || 'Chyba při ukládání');
+    alert(d.error || 'Error while saving');
   }
 }
 
@@ -1692,11 +1692,11 @@ async function saveToNewProject() {
   });
   const d = await r.json();
   if (d.ok) await _doSavePlan(d.project_id);
-  else alert(d.error || 'Chyba');
+  else alert(d.error || 'Error');
 }
 
 async function deleteProjectFromModal(projectId, projectName) {
-  if (!confirm(`Smazat projekt „${projectName}"? Tato akce je nevratná.`)) return;
+  if (!confirm(`Delete project "${projectName}"? This action cannot be undone.`)) return;
   await fetch(`/api/projects/${projectId}`, {method: 'DELETE'});
   openSaveToProject();
 }

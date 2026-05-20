@@ -1,43 +1,43 @@
 {% extends "base.html" %}
-{% block title %}Ceny — EVE Retroindustry{% endblock %}
+{% block title %}Prices — EVE Retroindustry{% endblock %}
 {% block content %}
 
 <div class="row mb-4 align-items-center">
   <div class="col">
-    <h4 class="mb-0"><i class="bi bi-currency-exchange me-2 text-primary"></i>Správa cen</h4>
+    <h4 class="mb-0"><i class="bi bi-currency-exchange me-2 text-primary"></i>Price Management</h4>
   </div>
 </div>
 
 {% if refreshed_count is not none %}
 <div class="alert alert-success">
   <i class="bi bi-check-circle me-2"></i>
-  Staženo <strong>{{ refreshed_count }}</strong> Jita cen z celkem {{ total_requested }} typů.
-  Cache aktualizována.
+  Fetched <strong>{{ refreshed_count }}</strong> Jita prices out of {{ total_requested }} types.
+  Cache updated.
 </div>
 {% endif %}
 
 <div class="row g-3 mb-4">
   <div class="col-sm-6 col-lg-3">
     <div class="card stat-card p-3">
-      <div class="text-muted small mb-1">Typy v cache</div>
+      <div class="text-muted small mb-1">Types in cache</div>
       <div class="fs-3 fw-bold">{{ stats.total }}</div>
     </div>
   </div>
   <div class="col-sm-6 col-lg-3">
     <div class="card p-3" style="border-left:3px solid #3fb950">
-      <div class="text-muted small mb-1">Čerstvé (&lt; 30 min)</div>
+      <div class="text-muted small mb-1">Fresh (&lt; 30 min)</div>
       <div class="fs-3 fw-bold text-success">{{ stats.fresh }}</div>
     </div>
   </div>
   <div class="col-sm-6 col-lg-3">
     <div class="card p-3" style="border-left:3px solid #f85149">
-      <div class="text-muted small mb-1">Stale (starší)</div>
+      <div class="text-muted small mb-1">Stale (outdated)</div>
       <div class="fs-3 fw-bold text-danger">{{ stats.stale }}</div>
     </div>
   </div>
   <div class="col-sm-6 col-lg-3">
     <div class="card p-3" style="border-left:3px solid #e3b341">
-      <div class="text-muted small mb-1">Naposledy aktualizováno</div>
+      <div class="text-muted small mb-1">Last updated</div>
       <div class="fs-6 fw-bold mt-1">{{ stats.last_update_str }}</div>
     </div>
   </div>
@@ -46,17 +46,17 @@
 <div class="row g-3 mb-4">
   <div class="col-lg-6">
     <div class="card p-4 h-100">
-      <h6 class="mb-1"><i class="bi bi-arrow-repeat me-2 text-primary"></i>Refresh Jita cen</h6>
+      <h6 class="mb-1"><i class="bi bi-arrow-repeat me-2 text-primary"></i>Refresh Jita Prices</h6>
       <p class="text-muted small mb-3">
-        Stáhne aktuální Jita sell/buy ceny pro všechny materiály, komponenty a blueprinty.
-        Může trvat 1–2 minuty. Cache je platná 30 minut.
+        Fetches current Jita sell/buy prices for all materials, components, and blueprints.
+        May take 1–2 minutes. Cache is valid for 30 minutes.
       </p>
       <button id="refresh-btn" class="btn btn-eve refresh-btn mb-3">
-        <i class="bi bi-arrow-clockwise me-2"></i>Refresh Jita ceny
+        <i class="bi bi-arrow-clockwise me-2"></i>Refresh Jita Prices
       </button>
       <div id="refresh-progress" class="d-none">
         <div class="d-flex justify-content-between mb-1">
-          <small id="refresh-progress-text" class="text-muted">Připravuji…</small>
+          <small id="refresh-progress-text" class="text-muted">Preparing…</small>
           <small id="refresh-progress-pct" class="text-muted">0%</small>
         </div>
         <div class="progress" style="height:8px">
@@ -66,20 +66,20 @@
       </div>
       <p class="text-muted small mb-0 mt-auto pt-2">
         <i class="bi bi-info-circle me-1"></i>
-        Bez Jita ceny se zobrazí adjusted price z ESI (méně přesná).
+        Without a Jita price, the ESI adjusted price will be used (less accurate).
       </p>
     </div>
   </div>
   <div class="col-lg-6">
     <div class="card p-4 h-100">
-      <h6 class="mb-1"><i class="bi bi-geo-alt me-2 text-primary"></i>Objem na stanici</h6>
+      <h6 class="mb-1"><i class="bi bi-geo-alt me-2 text-primary"></i>Station Volume</h6>
       <p class="text-muted small mb-3">
-        Vyhledej stanici nebo citadelu a načti sell stock a zobchodovaný objem pro všechny itemy v tabulce.
+        Search for a station or citadel and fetch sell stock and traded volume for all items in the table.
       </p>
       <div class="d-flex gap-2 align-items-start mb-2">
         <div class="position-relative flex-grow-1">
           <input type="text" id="station-vol-display" class="form-control form-control-sm"
-                 placeholder="Hledat stanici…" autocomplete="off">
+                 placeholder="Search station…" autocomplete="off">
           <input type="hidden" id="station-vol-id">
           <div id="station-vol-suggestions" style="
             position:absolute; top:100%; left:0; right:0; z-index:1050;
@@ -87,12 +87,12 @@
             max-height:260px; overflow-y:auto; display:none;"></div>
         </div>
         <button id="station-vol-load" class="btn btn-sm btn-outline-primary flex-shrink-0" disabled>
-          <i class="bi bi-download me-1"></i>Načíst
+          <i class="bi bi-download me-1"></i>Load
         </button>
       </div>
       <div id="station-vol-progress" class="d-none">
         <div class="d-flex justify-content-between mb-1">
-          <small id="station-vol-progress-text" class="text-muted">Načítám…</small>
+          <small id="station-vol-progress-text" class="text-muted">Loading…</small>
           <small id="station-vol-progress-pct" class="text-muted">0%</small>
         </div>
         <div class="progress" style="height:6px">
@@ -109,13 +109,13 @@
 <div class="card p-4">
   <div class="row align-items-center mb-3 g-2">
     <div class="col">
-      <h6 class="mb-0"><i class="bi bi-table me-2 text-primary"></i>Přehled cen itemů
-        <span class="text-muted fw-normal fs-6 ms-2">({{ items|length }} itemů)</span>
+      <h6 class="mb-0"><i class="bi bi-table me-2 text-primary"></i>Item Price Overview
+        <span class="text-muted fw-normal fs-6 ms-2">({{ items|length }} items)</span>
       </h6>
     </div>
     <div class="col-auto">
       <input type="search" id="price-search" class="form-control form-control-sm"
-             placeholder="Hledat item nebo skupinu…" style="width:220px" autocomplete="off">
+             placeholder="Search item or group…" style="width:220px" autocomplete="off">
     </div>
   </div>
 
@@ -124,21 +124,21 @@
       <thead class="sticky-top" style="top:0; background:var(--bs-body-bg);">
         <tr>
           <th style="width:36px"></th>
-          <th>Název</th>
+          <th>Name</th>
           <th class="text-end">Jita sell</th>
           <th class="text-end">Jita buy</th>
-          <th class="text-end" title="Zobchodovaný objem za posledních 7 dní na Jitě (z ESI history)">Jita objem/7d</th>
-          <th class="text-end" title="Dostupné kusy v sell objednávkách na Jita 4-4">Jita dostupné</th>
-          <th class="text-end station-col" style="display:none" title="Nejlepší sell cena na stanici">
-            <span class="stn-name">Stanice</span> sell
+          <th class="text-end" title="Traded volume over the last 7 days at Jita (from ESI history)">Jita vol/7d</th>
+          <th class="text-end" title="Available units in sell orders at Jita 4-4">Jita available</th>
+          <th class="text-end station-col" style="display:none" title="Best sell price at station">
+            <span class="stn-name">Station</span> sell
           </th>
-          <th class="text-end station-col" style="display:none" title="Zobchodovaný objem za posledních 7 dní v regionu stanice (ESI history)">
-            <span class="stn-name">Stanice</span> /7d
+          <th class="text-end station-col" style="display:none" title="Traded volume over the last 7 days in the station region (ESI history)">
+            <span class="stn-name">Station</span> /7d
           </th>
-          <th class="text-end station-col" style="display:none" title="Dostupné kusy v sell objednávkách na stanici">
-            <span class="stn-name">Stanice</span> dostupné
+          <th class="text-end station-col" style="display:none" title="Available units in sell orders at station">
+            <span class="stn-name">Station</span> available
           </th>
-          <th style="width:210px">Custom cena</th>
+          <th style="width:210px">Custom price</th>
         </tr>
       </thead>
       <tbody>
@@ -204,11 +204,11 @@
                      placeholder="Jita sell"
                      data-id="{{ item.type_id }}">
               <button class="btn btn-outline-secondary custom-price-save" type="button"
-                      data-id="{{ item.type_id }}" title="Uložit custom cenu">
+                      data-id="{{ item.type_id }}" title="Save custom price">
                 <i class="bi bi-check-lg"></i>
               </button>
               <button class="btn btn-outline-warning custom-price-reset" type="button"
-                      data-id="{{ item.type_id }}" title="Reset na Jita cenu"
+                      data-id="{{ item.type_id }}" title="Reset to Jita price"
                       {% if item.custom_price is none %}style="display:none"{% endif %}>
                 <i class="bi bi-arrow-counterclockwise"></i>
               </button>
@@ -219,7 +219,7 @@
       </tbody>
     </table>
   </div>
-  <div id="price-no-results" class="text-muted text-center py-3 d-none">Žádné výsledky.</div>
+  <div id="price-no-results" class="text-muted text-center py-3 d-none">No results.</div>
 </div>
 {% endif %}
 
@@ -398,11 +398,11 @@
 
   refreshBtn && refreshBtn.addEventListener('click', () => {
     refreshBtn.disabled = true;
-    refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Načítám…';
+    refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading…';
     refreshProgress.classList.remove('d-none');
     refreshBar.style.width = '0%';
     refreshBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
-    refreshText.textContent = 'Připojuji se…';
+    refreshText.textContent = 'Connecting…';
     refreshPct.textContent = '0%';
 
     const es = new EventSource('/prices/refresh/stream');
@@ -414,21 +414,21 @@
       refreshPct.textContent = pct + '%';
       if (d.done) {
         es.close();
-        refreshText.textContent = `Hotovo! Staženo ${d.refreshed} z ${d.total} cen.`;
+        refreshText.textContent = `Done! Fetched ${d.refreshed} of ${d.total} prices.`;
         refreshBar.className = 'progress-bar bg-success';
         refreshBar.style.width = '100%';
         setTimeout(() => window.location.reload(), 1500);
       } else {
-        refreshText.textContent = `${d.current} / ${d.total} typů…`;
+        refreshText.textContent = `${d.current} / ${d.total} types…`;
       }
     };
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) return;
       es.close();
-      refreshText.textContent = 'Chyba spojení.';
+      refreshText.textContent = 'Connection error.';
       refreshBar.className = 'progress-bar bg-danger';
       refreshBtn.disabled = false;
-      refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-2"></i>Refresh Jita ceny';
+      refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-2"></i>Refresh Jita Prices';
     };
   });
 
@@ -483,7 +483,7 @@
     const locId = stationId.value;
     if (!locId) return;
     stationLoad.disabled = true;
-    stationLoad.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Načítám…';
+    stationLoad.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading…';
     stationStatus.classList.add('d-none');
 
     // Animated fake progress bar
@@ -492,7 +492,7 @@
     stationVolBar.style.width = '0%';
     stationVolBar.setAttribute('aria-valuenow', 0);
     stationVolPct.textContent = '0%';
-    stationVolProgText.textContent = 'Stahuji objednávky…';
+    stationVolProgText.textContent = 'Fetching orders…';
     let fakeP = 0;
     const fakeInterval = setInterval(() => {
       fakeP = Math.min(90, fakeP + (90 - fakeP) * 0.07 + 0.3);
@@ -517,15 +517,15 @@
 
       if (!json.ok) {
         stationVolBar.className = 'progress-bar bg-danger';
-        stationVolProgText.textContent = 'Chyba: ' + (json.error || 'neznámá chyba');
+        stationVolProgText.textContent = 'Error: ' + (json.error || 'unknown error');
         stationLoad.disabled = false;
-        stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Načíst';
+        stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Load';
         setTimeout(() => stationVolProgress.classList.add('d-none'), 4000);
         return;
       }
 
       stationVolBar.className = 'progress-bar bg-success';
-      stationVolProgText.textContent = json.cached ? 'Data z cache (< 30 min).' : 'Hotovo.';
+      stationVolProgText.textContent = json.cached ? 'Data from cache (< 30 min).' : 'Done.';
       setTimeout(() => stationVolProgress.classList.add('d-none'), 2500);
 
       // Zobraz sloupce a nastav jméno stanice
@@ -556,11 +556,11 @@
       clearInterval(fakeInterval);
       stationVolBar.className = 'progress-bar bg-danger';
       stationVolBar.style.width = '100%';
-      stationVolProgText.textContent = 'Chyba spojení.';
+      stationVolProgText.textContent = 'Connection error.';
       setTimeout(() => stationVolProgress.classList.add('d-none'), 3000);
     }
     stationLoad.disabled = false;
-    stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Načíst';
+    stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Load';
   });
 })();
 </script>

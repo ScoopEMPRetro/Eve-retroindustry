@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{{ project.name }} — EVE Projekty{% endblock %}
+{% block title %}{{ project.name }} — EVE Projects{% endblock %}
 {% block content %}
 
 <div class="row mb-3 align-items-center">
   <div class="col">
     <nav aria-label="breadcrumb">
       <ol class="breadcrumb mb-1" style="font-size:.85rem">
-        <li class="breadcrumb-item"><a href="/projects" class="text-decoration-none">Projekty</a></li>
+        <li class="breadcrumb-item"><a href="/projects" class="text-decoration-none">Projects</a></li>
         <li class="breadcrumb-item active">{{ project.name }}</li>
       </ol>
     </nav>
@@ -14,39 +14,39 @@
   </div>
   <div class="col-auto d-flex gap-2">
     <a href="/plan" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-plus-lg me-1"></i>Přidat výrobní plán
+      <i class="bi bi-plus-lg me-1"></i>Add Manufacturing Plan
     </a>
     <button class="btn btn-sm btn-outline-danger" onclick="deleteProject({{ project.id }})">
-      <i class="bi bi-trash me-1"></i>Smazat
+      <i class="bi bi-trash me-1"></i>Delete
     </button>
   </div>
 </div>
 
-{# Shrnutí #}
+{# Summary #}
 <div class="row g-3 mb-4">
   <div class="col-auto">
     <div class="card px-3 py-2 text-center" style="min-width:110px">
       <div class="fw-bold fs-4">{{ project.plans | length }}</div>
-      <div class="text-muted small">položek</div>
+      <div class="text-muted small">items</div>
     </div>
   </div>
   <div class="col-auto">
     <div class="card px-3 py-2 text-center" style="min-width:110px">
       <div class="fw-bold fs-4">{{ project.done_jobs }}/{{ project.total_jobs }}</div>
-      <div class="text-muted small">jobů hotovo</div>
+      <div class="text-muted small">jobs done</div>
     </div>
   </div>
   <div class="col-auto">
     <div class="card px-3 py-2 text-center" style="min-width:110px">
       <div class="fw-bold fs-4">{{ project.shopping_done }}/{{ project.shopping | length }}</div>
-      <div class="text-muted small">nakoupeno</div>
+      <div class="text-muted small">purchased</div>
     </div>
   </div>
 </div>
 
-{# ──── Položky k výrobě ──── #}
+{# ──── Items to Manufacture ──── #}
 <h6 class="text-muted text-uppercase mb-2" style="font-size:.75rem;letter-spacing:.06em">
-  <i class="bi bi-hammer me-1"></i>Položky k výrobě
+  <i class="bi bi-hammer me-1"></i>Items to Manufacture
 </h6>
 <div class="card mb-4">
   <div class="table-responsive">
@@ -54,11 +54,11 @@
       <thead>
         <tr>
           <th style="width:36px"></th>
-          <th>Produkt</th>
-          <th class="text-end">Počet</th>
+          <th>Product</th>
+          <th class="text-end">Quantity</th>
           <th>ME / TE</th>
-          <th>Stanice</th>
-          <th class="text-center" style="width:80px">Hotovo</th>
+          <th>Station</th>
+          <th class="text-center" style="width:80px">Done</th>
         </tr>
       </thead>
       <tbody>
@@ -90,19 +90,19 @@
   </div>
 </div>
 
-{# ──── Výrobní postup ──── #}
+{# ──── Manufacturing Steps ──── #}
 {% if project.steps %}
 <h6 class="text-muted text-uppercase mb-2" style="font-size:.75rem;letter-spacing:.06em">
-  <i class="bi bi-diagram-3 me-1"></i>Výrobní postup
+  <i class="bi bi-diagram-3 me-1"></i>Manufacturing Steps
 </h6>
 {% for step in project.steps %}
 <div class="mb-3">
   <div class="d-flex align-items-center gap-2 mb-2">
     <span class="badge {% if step.all_done %}bg-success{% elif step.step == project.steps | length %}bg-primary{% else %}bg-secondary{% endif %} px-3 py-2">
-      Krok {{ step.step }}
+      Step {{ step.step }}
     </span>
     {% if step.all_done %}
-    <span class="text-success small"><i class="bi bi-check-circle me-1"></i>Hotovo</span>
+    <span class="text-success small"><i class="bi bi-check-circle me-1"></i>Done</span>
     {% endif %}
   </div>
   <div class="accordion" id="step{{ step.step }}acc">
@@ -122,9 +122,9 @@
           <img src="https://images.evetech.net/types/{{ job.type_id }}/icon?size=32"
                width="28" height="28" class="rounded me-2" style="flex-shrink:0">
           {% if job.activity == 'reaction' %}
-          <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REAKCE</span>
+          <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REACTION</span>
           {% else %}
-          <span class="badge me-2 px-2" style="background:#0d6efd;font-size:.65rem;flex-shrink:0">VÝROBA</span>
+          <span class="badge me-2 px-2" style="background:#0d6efd;font-size:.65rem;flex-shrink:0">MANUFACTURING</span>
           {% endif %}
           <span class="fw-semibold me-3" style="flex:0 0 32ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ job.name }}</span>
           <span class="text-muted me-3" style="flex:0 0 10ch;font-variant-numeric:tabular-nums">×{{ job.quantity | int | format_number }}</span>
@@ -149,9 +149,9 @@
             <thead>
               <tr class="text-muted" style="border-color:#30363d">
                 <th style="width:28px"></th>
-                <th>Surovina</th>
-                <th class="text-end">Množství</th>
-                <th>Typ</th>
+                <th>Material</th>
+                <th class="text-end">Quantity</th>
+                <th>Type</th>
               </tr>
             </thead>
             <tbody>
@@ -166,12 +166,12 @@
                 <td>
                   {% if not inp.is_leaf %}
                     {% if inp.activity == 'reaction' %}
-                    <span class="badge px-1" style="background:#6f42c1;font-size:.55rem">reakce</span>
+                    <span class="badge px-1" style="background:#6f42c1;font-size:.55rem">reaction</span>
                     {% else %}
-                    <span class="badge px-1" style="background:#0d6efd;font-size:.55rem">výroba</span>
+                    <span class="badge px-1" style="background:#0d6efd;font-size:.55rem">manufacturing</span>
                     {% endif %}
                   {% else %}
-                  <span class="text-muted" style="font-size:.75rem">surovina</span>
+                  <span class="text-muted" style="font-size:.75rem">material</span>
                   {% endif %}
                 </td>
               </tr>
@@ -188,14 +188,14 @@
 {% endfor %}
 {% endif %}
 
-{# ──── Nákupní seznam ──── #}
+{# ──── Shopping List ──── #}
 {% if project.shopping %}
 <div class="d-flex align-items-center justify-content-between mb-2 mt-3">
   <h6 class="text-muted text-uppercase mb-0" style="font-size:.75rem;letter-spacing:.06em">
-    <i class="bi bi-cart me-1"></i>Nákupní seznam ({{ project.shopping_done }}/{{ project.shopping | length }})
+    <i class="bi bi-cart me-1"></i>Shopping List ({{ project.shopping_done }}/{{ project.shopping | length }})
   </h6>
   <button class="btn btn-sm btn-outline-success" onclick="markAllPurchased({{ project.id }})">
-    <i class="bi bi-check-all me-1"></i>Označit vše jako nakoupeno
+    <i class="bi bi-check-all me-1"></i>Mark All as Purchased
   </button>
 </div>
 <div class="card mb-4">
@@ -204,10 +204,10 @@
       <thead>
         <tr>
           <th style="width:36px"></th>
-          <th>Surovina</th>
-          <th class="text-end">Potřeba</th>
-          <th class="text-end">Nakoupeno</th>
-          <th class="text-center" style="width:100px">Nakoupeno</th>
+          <th>Material</th>
+          <th class="text-end">Required</th>
+          <th class="text-end">Purchased</th>
+          <th class="text-center" style="width:100px">Purchased</th>
         </tr>
       </thead>
       <tbody id="shopping-tbody">
@@ -308,7 +308,7 @@ async function markAllPurchased(projectId) {
 }
 
 async function deleteProject(projectId) {
-  if (!confirm('Smazat projekt? Tato akce je nevratná.')) return;
+  if (!confirm('Delete project? This action cannot be undone.')) return;
   await fetch(`/api/projects/${projectId}`, {method: 'DELETE'});
   window.location.href = '/projects';
 }

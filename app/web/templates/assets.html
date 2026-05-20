@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Assety — EVE Retroindustry{% endblock %}
+{% block title %}Assets — EVE Retroindustry{% endblock %}
 {% block content %}
 
 {# === Makro pro tabulku assetů === #}
@@ -9,15 +9,15 @@
     <thead>
       <tr>
         <th style="width:36px"></th>
-        <th class="sort-col" data-col="0" style="cursor:pointer" title="Seřadit podle názvu">
-          Předmět <span class="sort-icon text-muted ms-1">⇅</span>
+        <th class="sort-col" data-col="0" style="cursor:pointer" title="Sort by name">
+          Item <span class="sort-icon text-muted ms-1">⇅</span>
         </th>
-        <th class="text-end sort-col" data-col="1" style="cursor:pointer" title="Seřadit podle množství">
-          Množství <span class="sort-icon text-muted ms-1">⇅</span>
+        <th class="text-end sort-col" data-col="1" style="cursor:pointer" title="Sort by quantity">
+          Quantity <span class="sort-icon text-muted ms-1">⇅</span>
         </th>
-        <th class="text-end">Cena/ks (ISK)</th>
-        <th class="text-end sort-col" data-col="3" style="cursor:pointer" title="Seřadit podle hodnoty">
-          Hodnota (ISK) <span class="sort-icon text-muted ms-1">⇅</span>
+        <th class="text-end">Price/unit (ISK)</th>
+        <th class="text-end sort-col" data-col="3" style="cursor:pointer" title="Sort by value">
+          Value (ISK) <span class="sort-icon text-muted ms-1">⇅</span>
         </th>
       </tr>
     </thead>
@@ -44,9 +44,9 @@
     </tbody>
     <tfoot>
       <tr style="border-top:2px solid #30363d">
-        <td colspan="2" class="text-muted small">{{ items | length }} druhů</td>
+        <td colspan="2" class="text-muted small">{{ items | length }} types</td>
         <td></td>
-        <td class="text-end text-muted small">Celkem</td>
+        <td class="text-end text-muted small">Total</td>
         <td class="text-end fw-bold text-isk">
           {% set tbl_total = items | selectattr('total_value') | map(attribute='total_value') | sum %}
           {% if tbl_total > 0 %}{{ tbl_total | isk }}{% else %}—{% endif %}
@@ -59,44 +59,44 @@
 
 <div class="row mb-4 align-items-center">
   <div class="col">
-    <h4 class="mb-0"><i class="bi bi-box-seam me-2 text-primary"></i>Assety</h4>
+    <h4 class="mb-0"><i class="bi bi-box-seam me-2 text-primary"></i>Assets</h4>
   </div>
   <div class="col-auto d-flex gap-2">
     <form method="get" action="/assets" class="d-flex gap-2">
-      <input type="text" name="search" class="form-control form-control-sm" placeholder="Hledat…" value="{{ search or '' }}" style="width:200px">
-      <button type="submit" class="btn btn-eve btn-sm">Filtrovat</button>
+      <input type="text" name="search" class="form-control form-control-sm" placeholder="Search…" value="{{ search or '' }}" style="width:200px">
+      <button type="submit" class="btn btn-eve btn-sm">Filter</button>
       {% if search %}
-      <a href="/assets" class="btn btn-outline-secondary btn-sm">Zrušit</a>
+      <a href="/assets" class="btn btn-outline-secondary btn-sm">Cancel</a>
       {% endif %}
     </form>
     <button id="add-loc-btn" type="button" class="btn btn-outline-secondary btn-sm">
-      <i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci
+      <i class="bi bi-crosshair me-1"></i>Add Current Location
     </button>
   </div>
 </div>
 
 {% if not stations %}
-<div class="alert alert-secondary">Žádné assety nenalezeny{% if search %} pro „{{ search }}"{% endif %}.</div>
+<div class="alert alert-secondary">No assets found{% if search %} for "{{ search }}"{% endif %}.</div>
 {% else %}
 
 <div class="d-flex align-items-center justify-content-between mb-3">
   <span class="text-muted small">
-    {{ stations | length }} lokací{% if search %} • filtr: „{{ search }}"{% endif %}
+    {{ stations | length }} locations{% if search %} • filter: "{{ search }}"{% endif %}
   </span>
   <div class="d-flex align-items-center gap-2">
-    <span class="text-muted small">Seřadit:</span>
+    <span class="text-muted small">Sort by:</span>
     <div class="btn-group btn-group-sm" id="sort-btns">
-      <button class="btn btn-outline-secondary active" data-sort="items" title="Počet unikátních typů">
-        <i class="bi bi-hash me-1"></i>Druhů
+      <button class="btn btn-outline-secondary active" data-sort="items" title="Number of unique types">
+        <i class="bi bi-hash me-1"></i>Types
       </button>
-      <button class="btn btn-outline-secondary" data-sort="isk" title="Celková ISK hodnota">
-        <i class="bi bi-currency-exchange me-1"></i>Hodnota ISK
+      <button class="btn btn-outline-secondary" data-sort="isk" title="Total ISK value">
+        <i class="bi bi-currency-exchange me-1"></i>ISK Value
       </button>
-      <button class="btn btn-outline-secondary" data-sort="name" title="Název stanice">
-        <i class="bi bi-sort-alpha-down me-1"></i>Název
+      <button class="btn btn-outline-secondary" data-sort="name" title="Station name">
+        <i class="bi bi-sort-alpha-down me-1"></i>Name
       </button>
-      <button class="btn btn-outline-secondary" data-sort="jumps" id="sort-jumps-btn" title="Počet jumpů od aktuální pozice">
-        <i class="bi bi-geo me-1"></i>Vzdálenost
+      <button class="btn btn-outline-secondary" data-sort="jumps" id="sort-jumps-btn" title="Number of jumps from current position">
+        <i class="bi bi-geo me-1"></i>Distance
       </button>
     </div>
   </div>
@@ -121,12 +121,12 @@
       <span class="text-muted small">ID: {{ station.loc_id }}</span>
       <span class="loc-rename-wrap d-none" id="loc-rename-{{ station.loc_id }}" onclick="event.stopPropagation()">
         <button class="btn btn-sm btn-outline-secondary loc-resolve-btn me-1" data-id="{{ station.loc_id }}"
-                title="Zkusit dohledat jméno přes ESI">
+                title="Try to look up name via ESI">
           <i class="bi bi-search"></i>
         </button>
         <input type="text" class="form-control form-control-sm d-inline-block"
                style="width:280px" value="{{ station.name }}"
-               placeholder="Zadej název struktury…">
+               placeholder="Enter structure name…">
         <button class="btn btn-sm btn-outline-success ms-1 loc-rename-save" data-id="{{ station.loc_id }}">
           <i class="bi bi-check-lg"></i>
         </button>
@@ -135,7 +135,7 @@
         </button>
       </span>
       <button class="btn btn-link btn-sm p-0 text-muted loc-rename-btn" data-id="{{ station.loc_id }}"
-              title="Přejmenovat lokaci" onclick="event.stopPropagation()">
+              title="Rename location" onclick="event.stopPropagation()">
         <i class="bi bi-pencil" style="font-size:.75em"></i>
       </button>
     </span>
@@ -144,7 +144,7 @@
       {% if station.total_value > 0 %}
       <span class="text-isk fw-semibold">{{ station.total_value | isk }} ISK</span>
       {% endif %}
-      <span class="badge bg-secondary">{{ station.total_items }} druhů</span>
+      <span class="badge bg-secondary">{{ station.total_items }} types</span>
     </span>
   </div>
 
@@ -158,11 +158,11 @@
            data-bs-toggle="collapse" data-bs-target="#hng-{{ sid }}" style="cursor:pointer">
         <span class="d-flex align-items-center gap-2">
           <i class="bi bi-inbox text-muted" style="font-size:.85em"></i>
-          <span class="fw-medium">Hangár</span>
+          <span class="fw-medium">Hangar</span>
         </span>
         <span class="d-flex align-items-center gap-2">
           {% if hangar_val > 0 %}<span class="text-isk">{{ hangar_val | isk }} ISK</span>{% endif %}
-          <span class="badge bg-secondary">{{ station.hangar | length }} druhů</span>
+          <span class="badge bg-secondary">{{ station.hangar | length }} types</span>
         </span>
       </div>
       <div class="collapse" id="hng-{{ sid }}">
@@ -190,7 +190,7 @@
         <span class="d-flex align-items-center gap-2">
           {% set c_val = container.assets | selectattr('total_value') | map(attribute='total_value') | sum %}
           {% if c_val > 0 %}<span class="text-isk">{{ c_val | isk }} ISK</span>{% endif %}
-          <span class="badge bg-secondary">{{ container.assets | length }} druhů</span>
+          <span class="badge bg-secondary">{{ container.assets | length }} types</span>
         </span>
       </div>
       <div class="collapse" id="cont-{{ ckey }}">
@@ -260,7 +260,7 @@ document.querySelectorAll('.loc-resolve-btn').forEach(btn => {
       input.classList.add('border-success');
       setTimeout(() => input.classList.remove('border-success'), 2000);
     } else {
-      input.placeholder = 'ESI: přístup odepřen — zadej ručně';
+      input.placeholder = 'ESI: access denied — enter manually';
       input.classList.add('border-warning');
       setTimeout(() => input.classList.remove('border-warning'), 2000);
     }
@@ -282,22 +282,22 @@ document.getElementById('add-loc-btn')?.addEventListener('click', async function
     const r = await fetch('/api/my-location');
     const data = await r.json();
     if (data.in_space) {
-      btn.innerHTML = `<i class="bi bi-crosshair me-1"></i>${data.solar_system_name} — v prostoru`;
-      setTimeout(() => { btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci'; btn.disabled = false; }, 3000);
+      btn.innerHTML = `<i class="bi bi-crosshair me-1"></i>${data.solar_system_name} — in space`;
+      setTimeout(() => { btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Add Current Location'; btn.disabled = false; }, 3000);
     } else if (data.location_id) {
       btn.innerHTML = `<i class="bi bi-check-circle me-1"></i>${data.name}`;
       btn.classList.replace('btn-outline-secondary', 'btn-outline-success');
       setTimeout(() => {
-        btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci';
+        btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Add Current Location';
         btn.classList.replace('btn-outline-success', 'btn-outline-secondary');
         btn.disabled = false;
       }, 3000);
     } else {
-      btn.innerHTML = `<i class="bi bi-x-circle me-1"></i>${data.error || 'Chyba'}`;
-      setTimeout(() => { btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci'; btn.disabled = false; }, 3000);
+      btn.innerHTML = `<i class="bi bi-x-circle me-1"></i>${data.error || 'Error'}`;
+      setTimeout(() => { btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Add Current Location'; btn.disabled = false; }, 3000);
     }
   } catch {
-    btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Přidat aktuální lokaci';
+    btn.innerHTML = '<i class="bi bi-crosshair me-1"></i>Add Current Location';
     btn.disabled = false;
   }
 });
@@ -380,7 +380,7 @@ sortBtns.forEach(btn => {
       // Načti vzdálenosti jen pokud ještě nejsou
       if (cards.length > 0) {
         jumpBtn.disabled = true;
-        jumpBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Vzdálenost';
+        jumpBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Distance';
         try {
           const r = await fetch('/api/assets/distances');
           const data = await r.json();
@@ -403,7 +403,7 @@ sortBtns.forEach(btn => {
           }
         } catch {}
         jumpBtn.disabled = false;
-        jumpBtn.innerHTML = '<i class="bi bi-geo me-1"></i>Vzdálenost';
+        jumpBtn.innerHTML = '<i class="bi bi-geo me-1"></i>Distance';
       }
     }
 

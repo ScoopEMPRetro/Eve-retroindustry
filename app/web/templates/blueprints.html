@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Blueprinty — EVE Retroindustry{% endblock %}
+{% block title %}Blueprints — EVE Retroindustry{% endblock %}
 {% block content %}
 
 {# === Makro pro tabulku blueprintů === #}
@@ -9,11 +9,11 @@
     <thead>
       <tr>
         <th style="width:36px"></th>
-        <th>Název blueprintu</th>
-        <th class="text-center">Typ</th>
+        <th>Blueprint Name</th>
+        <th class="text-center">Type</th>
         <th class="text-center" title="Material Efficiency">ME</th>
         <th class="text-center" title="Time Efficiency">TE</th>
-        <th class="text-center">Runy</th>
+        <th class="text-center">Runs</th>
         <th></th>
       </tr>
     </thead>
@@ -48,7 +48,7 @@
         </td>
         <td>
           <a href="/plan?product={{ bp.name | urlencode }}" class="btn btn-outline-secondary btn-sm"
-             title="Otevřít ve výrobním plánu">
+             title="Open in Manufacturing Plan">
             <i class="bi bi-hammer"></i>
           </a>
         </td>
@@ -61,29 +61,29 @@
 
 <div class="row mb-4 align-items-center">
   <div class="col">
-    <h4 class="mb-0"><i class="bi bi-file-earmark-text me-2 text-primary"></i>Blueprinty
+    <h4 class="mb-0"><i class="bi bi-file-earmark-text me-2 text-primary"></i>Blueprints
       <span class="text-muted fs-6 fw-normal ms-2">({{ total }})</span>
     </h4>
   </div>
   <div class="col-auto">
     <form method="get" action="/blueprints" class="d-flex gap-2">
-      <input type="text" name="search" class="form-control form-control-sm" placeholder="Hledat…"
+      <input type="text" name="search" class="form-control form-control-sm" placeholder="Search…"
              value="{{ search or '' }}" style="width:200px">
-      <button type="submit" class="btn btn-eve btn-sm">Filtrovat</button>
+      <button type="submit" class="btn btn-eve btn-sm">Filter</button>
       {% if search %}
-      <a href="/blueprints" class="btn btn-outline-secondary btn-sm">Zrušit</a>
+      <a href="/blueprints" class="btn btn-outline-secondary btn-sm">Cancel</a>
       {% endif %}
     </form>
   </div>
 </div>
 
 {% if not stations %}
-<div class="alert alert-secondary">Žádné blueprinty{% if search %} pro „{{ search }}"{% endif %}.</div>
+<div class="alert alert-secondary">No blueprints found{% if search %} for "{{ search }}"{% endif %}.</div>
 {% else %}
 
 <div class="mb-3 text-muted small">
-  {{ stations | length }} lokací
-  {% if search %} • filtr: „{{ search }}"{% endif %}
+  {{ stations | length }} locations
+  {% if search %} • filter: "{{ search }}"{% endif %}
 </div>
 
 {% for station in stations %}
@@ -98,12 +98,12 @@
       <span class="text-muted small">ID: {{ station.loc_id }}</span>
       <span class="loc-rename-wrap d-none" id="loc-rename-{{ station.loc_id }}" onclick="event.stopPropagation()">
         <button class="btn btn-sm btn-outline-secondary loc-resolve-btn me-1" data-id="{{ station.loc_id }}"
-                title="Zkusit dohledat jméno přes ESI">
+                title="Try to look up name via ESI">
           <i class="bi bi-search"></i>
         </button>
         <input type="text" class="form-control form-control-sm d-inline-block"
                style="width:280px" value="{{ station.name }}"
-               placeholder="Zadej název struktury…">
+               placeholder="Enter structure name…">
         <button class="btn btn-sm btn-outline-success ms-1 loc-rename-save" data-id="{{ station.loc_id }}">
           <i class="bi bi-check-lg"></i>
         </button>
@@ -112,7 +112,7 @@
         </button>
       </span>
       <button class="btn btn-link btn-sm p-0 text-muted loc-rename-btn" data-id="{{ station.loc_id }}"
-              title="Přejmenovat lokaci" onclick="event.stopPropagation()">
+              title="Rename location" onclick="event.stopPropagation()">
         <i class="bi bi-pencil" style="font-size:.75em"></i>
       </button>
     </span>
@@ -122,7 +122,7 @@
       {% set bpc_count = all_bps | rejectattr('is_original') | list | length %}
       {% if bpo_count > 0 %}<span class="badge badge-bpo">{{ bpo_count }} BPO</span>{% endif %}
       {% if bpc_count > 0 %}<span class="badge badge-bpc">{{ bpc_count }} BPC</span>{% endif %}
-      <span class="badge bg-secondary">{{ station.total }} celkem</span>
+      <span class="badge bg-secondary">{{ station.total }} total</span>
     </span>
   </div>
 
@@ -137,7 +137,7 @@
            data-bs-toggle="collapse" data-bs-target="#hng-{{ sid }}" style="cursor:pointer">
         <span class="d-flex align-items-center gap-2">
           <i class="bi bi-inbox text-muted" style="font-size:.85em"></i>
-          <span class="fw-medium">Hangár</span>
+          <span class="fw-medium">Hangar</span>
         </span>
         <span class="d-flex align-items-center gap-2">
           {% if h_bpo > 0 %}<span class="badge badge-bpo">{{ h_bpo }} BPO</span>{% endif %}
@@ -239,7 +239,7 @@ document.querySelectorAll('.loc-resolve-btn').forEach(btn => {
       input.classList.add('border-success');
       setTimeout(() => input.classList.remove('border-success'), 2000);
     } else {
-      input.placeholder = 'ESI: přístup odepřen — zadej ručně';
+      input.placeholder = 'ESI: access denied — enter manually';
       input.classList.add('border-warning');
       setTimeout(() => input.classList.remove('border-warning'), 2000);
     }
