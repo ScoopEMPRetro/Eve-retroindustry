@@ -8,17 +8,19 @@ import httpx
 ESI_BASE  = "https://esi.evetech.net/latest"
 CACHE_TTL = 3600  # 1 hodina
 
-# Fallback pokud sde_skill_time_bonus tabulka ještě neexistuje
-_FALLBACK_SKILL_IDS = {3380, 3388}
+# Industry a AdvIndustry jsou aplikovány zvlášť v calc_job_time,
+# ale musíme je vždy fetchovat pro zobrazení v UI.
+_GENERAL_SKILL_IDS = {3380, 3388}
 
 
 def get_mfg_skill_ids(conn: sqlite3.Connection) -> set[int]:
-    """Vrátí set type_id všech skillů, které mají time bonus v SDE."""
+    """Vrátí set type_id všech skillů relevantních pro výrobu (science + Industry/AdvIndustry)."""
     try:
         rows = conn.execute("SELECT skill_type_id FROM sde_skill_time_bonus").fetchall()
-        return {r[0] for r in rows} if rows else _FALLBACK_SKILL_IDS
+        science_ids = {r[0] for r in rows}
     except sqlite3.OperationalError:
-        return _FALLBACK_SKILL_IDS
+        science_ids = set()
+    return science_ids | _GENERAL_SKILL_IDS
 
 
 def ensure_skills_table(conn: sqlite3.Connection):
