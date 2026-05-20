@@ -2,7 +2,6 @@
 
 A local industry calculator for EVE Online. Runs as a web app on your machine — blueprint cost analysis, bill of materials expansion, Jita market pricing, asset tracking, and production project management.
 
-![Dashboard](https://github.com/ScoopEMPRetro/Eve-retroindustry/assets/dashboard.png)
 
 ---
 
