@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 import asyncio
 import datetime
@@ -344,7 +344,7 @@ async def _bg_initial_sync():
             all_assets = await fetch_assets(client, char_id, token, conn)
 
         # Resolve location names so station autocomplete works immediately
-        loc_ids = list({a["location_id"] for a in all_assets})
+        loc_ids = list({a.location_id for a in all_assets})
         if loc_ids:
             await resolve_station_names_bulk(loc_ids, token=token, conn=conn)
 
@@ -1350,23 +1350,27 @@ async def suggest_station(q: str = ""):
             other_ids.add(loc_id)
     other.sort(key=lambda x: x["name"])
 
-    # Hledej stanice/struktury podle systému
-    if len(q.strip()) >= 3:
+    # Hledej stanice/struktury podle (částečného) jména systému přes ESI /search/
+    if len(q.strip()) >= 2:
         try:
             async with httpx.AsyncClient() as client:
-                # POST /universe/ids/ přeloží jméno systému na ID (public, bez auth)
-                ids_r = await client.post(
-                    "https://esi.evetech.net/latest/universe/ids/",
-                    params={"datasource": "tranquility", "language": "en"},
-                    json=[q.strip()],
+                # /search/ podporuje partial match — najde "7BX-6F" z "7bx"
+                search_r = await client.get(
+                    "https://esi.evetech.net/latest/search/",
+                    params={
+                        "categories": "solar_system",
+                        "search": q.strip(),
+                        "datasource": "tranquility",
+                        "strict": "false",
+                    },
                     timeout=4.0,
                 )
                 system_ids: list[int] = []
-                if ids_r.status_code == 200:
-                    system_ids = [s["id"] for s in ids_r.json().get("systems", [])]
+                if search_r.status_code == 200:
+                    system_ids = search_r.json().get("solar_system", [])
 
-                # Stanice/struktury v nalezených systémech (z naší cache)
-                for sys_id in system_ids[:5]:
+                # Struktury/stanice z naší cache pro nalezené systémy
+                for sys_id in system_ids[:10]:
                     for entry in locations_in_system(conn, sys_id):
                         lid = entry["location_id"]
                         if lid in asset_locs and lid not in owned_ids:
@@ -1377,7 +1381,7 @@ async def suggest_station(q: str = ""):
                             other_ids.add(lid)
 
                 # NPC stanice z ESI: GET /universe/systems/{id}/ → stations[]
-                for sys_id in system_ids[:3]:
+                for sys_id in system_ids[:5]:
                     sys_r = await client.get(
                         f"https://esi.evetech.net/latest/universe/systems/{sys_id}/",
                         params={"datasource": "tranquility"},
