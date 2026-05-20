@@ -708,12 +708,15 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
           <span class="fw-semibold me-1">{{ job.name }}</span>
           <span style="flex:1"></span>
           {# Pevně zarovnané sloupce vpravo #}
+          <span class="text-muted mx-2" style="flex-shrink:0;opacity:.3">|</span>
           <span class="text-muted" style="width:8ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;white-space:nowrap">
             ×{{ job.quantity | int | format_number }}
           </span>
+          <span class="text-muted mx-2" style="flex-shrink:0;opacity:.3">|</span>
           <span class="text-muted" style="width:8ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;white-space:nowrap" title="Runs">
             <i class="bi bi-arrow-repeat" style="font-size:.7rem"></i>{{ job.runs }}
           </span>
+          <span class="text-muted mx-2" style="flex-shrink:0;opacity:.3">|</span>
           <span class="text-warning" style="width:12ch;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums;white-space:nowrap">
             {% if job.job_duration is defined %}<i class="bi bi-clock me-1" style="font-size:.75rem"></i>{{ job.job_duration }}{% endif %}
           </span>
