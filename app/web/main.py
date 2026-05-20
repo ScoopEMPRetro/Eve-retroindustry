@@ -63,8 +63,17 @@ from app.web.projects_helper import (
     get_project_detail,
 )
 
-DB_ABS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "eve_cache.db"))
-TEMPLATES_DIR = Path(__file__).parent / "templates"
+# Path resolution — works in dev mode and when frozen by PyInstaller.
+# launcher.py sets EVE_APP_DIR / EVE_BUNDLE_DIR before importing this module.
+_APP_DIR = os.environ.get("EVE_APP_DIR") or os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..")
+)
+_BUNDLE_DIR = os.environ.get("EVE_BUNDLE_DIR") or os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..")
+)
+
+DB_ABS = os.path.join(_APP_DIR, "eve_cache.db")
+TEMPLATES_DIR = Path(_BUNDLE_DIR) / "app" / "web" / "templates"
 
 app = FastAPI(title="EVE Retroindustry")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))

@@ -6,6 +6,11 @@ __pycache__/
 venv/
 *.egg-info/
 
+# PyInstaller build artifacts
+dist/
+build/
+sde_base.db
+
 # Databáze a citlivá data
 *.db
 *.db-shm
