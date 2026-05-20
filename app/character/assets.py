@@ -106,6 +106,84 @@ def _parse_assets(raw: list[dict]) -> list[CharAsset]:
     return result
 
 
+def ensure_corp_assets_table(conn: sqlite3.Connection):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS corp_assets_cache (
+            corporation_id INTEGER NOT NULL,
+            data_json      TEXT NOT NULL,
+            cached_at      REAL
+        )
+    """)
+    conn.commit()
+
+
+def _load_corp_cache(conn: sqlite3.Connection, corporation_id: int) -> list[dict] | None:
+    row = conn.execute(
+        "SELECT data_json, cached_at FROM corp_assets_cache WHERE corporation_id=?",
+        (corporation_id,)
+    ).fetchone()
+    if row and (time.time() - (row[1] or 0)) < CACHE_TTL:
+        return json.loads(row[0])
+    return None
+
+
+def _save_corp_cache(conn: sqlite3.Connection, corporation_id: int, data: list[dict]):
+    conn.execute("DELETE FROM corp_assets_cache WHERE corporation_id=?", (corporation_id,))
+    conn.execute(
+        "INSERT INTO corp_assets_cache (corporation_id, data_json, cached_at) VALUES (?,?,?)",
+        (corporation_id, json.dumps(data), time.time())
+    )
+    conn.commit()
+
+
+async def fetch_corp_assets(
+    client: httpx.AsyncClient,
+    character_id: int,
+    access_token: str,
+    conn: sqlite3.Connection,
+    force_refresh: bool = False,
+) -> tuple[int, list[CharAsset]]:
+    """Fetch corporation assets. Returns (corp_id, assets). Empty list if no ESI access."""
+    headers = {"Authorization": f"Bearer {access_token}"}
+    char_r = await client.get(
+        f"{ESI_BASE}/characters/{character_id}/",
+        params={"datasource": "tranquility"},
+        headers=headers,
+        timeout=10,
+    )
+    char_r.raise_for_status()
+    corp_id: int = char_r.json()["corporation_id"]
+
+    if not force_refresh:
+        cached = _load_corp_cache(conn, corp_id)
+        if cached is not None:
+            return corp_id, _parse_assets(cached)
+
+    all_items: list[dict] = []
+    page = 1
+
+    while True:
+        r = await client.get(
+            f"{ESI_BASE}/corporations/{corp_id}/assets/",
+            params={"datasource": "tranquility", "page": page},
+            headers=headers,
+            timeout=20,
+        )
+        if r.status_code in (401, 403):
+            return corp_id, []
+        r.raise_for_status()
+        items = r.json()
+        all_items.extend(items)
+
+        total_pages = int(r.headers.get("x-pages", 1))
+        if page >= total_pages:
+            break
+        page += 1
+
+    _save_corp_cache(conn, corp_id, all_items)
+    return corp_id, _parse_assets(all_items)
+
+
 def assets_at_location(assets: list[CharAsset], location_id: int) -> dict[int, int]:
     """
     Vrátí {type_id: total_quantity} pro danou stanici/strukturu.

@@ -75,13 +75,15 @@
   </div>
 </div>
 
-{% if not stations %}
+{% if not stations and not corp_stations %}
 <div class="alert alert-secondary">No assets found{% if search %} for "{{ search }}"{% endif %}.</div>
 {% else %}
 
+{# ── Personal assets ───────────────────────────────────────────────────── #}
+{% if stations %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <span class="text-muted small">
-    {{ stations | length }} locations{% if search %} • filter: "{{ search }}"{% endif %}
+    <i class="bi bi-person me-1"></i>Personal — {{ stations | length }} locations{% if search %} • filter: "{{ search }}"{% endif %}
   </span>
   <div class="d-flex align-items-center gap-2">
     <span class="text-muted small">Sort by:</span>
@@ -112,7 +114,6 @@
      data-loc-id="{{ station.loc_id }}"
      data-sys-id="{{ station.solar_system_id or '' }}"
      data-jumps="">
-  {# === Hlavička stanice === #}
   <div class="card-header d-flex justify-content-between align-items-center py-2"
        data-bs-toggle="collapse" data-bs-target="#st-{{ sid }}" style="cursor:pointer">
     <span class="d-flex align-items-center gap-2">
@@ -150,7 +151,6 @@
 
   <div class="collapse" id="st-{{ sid }}">
 
-    {# === Assety přímo v hangáru === #}
     {% if station.hangar %}
     {% set hangar_val = station.hangar | selectattr('total_value') | map(attribute='total_value') | sum %}
     <div {% if station.containers %}class="border-bottom" style="border-color:#30363d !important"{% endif %}>
@@ -171,7 +171,6 @@
     </div>
     {% endif %}
 
-    {# === Kontejnery === #}
     {% for container in station.containers %}
     {% set ckey = sid ~ "-" ~ loop.index %}
     <div class="border-top" style="border-color:#30363d !important">
@@ -203,6 +202,98 @@
 </div>
 {% endfor %}
 </div>{# end #stations-list #}
+{% endif %}
+
+{# ── Corporation assets ────────────────────────────────────────────────── #}
+{% if corp_stations %}
+<div class="d-flex align-items-center mb-3 {% if stations %}mt-4{% endif %}">
+  <span class="text-muted small">
+    <i class="bi bi-building me-1 text-warning"></i>
+    <span class="text-warning fw-semibold">Corporation</span> — {{ corp_stations | length }} locations
+  </span>
+</div>
+
+{% for station in corp_stations %}
+{% set csid = "corp-" ~ (station.loc_id | string) %}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center py-2"
+       data-bs-toggle="collapse" data-bs-target="#st-{{ csid }}" style="cursor:pointer">
+    <span class="d-flex align-items-center gap-2">
+      <i class="bi bi-building text-warning" style="font-size:.85em"></i>
+      <strong>{{ station.name }}</strong>
+      <span class="text-muted small">ID: {{ station.loc_id }}</span>
+    </span>
+    <span class="d-flex align-items-center gap-2">
+      {% if station.total_value > 0 %}
+      <span class="text-isk fw-semibold">{{ station.total_value | isk }} ISK</span>
+      {% endif %}
+      <span class="badge bg-secondary">{{ station.total_items }} types</span>
+    </span>
+  </div>
+
+  <div class="collapse" id="st-{{ csid }}">
+    {% for div in station.divisions %}
+    {% set dkey = csid ~ "-" ~ loop.index %}
+    {% set div_val = (div.hangar | selectattr('total_value') | map(attribute='total_value') | sum)
+                   + (div.containers | map(attribute='assets') | sum(start=[])
+                      | selectattr('total_value') | map(attribute='total_value') | sum) %}
+    <div class="border-top" style="border-color:#30363d !important">
+      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+           data-bs-toggle="collapse" data-bs-target="#div-{{ dkey }}" style="cursor:pointer">
+        <span class="d-flex align-items-center gap-2">
+          <i class="bi bi-inbox text-warning" style="font-size:.85em"></i>
+          <span class="fw-medium">{{ div.label }}</span>
+        </span>
+        <span class="d-flex align-items-center gap-2">
+          {% if div_val > 0 %}<span class="text-isk">{{ div_val | isk }} ISK</span>{% endif %}
+          {% set div_item_count = div.hangar | length + div.containers | map(attribute='assets') | sum(start=[]) | length %}
+          <span class="badge bg-secondary">{{ div_item_count }} types</span>
+        </span>
+      </div>
+
+      <div class="collapse" id="div-{{ dkey }}">
+        {# Direct items in this division #}
+        {% if div.hangar %}
+        <div {% if div.containers %}class="border-bottom" style="border-color:#30363d !important"{% endif %}>
+          {{ asset_table(div.hangar, "divhng-" ~ dkey) }}
+        </div>
+        {% endif %}
+
+        {# Containers in this division #}
+        {% for container in div.containers %}
+        {% set ck = dkey ~ "-" ~ loop.index %}
+        <div class="border-top" style="border-color:#30363d !important">
+          <div class="d-flex justify-content-between align-items-center px-3 py-2"
+               data-bs-toggle="collapse" data-bs-target="#ccont-{{ ck }}" style="cursor:pointer">
+            <span class="d-flex align-items-center gap-2">
+              {% if container.type_id %}
+              <img data-render="https://images.evetech.net/types/{{ container.type_id }}/render?size=32"
+                   data-icon="https://images.evetech.net/types/{{ container.type_id }}/icon?size=32"
+                   width="24" height="24" class="rounded eve-icon" alt="">
+              {% else %}
+              <i class="bi bi-box text-muted" style="font-size:.85em"></i>
+              {% endif %}
+              <span class="fw-medium">{{ container.name }}</span>
+            </span>
+            <span class="d-flex align-items-center gap-2">
+              {% set cc_val = container.assets | selectattr('total_value') | map(attribute='total_value') | sum %}
+              {% if cc_val > 0 %}<span class="text-isk">{{ cc_val | isk }} ISK</span>{% endif %}
+              <span class="badge bg-secondary">{{ container.assets | length }} types</span>
+            </span>
+          </div>
+          <div class="collapse" id="ccont-{{ ck }}">
+            {{ asset_table(container.assets, "ccont-" ~ ck) }}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
 {% endif %}
 {% endblock %}
 

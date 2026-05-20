@@ -19,7 +19,10 @@ from fastapi.templating import Jinja2Templates
 from app.auth.token_store import get_valid_token, get_character, is_logged_in
 from app.auth.esi_oauth import start_web_login
 from app.character.blueprints import fetch_blueprints, ensure_bp_table
-from app.character.assets import fetch_assets, ensure_assets_table, assets_at_location
+from app.character.assets import (
+    fetch_assets, ensure_assets_table, assets_at_location,
+    fetch_corp_assets, ensure_corp_assets_table,
+)
 from app.db.type_resolver import resolve_names_bulk
 from app.esi.client import search_type_by_name
 from app.cache.blueprint_cache import resolve_type
@@ -206,6 +209,7 @@ def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_ABS)
     ensure_bp_table(conn)
     ensure_assets_table(conn)
+    ensure_corp_assets_table(conn)
     ensure_price_table(conn)
     ensure_location_name_table(conn)
     ensure_industry_tables(conn)
@@ -317,6 +321,29 @@ def _load_assets_from_cache(conn: sqlite3.Connection, char_id: int) -> list[dict
     return json.loads(row[0])
 
 
+def _load_corp_assets_from_cache(conn: sqlite3.Connection, corp_id: int) -> list[dict]:
+    row = conn.execute(
+        "SELECT data_json FROM corp_assets_cache WHERE corporation_id=?", (corp_id,)
+    ).fetchone()
+    if not row:
+        return []
+    return json.loads(row[0])
+
+
+_CORP_DIV_LABEL: dict[str, str] = {
+    "CorpSAG1": "Division 1",
+    "CorpSAG2": "Division 2",
+    "CorpSAG3": "Division 3",
+    "CorpSAG4": "Division 4",
+    "CorpSAG5": "Division 5",
+    "CorpSAG6": "Division 6",
+    "CorpSAG7": "Division 7",
+    "Hangar": "Hangar",
+    "CorpDeliveries": "Deliveries",
+}
+_CORP_DIV_ORDER = list(_CORP_DIV_LABEL.keys())
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -331,7 +358,7 @@ async def auth_login():
 
 
 async def _bg_initial_sync():
-    """Fetch blueprints + assets from ESI after login, then resolve location names."""
+    """Fetch blueprints + personal + corp assets from ESI after login."""
     try:
         token = get_valid_token()
         char = get_character()
@@ -342,11 +369,16 @@ async def _bg_initial_sync():
         async with httpx.AsyncClient() as client:
             await fetch_blueprints(client, char_id, token, conn)
             all_assets = await fetch_assets(client, char_id, token, conn)
+            try:
+                _, corp_assets = await fetch_corp_assets(client, char_id, token, conn)
+            except Exception:
+                corp_assets = []
 
-        # Resolve location names so station autocomplete works immediately
-        loc_ids = list({a.location_id for a in all_assets})
-        if loc_ids:
-            await resolve_station_names_bulk(loc_ids, token=token, conn=conn)
+        personal_loc_ids = {a.location_id for a in all_assets}
+        corp_loc_ids = {a.location_id for a in corp_assets} - personal_loc_ids
+        all_loc_ids = list(personal_loc_ids | corp_loc_ids)
+        if all_loc_ids:
+            await resolve_station_names_bulk(all_loc_ids, token=token, conn=conn)
 
         conn.close()
     finally:
@@ -866,27 +898,29 @@ async def assets_page(request: Request, search: str = ""):
     token = get_valid_token()
     char = get_character()
     stations: list[dict] = []
+    corp_stations: list[dict] = []
 
     if char and token:
         char_id, _ = char
         async with httpx.AsyncClient() as client:
             all_assets = await fetch_assets(client, char_id, token, conn)
-            unique_ids = list({a.type_id for a in all_assets})
-            names = await resolve_names_bulk(conn, unique_ids, client)
+            try:
+                corp_id, corp_assets_list = await fetch_corp_assets(client, char_id, token, conn)
+            except Exception:
+                corp_id, corp_assets_list = 0, []
+            all_type_ids_for_names = list(
+                {a.type_id for a in all_assets} | {a.type_id for a in corp_assets_list}
+            )
+            names = await resolve_names_bulk(conn, all_type_ids_for_names, client)
 
+        # ── Personal assets ─────────────────────────────────────────────────
         parent_map: dict[int, int] = {a.item_id: a.location_id for a in all_assets}
-
-        # item_ids existujících assetů — kontejnery/lodě jsou v této množině
         asset_item_ids = {a.item_id for a in all_assets}
 
         def _hierarchy(a) -> tuple[int, int | None]:
-            """Vrátí (station_id, container_id|None).
-            Kontejner/loď = location_id je item_id jiného assetu.
-            """
             loc = a.location_id
             if loc not in asset_item_ids:
-                return loc, None  # přímá stanice/struktura
-            # Přímý rodič je kontejner/loď — najdi kořenovou stanici
+                return loc, None
             container_id = loc
             cur = loc
             seen: set[int] = set()
@@ -897,7 +931,6 @@ async def assets_page(request: Request, search: str = ""):
                     break
             return cur, container_id
 
-        # {station_id: {"hangar": {type_id: item}, "containers": {container_id: {type_id: item}}}}
         station_data: dict[int, dict] = {}
 
         def _get_st(sid: int) -> dict:
@@ -922,13 +955,73 @@ async def assets_page(request: Request, search: str = ""):
                     "is_blueprint_copy": a.is_blueprint_copy,
                 }
 
-        # Ceny
-        all_type_ids = list({
+        # ── Corporate assets ─────────────────────────────────────────────────
+        # station_id → {div_flag → {"hangar": {type_id: item}, "containers": {cid: {type_id: item}}}}
+        corp_sd: dict[int, dict] = {}
+        if corp_assets_list:
+            corp_item_ids = {a.item_id for a in corp_assets_list}
+            corp_parent_map = {a.item_id: a.location_id for a in corp_assets_list}
+            corp_flag_map = {a.item_id: a.location_flag for a in corp_assets_list}
+
+            def _corp_hierarchy(a) -> tuple[int, str, int | None]:
+                """Returns (station_id, division_flag, container_id|None)."""
+                loc = a.location_id
+                if loc not in corp_item_ids:
+                    return loc, a.location_flag, None
+                container_id = loc
+                chain: list[int] = []
+                cur = loc
+                seen: set[int] = set()
+                while cur in corp_item_ids:
+                    if cur in seen:
+                        break
+                    seen.add(cur)
+                    chain.append(cur)
+                    nxt = corp_parent_map.get(cur)
+                    if nxt is None:
+                        break
+                    cur = nxt
+                station_id = cur
+                root_container = chain[-1] if chain else loc
+                div_flag = corp_flag_map.get(root_container, "Hangar")
+                return station_id, div_flag, container_id
+
+            def _get_corp_div(sid: int, flag: str) -> dict:
+                if sid not in corp_sd:
+                    corp_sd[sid] = {}
+                if flag not in corp_sd[sid]:
+                    corp_sd[sid][flag] = {"hangar": {}, "containers": {}}
+                return corp_sd[sid][flag]
+
+            for a in corp_assets_list:
+                item_name = names.get(a.type_id, f"Unknown ({a.type_id})")
+                if search and search.lower() not in item_name.lower():
+                    continue
+                sid, div_flag, cid = _corp_hierarchy(a)
+                div = _get_corp_div(sid, div_flag)
+                bucket = div["hangar"] if cid is None else div["containers"].setdefault(cid, {})
+                if a.type_id in bucket:
+                    bucket[a.type_id]["quantity"] += a.quantity
+                else:
+                    bucket[a.type_id] = {
+                        "type_id": a.type_id,
+                        "name": item_name,
+                        "quantity": a.quantity,
+                        "is_blueprint_copy": a.is_blueprint_copy,
+                    }
+
+        # ── Prices (shared for both personal and corp) ───────────────────────
+        all_price_ids = list({
             tid
             for sd in station_data.values()
             for tid in list(sd["hangar"]) + [t for c in sd["containers"].values() for t in c]
+        } | {
+            tid
+            for sid_data in corp_sd.values()
+            for dv in sid_data.values()
+            for tid in list(dv["hangar"]) + [t for c in dv["containers"].values() for t in c]
         })
-        prices = await get_prices_for_ids(conn, all_type_ids)
+        prices = await get_prices_for_ids(conn, all_price_ids)
 
         def _add_prices(bucket: dict):
             for item in bucket.values():
@@ -945,24 +1038,35 @@ async def assets_page(request: Request, search: str = ""):
             for c in sd["containers"].values():
                 _add_prices(c)
 
-        # Jména stanic
-        loc_names = await resolve_station_names_bulk(list(station_data), token, conn)
+        for sid_data in corp_sd.values():
+            for dv in sid_data.values():
+                _add_prices(dv["hangar"])
+                for c in dv["containers"].values():
+                    _add_prices(c)
 
-        # Jména kontejnerů
+        # ── Location names ────────────────────────────────────────────────────
+        all_loc_ids = list(set(station_data.keys()) | set(corp_sd.keys()))
+        loc_names = await resolve_station_names_bulk(all_loc_ids, token, conn)
+
+        sys_rows = conn.execute(
+            "SELECT location_id, solar_system_id FROM location_name_cache WHERE solar_system_id IS NOT NULL"
+        ).fetchall()
+        sys_map = {r[0]: r[1] for r in sys_rows}
+
+        # ── Build personal stations ──────────────────────────────────────────
         all_container_ids = [cid for sd in station_data.values() for cid in sd["containers"]]
         assets_raw = _load_assets_from_cache(conn, char_id)
         container_info = await _resolve_container_names(char_id, token, all_container_ids, assets_raw) \
             if all_container_ids else {}
         container_type_map = {item["item_id"]: item["type_id"] for item in assets_raw}
 
-        # Sestavení výsledku
         def _sort_items(bucket: dict) -> list:
             return sorted(bucket.values(), key=lambda x: x["name"])
 
         for sid, sd in station_data.items():
             containers = []
             for cid, items in sd["containers"].items():
-                cname = container_info.get(cid, (f"Kontejner {cid}", sid))[0]
+                cname = container_info.get(cid, (f"Container {cid}", sid))[0]
                 containers.append({
                     "container_id": cid,
                     "name": cname,
@@ -970,7 +1074,6 @@ async def assets_page(request: Request, search: str = ""):
                     "assets": _sort_items(items),
                 })
             containers.sort(key=lambda c: c["name"])
-
             hangar_items = _sort_items(sd["hangar"])
             total_items = len(hangar_items) + sum(len(c["assets"]) for c in containers)
             total_value = (
@@ -984,21 +1087,96 @@ async def assets_page(request: Request, search: str = ""):
                 "containers": containers,
                 "total_items": total_items,
                 "total_value": total_value,
+                "solar_system_id": sys_map.get(sid),
             })
 
         stations.sort(key=lambda s: -s["total_items"])
 
-        # Přidej solar_system_id pro výpočet vzdáleností
-        sys_rows = conn.execute(
-            "SELECT location_id, solar_system_id FROM location_name_cache WHERE solar_system_id IS NOT NULL"
-        ).fetchall()
-        sys_map = {r[0]: r[1] for r in sys_rows}
-        for s in stations:
-            s["solar_system_id"] = sys_map.get(s["loc_id"])
+        # ── Build corp stations ───────────────────────────────────────────────
+        if corp_sd and corp_id:
+            corp_assets_raw = _load_corp_assets_from_cache(conn, corp_id)
+            corp_container_type_map = {item["item_id"]: item["type_id"] for item in corp_assets_raw}
+            all_corp_container_ids = [
+                cid
+                for sid_data in corp_sd.values()
+                for dv in sid_data.values()
+                for cid in dv["containers"]
+            ]
+            corp_container_info = await _resolve_corp_container_names(
+                corp_id, token, all_corp_container_ids, corp_assets_raw
+            ) if all_corp_container_ids else {}
+
+            for sid, sid_data in corp_sd.items():
+                divisions = []
+                for flag in _CORP_DIV_ORDER:
+                    if flag not in sid_data:
+                        continue
+                    dv = sid_data[flag]
+                    containers = []
+                    for cid, items in dv["containers"].items():
+                        cname = corp_container_info.get(cid, (f"Container {cid}", sid))[0]
+                        containers.append({
+                            "container_id": cid,
+                            "name": cname,
+                            "type_id": corp_container_type_map.get(cid),
+                            "assets": _sort_items(items),
+                        })
+                    containers.sort(key=lambda c: c["name"])
+                    hangar_items = _sort_items(dv["hangar"])
+                    if not hangar_items and not containers:
+                        continue
+                    divisions.append({
+                        "flag": flag,
+                        "label": _CORP_DIV_LABEL.get(flag, flag),
+                        "hangar": hangar_items,
+                        "containers": containers,
+                    })
+                # Also include any flags not in _CORP_DIV_ORDER
+                for flag, dv in sid_data.items():
+                    if flag in _CORP_DIV_ORDER:
+                        continue
+                    hangar_items = _sort_items(dv["hangar"])
+                    containers = [
+                        {
+                            "container_id": cid,
+                            "name": corp_container_info.get(cid, (f"Container {cid}", sid))[0],
+                            "type_id": corp_container_type_map.get(cid),
+                            "assets": _sort_items(items),
+                        }
+                        for cid, items in dv["containers"].items()
+                    ]
+                    if hangar_items or containers:
+                        divisions.append({
+                            "flag": flag,
+                            "label": flag,
+                            "hangar": hangar_items,
+                            "containers": sorted(containers, key=lambda c: c["name"]),
+                        })
+
+                total_items = sum(
+                    len(d["hangar"]) + sum(len(c["assets"]) for c in d["containers"])
+                    for d in divisions
+                )
+                total_value = sum(
+                    sum(i.get("total_value") or 0 for i in d["hangar"])
+                    + sum(i.get("total_value") or 0 for c in d["containers"] for i in c["assets"])
+                    for d in divisions
+                )
+                corp_stations.append({
+                    "loc_id": sid,
+                    "name": loc_names.get(sid, str(sid)),
+                    "divisions": divisions,
+                    "total_items": total_items,
+                    "total_value": total_value,
+                    "solar_system_id": sys_map.get(sid),
+                })
+
+            corp_stations.sort(key=lambda s: -s["total_items"])
 
     conn.close()
     return _tr("assets.html", request, {
         "stations": stations,
+        "corp_stations": corp_stations,
         "search": search,
     })
 
@@ -1061,6 +1239,52 @@ async def assets_distances():
 # ---------------------------------------------------------------------------
 # Blueprinty
 # ---------------------------------------------------------------------------
+
+async def _resolve_corp_container_names(
+    corp_id: int,
+    token: str,
+    container_ids: list[int],
+    corp_assets_raw: list[dict],
+) -> dict[int, tuple[str, int]]:
+    """Corp variant of _resolve_container_names using corp ESI endpoint."""
+    asset_map = {item["item_id"]: item for item in corp_assets_raw}
+    result: dict[int, tuple[str, int]] = {}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"https://esi.evetech.net/latest/corporations/{corp_id}/assets/names/",
+                params={"datasource": "tranquility"},
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                content=json.dumps(container_ids),
+                timeout=10,
+            )
+            custom_names = {e["item_id"]: e["name"] for e in r.json()} if r.status_code == 200 else {}
+    except Exception:
+        custom_names = {}
+
+    type_id_set = {asset_map[cid]["type_id"] for cid in container_ids if cid in asset_map}
+    type_names: dict[int, str] = {}
+    if type_id_set:
+        conn_local = get_conn()
+        ph = ",".join("?" * len(type_id_set))
+        rows = conn_local.execute(
+            f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(type_id_set)
+        ).fetchall()
+        conn_local.close()
+        type_names = {r[0]: r[1] for r in rows}
+
+    for cid in container_ids:
+        asset = asset_map.get(cid)
+        if not asset:
+            continue
+        parent_loc = asset["location_id"]
+        raw_name = custom_names.get(cid, "")
+        display = raw_name if raw_name else type_names.get(asset["type_id"], f"Container {cid}")
+        result[cid] = (display, parent_loc)
+
+    return result
+
 
 async def _resolve_container_names(
     char_id: int,
@@ -1336,6 +1560,7 @@ async def suggest_station(q: str = ""):
                 asset_locs.add(a["location_id"])
 
     all_names = load_location_names_from_db(conn)
+    cache_empty = len(all_names) == 0
 
     # Stanice s assety — filtruj podle jména
     owned_ids: set[int] = set()
@@ -1356,26 +1581,43 @@ async def suggest_station(q: str = ""):
             other_ids.add(loc_id)
     other.sort(key=lambda x: x["name"])
 
-    # Hledej stanice/struktury podle (částečného) jména systému přes ESI /search/
+    # Hledej NPC stanice + systémy přes ESI /search/ (paralelně)
     if len(q.strip()) >= 2:
         try:
             async with httpx.AsyncClient() as client:
-                # /search/ podporuje partial match — najde "7BX-6F" z "7bx"
-                search_r = await client.get(
-                    "https://esi.evetech.net/latest/search/",
-                    params={
-                        "categories": "solar_system",
-                        "search": q.strip(),
-                        "datasource": "tranquility",
-                        "strict": "false",
-                    },
-                    timeout=4.0,
+                station_search, system_search = await asyncio.gather(
+                    client.get(
+                        "https://esi.evetech.net/latest/search/",
+                        params={"categories": "station", "search": q.strip(),
+                                "datasource": "tranquility", "strict": "false"},
+                        timeout=5.0,
+                    ),
+                    client.get(
+                        "https://esi.evetech.net/latest/search/",
+                        params={"categories": "solar_system", "search": q.strip(),
+                                "datasource": "tranquility", "strict": "false"},
+                        timeout=5.0,
+                    ),
+                    return_exceptions=True,
                 )
-                system_ids: list[int] = []
-                if search_r.status_code == 200:
-                    system_ids = search_r.json().get("solar_system", [])
 
-                # Struktury/stanice z naší cache pro nalezené systémy
+                # NPC stanice — přímý výsledek z ESI search
+                if not isinstance(station_search, Exception) and station_search.status_code == 200:
+                    npc_ids = station_search.json().get("station", [])[:20]
+                    new_ids = [sid for sid in npc_ids if sid not in all_names]
+                    if new_ids:
+                        new_names = await resolve_station_names_bulk(new_ids, token=None, conn=conn)
+                        all_names.update(new_names)
+                    for sid in npc_ids:
+                        if sid not in asset_locs and sid not in other_ids:
+                            other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
+                            other_ids.add(sid)
+
+                # Systémy — najdi struktury v naší cache + NPC stanice v systému
+                system_ids: list[int] = []
+                if not isinstance(system_search, Exception) and system_search.status_code == 200:
+                    system_ids = system_search.json().get("solar_system", [])
+
                 for sys_id in system_ids[:10]:
                     for entry in locations_in_system(conn, sys_id):
                         lid = entry["location_id"]
@@ -1386,23 +1628,28 @@ async def suggest_station(q: str = ""):
                             other.append(entry)
                             other_ids.add(lid)
 
-                # NPC stanice z ESI: GET /universe/systems/{id}/ → stations[]
-                for sys_id in system_ids[:5]:
-                    sys_r = await client.get(
-                        f"https://esi.evetech.net/latest/universe/systems/{sys_id}/",
-                        params={"datasource": "tranquility"},
-                        timeout=4.0,
+                # NPC stanice v nalezených systémech (pokud nebyly pokryty přímým searchem)
+                sys_tasks = [
+                    client.get(
+                        f"https://esi.evetech.net/latest/universe/systems/{sid}/",
+                        params={"datasource": "tranquility"}, timeout=4.0,
                     )
-                    if sys_r.status_code == 200:
-                        npc_ids = sys_r.json().get("stations", [])
-                        new_ids = [sid for sid in npc_ids if sid not in all_names]
-                        if new_ids:
-                            new_names = await resolve_station_names_bulk(new_ids, token=None, conn=conn)
-                            all_names.update(new_names)
-                        for sid in npc_ids:
-                            if sid not in asset_locs and sid not in other_ids:
-                                other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
-                                other_ids.add(sid)
+                    for sid in system_ids[:5]
+                ]
+                if sys_tasks:
+                    sys_results = await asyncio.gather(*sys_tasks, return_exceptions=True)
+                    new_npc: list[int] = []
+                    for sys_r in sys_results:
+                        if not isinstance(sys_r, Exception) and sys_r.status_code == 200:
+                            new_npc.extend(sys_r.json().get("stations", []))
+                    new_npc_ids = [sid for sid in new_npc if sid not in all_names]
+                    if new_npc_ids:
+                        new_names = await resolve_station_names_bulk(new_npc_ids, token=None, conn=conn)
+                        all_names.update(new_names)
+                    for sid in new_npc:
+                        if sid not in asset_locs and sid not in other_ids:
+                            other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
+                            other_ids.add(sid)
 
                 other.sort(key=lambda x: x["name"])
                 owned.sort(key=lambda x: x["name"])
@@ -1410,7 +1657,7 @@ async def suggest_station(q: str = ""):
             pass
 
     conn.close()
-    return {"owned": owned[:15], "other": other[:10]}
+    return {"owned": owned[:15], "other": other[:10], "cache_empty": cache_empty and not owned and not other}
 
 
 @app.post("/api/add-station")
