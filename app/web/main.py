@@ -765,6 +765,17 @@ async def plan_result(
             total_mfg_time_s += step_mfg_time
             total_rxn_time_s += step_rxn_time
 
+        # Sbírám unikátní science skilly ze všech jobů pro zobrazení v headeru
+        _seen: dict[str, tuple[int, float]] = {}
+        for step in plan_data.get("manufacturing_steps", []):
+            for job in step.get("jobs", []):
+                for sname, slevel, spct in job.get("science_skills", []):
+                    if sname not in _seen:
+                        _seen[sname] = (slevel, spct)
+        plan_data["all_science_skills"] = [
+            (n, l, p) for n, (l, p) in sorted(_seen.items())
+        ]
+
         # Tržní cena všech surovin (bez ohledu na sklad)
         full_mat_cost = sum(
             m.get("total_price") or 0.0 for m in plan_data.get("materials", [])

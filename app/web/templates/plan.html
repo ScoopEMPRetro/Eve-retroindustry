@@ -310,8 +310,8 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
       <div class="mt-1">
         <span class="badge bg-secondary">{{ result.mode }}</span>
         <span class="text-muted small ms-2">Station ID: {{ result.location_id }}</span>
-        <span class="text-muted small ms-2" title="Industry / Advanced Industry skill levels (loaded from ESI)">
-          <i class="bi bi-person-gear me-1"></i>Industry {{ form_industry or '0' }} &nbsp;·&nbsp; Adv. Industry {{ form_adv_industry or '0' }}
+        <span class="text-muted small ms-2" title="Skill levels loaded from ESI">
+          <i class="bi bi-person-gear me-1"></i>Industry {{ form_industry or '0' }} &nbsp;·&nbsp; Adv. Industry {{ form_adv_industry or '0' }}{% if result.all_science_skills %}{% for sname, slevel, spct in result.all_science_skills %} &nbsp;·&nbsp; {{ sname }} {{ slevel }}{% endfor %}{% endif %}
         </span>
         {% if result.fees and result.fees.total_time %}
         <span class="badge bg-secondary ms-2" style="font-size:.7rem">
