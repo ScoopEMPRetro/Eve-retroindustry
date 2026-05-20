@@ -46,6 +46,7 @@ SCOPES = [
 
     # --- Vesmírné struktury ---
     "esi-universe.read_structures.v1",         # jména player struktur (citadely)
+    "esi-search.search_structures.v1",         # hledání struktur jménem
 
     # --- Trh a finance ---
     "esi-wallet.read_character_wallet.v1",     # ISK balance postavy

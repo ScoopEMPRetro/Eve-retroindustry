@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.2.5"
+APP_VERSION = "0.2.6"
 
 import asyncio
 import datetime
@@ -1549,9 +1549,10 @@ async def suggest_station(q: str = ""):
     conn = get_conn()
     ensure_location_name_table(conn)
     char = get_character()
+    token = get_valid_token()
     pattern = q.strip().lower()
 
-    # Lokace kde má postava assety
+    # Lokace kde má postava assety (osobní + korporátní)
     asset_locs: set[int] = set()
     if char:
         raw = _load_assets_from_cache(conn, char[0])
@@ -1581,80 +1582,113 @@ async def suggest_station(q: str = ""):
             other_ids.add(loc_id)
     other.sort(key=lambda x: x["name"])
 
-    # Hledej NPC stanice + systémy přes ESI /search/ (paralelně)
-    if len(q.strip()) >= 2:
-        try:
-            async with httpx.AsyncClient() as client:
-                station_search, system_search = await asyncio.gather(
+    # ESI search — NPC stanice + systémy + player struktury (paralelně)
+    try:
+        async with httpx.AsyncClient() as client:
+            esi_tasks: list = [
+                client.get(
+                    "https://esi.evetech.net/latest/search/",
+                    params={"categories": "station", "search": q.strip(),
+                            "datasource": "tranquility", "strict": "false"},
+                    timeout=5.0,
+                ),
+                client.get(
+                    "https://esi.evetech.net/latest/search/",
+                    params={"categories": "solar_system", "search": q.strip(),
+                            "datasource": "tranquility", "strict": "false"},
+                    timeout=5.0,
+                ),
+            ]
+            # Autentizovaný search pro player struktury (citadely, engineering complexes…)
+            if char and token:
+                esi_tasks.append(
                     client.get(
-                        "https://esi.evetech.net/latest/search/",
-                        params={"categories": "station", "search": q.strip(),
+                        f"https://esi.evetech.net/latest/characters/{char[0]}/search/",
+                        params={"categories": "structure", "search": q.strip(),
                                 "datasource": "tranquility", "strict": "false"},
+                        headers={"Authorization": f"Bearer {token}"},
                         timeout=5.0,
-                    ),
-                    client.get(
-                        "https://esi.evetech.net/latest/search/",
-                        params={"categories": "solar_system", "search": q.strip(),
-                                "datasource": "tranquility", "strict": "false"},
-                        timeout=5.0,
-                    ),
-                    return_exceptions=True,
+                    )
                 )
 
-                # NPC stanice — přímý výsledek z ESI search
-                if not isinstance(station_search, Exception) and station_search.status_code == 200:
-                    npc_ids = station_search.json().get("station", [])[:20]
-                    new_ids = [sid for sid in npc_ids if sid not in all_names]
-                    if new_ids:
-                        new_names = await resolve_station_names_bulk(new_ids, token=None, conn=conn)
-                        all_names.update(new_names)
-                    for sid in npc_ids:
-                        if sid not in asset_locs and sid not in other_ids:
-                            other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
-                            other_ids.add(sid)
+            results = await asyncio.gather(*esi_tasks, return_exceptions=True)
+            station_search = results[0]
+            system_search = results[1]
+            structure_search = results[2] if len(results) > 2 else None
 
-                # Systémy — najdi struktury v naší cache + NPC stanice v systému
-                system_ids: list[int] = []
-                if not isinstance(system_search, Exception) and system_search.status_code == 200:
-                    system_ids = system_search.json().get("solar_system", [])
+            # NPC stanice — přímý výsledek z ESI search
+            if not isinstance(station_search, Exception) and station_search.status_code == 200:
+                npc_ids = station_search.json().get("station", [])[:20]
+                new_ids = [sid for sid in npc_ids if sid not in all_names]
+                if new_ids:
+                    new_names = await resolve_station_names_bulk(new_ids, token=None, conn=conn)
+                    all_names.update(new_names)
+                for sid in npc_ids:
+                    if sid in asset_locs and sid not in owned_ids:
+                        owned.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
+                        owned_ids.add(sid)
+                    elif sid not in asset_locs and sid not in other_ids:
+                        other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
+                        other_ids.add(sid)
 
-                for sys_id in system_ids[:10]:
-                    for entry in locations_in_system(conn, sys_id):
-                        lid = entry["location_id"]
-                        if lid in asset_locs and lid not in owned_ids:
-                            owned.append(entry)
-                            owned_ids.add(lid)
-                        elif lid not in asset_locs and lid not in other_ids:
-                            other.append(entry)
-                            other_ids.add(lid)
+            # Player struktury — výsledek z autentizovaného character search
+            if (structure_search and not isinstance(structure_search, Exception)
+                    and structure_search.status_code == 200):
+                struct_ids = structure_search.json().get("structure", [])[:20]
+                new_struct_ids = [sid for sid in struct_ids if sid not in all_names]
+                if new_struct_ids:
+                    new_names = await resolve_station_names_bulk(new_struct_ids, token=token, conn=conn)
+                    all_names.update(new_names)
+                for sid in struct_ids:
+                    if sid in asset_locs and sid not in owned_ids:
+                        owned.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
+                        owned_ids.add(sid)
+                    elif sid not in asset_locs and sid not in other_ids:
+                        other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
+                        other_ids.add(sid)
 
-                # NPC stanice v nalezených systémech (pokud nebyly pokryty přímým searchem)
-                sys_tasks = [
-                    client.get(
-                        f"https://esi.evetech.net/latest/universe/systems/{sid}/",
-                        params={"datasource": "tranquility"}, timeout=4.0,
-                    )
-                    for sid in system_ids[:5]
-                ]
-                if sys_tasks:
-                    sys_results = await asyncio.gather(*sys_tasks, return_exceptions=True)
-                    new_npc: list[int] = []
-                    for sys_r in sys_results:
-                        if not isinstance(sys_r, Exception) and sys_r.status_code == 200:
-                            new_npc.extend(sys_r.json().get("stations", []))
-                    new_npc_ids = [sid for sid in new_npc if sid not in all_names]
-                    if new_npc_ids:
-                        new_names = await resolve_station_names_bulk(new_npc_ids, token=None, conn=conn)
-                        all_names.update(new_names)
-                    for sid in new_npc:
-                        if sid not in asset_locs and sid not in other_ids:
-                            other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
-                            other_ids.add(sid)
+            # Systémy — najdi struktury v naší cache + NPC stanice v systému
+            system_ids: list[int] = []
+            if not isinstance(system_search, Exception) and system_search.status_code == 200:
+                system_ids = system_search.json().get("solar_system", [])
 
-                other.sort(key=lambda x: x["name"])
-                owned.sort(key=lambda x: x["name"])
-        except Exception:
-            pass
+            for sys_id in system_ids[:10]:
+                for entry in locations_in_system(conn, sys_id):
+                    lid = entry["location_id"]
+                    if lid in asset_locs and lid not in owned_ids:
+                        owned.append(entry)
+                        owned_ids.add(lid)
+                    elif lid not in asset_locs and lid not in other_ids:
+                        other.append(entry)
+                        other_ids.add(lid)
+
+            # NPC stanice v nalezených systémech
+            sys_tasks = [
+                client.get(
+                    f"https://esi.evetech.net/latest/universe/systems/{sid}/",
+                    params={"datasource": "tranquility"}, timeout=4.0,
+                )
+                for sid in system_ids[:5]
+            ]
+            if sys_tasks:
+                sys_results = await asyncio.gather(*sys_tasks, return_exceptions=True)
+                new_npc: list[int] = []
+                for sys_r in sys_results:
+                    if not isinstance(sys_r, Exception) and sys_r.status_code == 200:
+                        new_npc.extend(sys_r.json().get("stations", []))
+                new_npc_ids = [sid for sid in new_npc if sid not in all_names]
+                if new_npc_ids:
+                    new_names = await resolve_station_names_bulk(new_npc_ids, token=None, conn=conn)
+                    all_names.update(new_names)
+                for sid in new_npc:
+                    if sid not in asset_locs and sid not in other_ids:
+                        other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
+                        other_ids.add(sid)
+
+            other.sort(key=lambda x: x["name"])
+            owned.sort(key=lambda x: x["name"])
+    except Exception:
+        pass
 
     conn.close()
     return {"owned": owned[:15], "other": other[:10], "cache_empty": cache_empty and not owned and not other}
