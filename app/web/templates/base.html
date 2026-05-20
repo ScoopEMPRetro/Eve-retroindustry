@@ -60,6 +60,9 @@
         <li class="nav-item">
           <a class="nav-link {% if request.url.path.startswith('/prices') %}active{% endif %}" href="/prices"><i class="bi bi-currency-exchange me-1"></i>Ceny</a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/projects') %}active{% endif %}" href="/projects"><i class="bi bi-kanban me-1"></i>Projekty</a>
+        </li>
       </ul>
       <ul class="navbar-nav ms-auto align-items-center gap-2">
         {% if character %}

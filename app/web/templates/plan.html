@@ -11,9 +11,9 @@
 {# Formulář #}
 <div class="card mb-4 p-3">
   <form method="post" action="/plan" id="plan-form">
-    <div class="row g-3 align-items-end">
 
-      {# Produkt #}
+    {# Řádek 1: Co a kolik vyrábět #}
+    <div class="row g-3 align-items-end">
       <div class="col-sm-6 col-lg-4" style="position:relative">
         <label class="form-label text-muted small">Produkt</label>
         <input type="text" name="product" id="product-input" class="form-control"
@@ -26,32 +26,24 @@
           font-size:.875rem; margin-top:2px;
         "></div>
       </div>
-
-      {# Počet #}
-      <div class="col-4 col-sm-3 col-lg-1">
+      <div class="col-4 col-sm-2 col-lg-1">
         <label class="form-label text-muted small">Počet</label>
         <input type="number" name="qty" class="form-control" min="1" value="{{ form_qty or 1 }}">
       </div>
-
-      {# ME #}
-      <div class="col-4 col-sm-3 col-lg-1">
+      <div class="col-4 col-sm-2 col-lg-1">
         <label class="form-label text-muted small" title="Material Efficiency 0–10">ME
           <span class="text-muted" style="font-size:.7rem">(0–10)</span>
         </label>
         <input type="number" name="form_me" id="me-input" class="form-control"
                min="0" max="10" placeholder="—" value="{{ form_me or '' }}">
       </div>
-
-      {# TE #}
-      <div class="col-4 col-sm-3 col-lg-1">
+      <div class="col-4 col-sm-2 col-lg-1">
         <label class="form-label text-muted small" title="Time Efficiency 0–20">TE
           <span class="text-muted" style="font-size:.7rem">(0–20)</span>
         </label>
         <input type="number" name="form_te" id="te-input" class="form-control"
                min="0" max="20" placeholder="—" value="{{ form_te or '' }}">
       </div>
-
-      {# Mód #}
       <div class="col-sm-4 col-lg-2">
         <label class="form-label text-muted small">Mód</label>
         <select name="mode" class="form-select">
@@ -60,10 +52,17 @@
           <option value="optimal"    {% if form_mode == 'optimal'    %}selected{% endif %}>Optimal — make vs buy</option>
         </select>
       </div>
+      <div class="col-sm-auto ms-sm-auto">
+        <button type="submit" class="btn btn-eve px-4">
+          <i class="bi bi-calculator me-1"></i>Vypočítat
+        </button>
+      </div>
+    </div>
 
-      {# Stanice — viditelné pole (jen pro UX) + hidden s ID #}
-      <div class="col-sm-8 col-lg-2" style="position:relative">
-        <label class="form-label text-muted small">Stanice</label>
+    {# Řádek 2: Stanice — výrobní | reakční | prodejní #}
+    <div class="row g-3 align-items-end mt-1">
+      <div class="col-sm-4" style="position:relative">
+        <label class="form-label text-muted small">Výrobní stanice</label>
         <input type="text" id="station-display" class="form-control"
                placeholder="Jita, 60003760…"
                value="{{ form_station_name or form_station or '' }}" autocomplete="off">
@@ -76,92 +75,119 @@
           font-size:.875rem; margin-top:2px;
         "></div>
       </div>
-
-      {# Submit #}
-      <div class="col-sm-4 col-lg-1">
-        <button type="submit" class="btn btn-eve w-100">
-          <i class="bi bi-calculator me-1"></i>Vypočítat
-        </button>
-      </div>
-
-    </div>
-
-    {# Výrobní poplatky — druhý řádek #}
-    <div class="row g-2 align-items-end mt-2 pt-2" style="border-top:1px solid #21262d">
-
-      {# === Výroba === #}
-      <div class="col-auto d-flex align-items-center pb-1">
-        <span class="text-muted small"><i class="bi bi-hammer me-1"></i>Výroba</span>
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
-          Facility tax (%)
-          <span id="facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
+      <div class="col-sm-4" style="position:relative">
+        <label class="form-label text-muted small">
+          Reakční stanice
+          <span class="text-muted" style="font-size:.7rem;opacity:.6">(nebo výrobní)</span>
         </label>
-        <input type="number" name="facility_tax" id="facility-tax-input"
-               class="form-control form-control-sm"
-               step="0.1" min="0" max="25" value="{{ form_facility_tax or '5' }}"
-               style="width:90px">
-      </div>
-      <div id="sci-display" class="col-auto d-none align-items-end pb-1">
-        <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
-          <span id="sci-mfg-val" class="fw-semibold" style="color:#79c0ff"></span>
-        </span>
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Struktura</label>
-        <select id="mfg-structure-type" class="form-select form-select-sm" style="width:140px"
-                onchange="onStructureTypeChange('mfg', this.value)">
-          <option value="npc">NPC stanice</option>
-          <option value="raitaru">Raitaru (M-Set)</option>
-          <option value="azbel">Azbel (L-Set)</option>
-          <option value="sotiyo">Sotiyo (XL-Set)</option>
-        </select>
-      </div>
-      <input type="hidden" name="facility_me_bonus" id="mfg-me-bonus-input" value="{{ form_facility_me_bonus or '0' }}">
-
-      {# === Reakce === #}
-      <div class="col-auto d-flex align-items-center pb-1 ms-3" style="border-left:1px solid #30363d; padding-left:1rem !important">
-        <span class="text-muted small"><i class="bi bi-arrows-angle-contract me-1"></i>Reakce</span>
-      </div>
-      <div class="col-auto" style="position:relative">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Stanice pro reakce</label>
-        <input type="text" id="rxn-station-display" class="form-control form-control-sm"
-               placeholder="stejná jako výrobní…"
-               value="{{ form_rxn_station_name or '' }}" autocomplete="off"
-               style="width:210px">
+        <input type="text" id="rxn-station-display" class="form-control"
+               placeholder="jako výrobní…"
+               value="{{ form_rxn_station_name or '' }}" autocomplete="off">
         <input type="hidden" name="reaction_station" id="rxn-station-id"
                value="{{ form_rxn_station or '' }}">
         <div id="rxn-station-suggestions" style="
           display:none; position:absolute; z-index:1000; left:0; right:0;
           background:#1c2128; border:1px solid #30363d; border-radius:6px;
-          box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:300px; overflow-y:auto;
+          box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:340px; overflow-y:auto;
           font-size:.875rem; margin-top:2px; min-width:260px;
         "></div>
       </div>
-      <div class="col-auto">
-        <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
-          Tax reak. (%)
-          <span id="rxn-facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
+      <div class="col-sm-4" style="position:relative">
+        <label class="form-label text-muted small">
+          Prodejní stanice
+          <span class="text-muted" style="font-size:.7rem;opacity:.6">(pro cenu)</span>
         </label>
-        <input type="number" name="reaction_facility_tax" id="rxn-facility-tax-input"
-               class="form-control form-control-sm"
-               step="0.1" min="0" max="25" value="{{ form_rxn_facility_tax or '5' }}"
-               style="width:90px">
+        <input type="text" id="sell-station-display" class="form-control"
+               placeholder="jako výrobní…"
+               value="{{ form_selling_station_name or '' }}" autocomplete="off">
+        <input type="hidden" name="selling_station" id="sell-station-id"
+               value="{{ form_selling_station or '' }}">
+        <div id="sell-station-suggestions" style="
+          display:none; position:absolute; z-index:1000; left:0; right:0;
+          background:#1c2128; border:1px solid #30363d; border-radius:6px;
+          box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:340px; overflow-y:auto;
+          font-size:.875rem; margin-top:2px;
+        "></div>
       </div>
-      <div id="rxn-sci-display" class="col-auto d-none align-items-end pb-1">
-        <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
-          <span id="rxn-sci-val" class="fw-semibold" style="color:#a5d6ff"></span>
-        </span>
+    </div>
+
+    {# Řádek 3: Výrobní poplatky — Výroba vlevo, Reakce vpravo #}
+    <div class="row g-0 mt-2 pt-2" style="border-top:1px solid #21262d">
+
+      {# === Výroba === #}
+      <div class="col-12 col-md-6 pe-md-3 pb-2 pb-md-0">
+        <div class="d-flex flex-wrap align-items-end gap-2">
+          <span class="d-flex align-items-center text-muted small fw-semibold" style="width:4rem;height:31px">
+            <i class="bi bi-hammer me-1" style="color:#79c0ff"></i>Výroba
+          </span>
+          <div>
+            <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
+              Facility tax (%)
+              <span id="facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
+            </label>
+            <div class="d-flex align-items-center gap-1">
+              <input type="number" name="facility_tax" id="facility-tax-input"
+                     class="form-control form-control-sm"
+                     step="0.1" min="0" max="25" value="{{ form_facility_tax or '2.5' }}"
+                     style="width:80px">
+              <button type="button" class="btn btn-link p-0 text-muted" style="font-size:.65rem;white-space:nowrap"
+                      onclick="saveDefaultTax('mfg')" title="Uložit jako výchozí hodnotu pro nové plány">★ výchozí</button>
+            </div>
+          </div>
+          <div id="sci-display" class="d-none align-items-end" style="height:31px">
+            <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
+              <span id="sci-mfg-val" class="fw-semibold" style="color:#79c0ff"></span>
+            </span>
+          </div>
+          <div>
+            <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Struktura</label>
+            <select id="mfg-structure-type" class="form-select form-select-sm" style="width:155px"
+                    onchange="onStructureTypeChange('mfg', this.value)">
+              <option value="npc">NPC stanice</option>
+              <option value="raitaru">Raitaru (M-Set)</option>
+              <option value="azbel">Azbel (L-Set)</option>
+              <option value="sotiyo">Sotiyo (XL-Set)</option>
+            </select>
+          </div>
+        </div>
       </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Struktura</label>
-        <select id="rxn-structure-type" class="form-select form-select-sm" style="width:140px"
-                onchange="onStructureTypeChange('rxn', this.value)">
-          <option value="npc">NPC stanice</option>
-          <option value="athanor">Athanor (M-Set)</option>
-          <option value="tatara">Tatara (L-Set)</option>
-        </select>
+      <input type="hidden" name="facility_me_bonus" id="mfg-me-bonus-input" value="{{ form_facility_me_bonus or '0' }}">
+
+      {# === Reakce === #}
+      <div class="col-12 col-md-6 ps-md-3 pt-2 pt-md-0 plan-rxn-section">
+        <div class="d-flex flex-wrap align-items-end gap-2">
+          <span class="d-flex align-items-center text-muted small fw-semibold" style="width:4rem;height:31px">
+            <i class="bi bi-arrows-angle-contract me-1" style="color:#a5d6ff"></i>Reakce
+          </span>
+          <div>
+            <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
+              Facility tax (%)
+              <span id="rxn-facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
+            </label>
+            <div class="d-flex align-items-center gap-1">
+              <input type="number" name="reaction_facility_tax" id="rxn-facility-tax-input"
+                     class="form-control form-control-sm"
+                     step="0.1" min="0" max="25" value="{{ form_rxn_facility_tax or '2.5' }}"
+                     style="width:80px">
+              <button type="button" class="btn btn-link p-0 text-muted" style="font-size:.65rem;white-space:nowrap"
+                      onclick="saveDefaultTax('rxn')" title="Uložit jako výchozí hodnotu pro nové plány">★ výchozí</button>
+            </div>
+          </div>
+          <div id="rxn-sci-display" class="d-none align-items-end" style="height:31px">
+            <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
+              <span id="rxn-sci-val" class="fw-semibold" style="color:#a5d6ff"></span>
+            </span>
+          </div>
+          <div>
+            <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Struktura</label>
+            <select id="rxn-structure-type" class="form-select form-select-sm" style="width:155px"
+                    onchange="onStructureTypeChange('rxn', this.value)">
+              <option value="npc">NPC stanice</option>
+              <option value="athanor">Athanor (M-Set)</option>
+              <option value="tatara">Tatara (L-Set)</option>
+            </select>
+          </div>
+        </div>
       </div>
       <input type="hidden" name="reaction_me_bonus" id="rxn-me-bonus-input" value="{{ form_rxn_me_bonus or '0' }}">
 
@@ -233,6 +259,7 @@
       </div>
     </div>
 
+    <input type="hidden" id="has-result" value="{{ 'true' if result else '' }}">
   </form>
 </div>
 
@@ -241,6 +268,12 @@
 {% endif %}
 
 {% if result %}
+<script>
+const _PLAN_DATA = {{ result | tojson }};
+const _PLAN_STATION_ID = {{ form_station or 0 }};
+const _PLAN_STATION_NAME = {{ (form_station_name or '') | tojson }};
+const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) or 0 }};
+</script>
 {% set full_cost = (result.fees.full_mat_cost if result.fees else result.total_buy) or 0 %}
 {# Záhlaví plánu #}
 <div class="card mb-3 p-3">
@@ -304,93 +337,144 @@
   </div>
 </div>
 
-{# Finanční souhrn #}
-{% if result.total_buy %}
-{% set profit_no_stock = (result.revenue - full_cost) if result.revenue is not none else none %}
-<div class="row g-3 mb-3">
-  <div class="col-sm-6 col-lg-3">
-    <div class="card p-3 text-center">
-      <div class="text-muted small summary-buy-label">Nákup surovin</div>
-      <div class="text-isk fw-bold fs-5"
-           id="summary-buy-val"
-           data-with="{{ result.total_buy }}"
-           data-without="{{ full_cost }}">{{ result.total_buy | isk }}</div>
-      <div class="text-muted" style="font-size:.7rem">ISK</div>
-    </div>
-  </div>
-  {% if result.sell_price %}
-  <div class="col-sm-6 col-lg-3">
-    <div class="card p-3 text-center">
-      <div class="text-muted small">Jita sell cena</div>
-      <div class="fw-bold fs-5">{{ result.sell_price | isk }}</div>
-      <div class="text-muted" style="font-size:.7rem">ISK / ks</div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card p-3 text-center">
-      <div class="text-muted small">Celkový příjem</div>
-      <div class="fw-bold fs-5">{{ result.revenue | isk }}</div>
-      <div class="text-muted" style="font-size:.7rem">ISK</div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card p-3 text-center">
-      <div class="text-muted small">Zisk</div>
-      <div id="summary-profit-val"
-           class="fw-bold fs-5"
-           data-with="{{ result.profit }}"
-           data-without="{{ profit_no_stock }}">
-        <span class="{% if result.profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
-          {% if result.profit >= 0 %}+{% endif %}{{ result.profit | isk }}
-        </span>
-      </div>
-      <div class="text-muted" style="font-size:.7rem">ISK</div>
-    </div>
-  </div>
-  {% endif %}
-</div>
-{% endif %}
+{# ──── Finanční souhrn ──── #}
+{% if result.total_buy is not none %}
+{% set mfg_total_cost  = full_cost + (result.fees.total_job_fee if result.fees else 0) %}
+{% set stock_total_cost = (result.total_buy or 0) + (result.fees.total_job_fee if result.fees else 0) %}
+{% set m_profit = result.fees.profit_market if result.fees else ((result.revenue - full_cost) if result.revenue is not none else none) %}
+{% set s_profit = result.fees.profit_stock  if result.fees else result.profit %}
+<div class="card mb-3" style="overflow:hidden">
 
-{# Výrobní poplatky #}
-{% if result.fees %}
-<div class="row g-3 mb-3">
-  <div class="col-sm-6 col-lg-4">
-    <div class="card p-3 text-center" style="border-left-color:#e3b341">
-      <div class="text-muted small">Job installation fee</div>
-      <div class="fw-bold text-warning" style="font-size:1.05rem">{{ result.fees.total_job_fee | isk }}</div>
-      <div class="text-muted" style="font-size:.7rem">
-        {% if result.fees.solar_system_id %}
-        výr. SCI {{ (result.fees.mfg_sci * 100) | round(2) }}% + tax {{ result.fees.facility_tax }}%
-        {% if result.fees.rxn_sci is not none %}
-        &nbsp;·&nbsp;reak. SCI {{ (result.fees.rxn_sci * 100) | round(2) }}% + tax {{ result.fees.rxn_facility_tax }}%
-        {% if result.fees.sep_rxn_station %}<span class="badge bg-secondary ms-1" style="font-size:.6rem">jiná stanice</span>{% endif %}
+  {# Header — sell cena + cena na stanici #}
+  <div class="card-header py-2 d-flex flex-wrap gap-3 align-items-center" style="font-size:.85rem;background:#161b22">
+    {% if result.sell_price %}
+    <span>
+      <span class="text-muted">Jita sell&nbsp;</span>
+      <span class="fw-semibold">{{ result.sell_price | isk }} ISK/ks</span>
+    </span>
+    {% endif %}
+    {% set _sell_loc_id = form_selling_station if form_selling_station else form_station %}
+    {% if result.sell_price or station_sell_price %}<span class="text-muted" style="opacity:.4">|</span>{% endif %}
+    <span class="d-flex align-items-center gap-1">
+      <span class="text-muted" style="font-size:.8rem">{{ selling_station_name }}&nbsp;</span>
+      {% if station_sell_price %}
+      <span id="station-sell-price-val" class="fw-semibold">{{ station_sell_price | isk }} ISK/ks</span>
+      <button type="button"
+              data-location-id="{{ _sell_loc_id }}"
+              data-type-id="{{ result.product_type_id }}"
+              onclick="fetchStationSellPrice(this)"
+              class="btn btn-link p-0" style="font-size:.75rem;color:#8b949e;line-height:1" title="Obnovit cenu">
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
+      {% else %}
+      <button type="button"
+              data-location-id="{{ _sell_loc_id }}"
+              data-type-id="{{ result.product_type_id }}"
+              onclick="fetchStationSellPrice(this)"
+              class="btn btn-sm" style="background:#21262d;border-color:#30363d;color:#8b949e;font-size:.75rem;padding:1px 7px">
+        <i class="bi bi-cloud-download me-1"></i>Načíst cenu
+      </button>
+      <span id="station-sell-price-val" class="fw-semibold d-none"></span>
+      {% endif %}
+    </span>
+  </div>
+
+  {# Dvě varianty vedle sebe #}
+  <div class="row g-0">
+
+    {# Tržní — vše nakoupit #}
+    <div class="col-sm-6 p-3" style="border-right:1px solid #21262d">
+      <div class="mb-2 text-uppercase fw-semibold" style="color:#8b949e;font-size:.68rem;letter-spacing:.07em">
+        <i class="bi bi-shop me-1"></i>Tržní — vše nakoupit
+      </div>
+      <table class="w-100" style="font-size:.875rem;border-collapse:separate;border-spacing:0 2px">
+        <tr>
+          <td class="text-muted">Suroviny</td>
+          <td class="text-end fw-semibold text-isk">{{ full_cost | isk }}</td>
+        </tr>
+        {% if result.fees %}
+        <tr>
+          <td class="text-muted">Job installation fee</td>
+          <td class="text-end" style="color:#e3b341">{{ result.fees.total_job_fee | isk }}</td>
+        </tr>
         {% endif %}
-        {% else %}SCI neznámo &nbsp;· fac. tax {{ result.fees.facility_tax }}%{% endif %}
+        <tr style="border-top:1px solid #21262d">
+          <td class="text-muted pt-2">Náklady celkem</td>
+          <td class="text-end fw-bold pt-2">{{ mfg_total_cost | isk }}</td>
+        </tr>
+        {% if result.revenue is not none %}
+        <tr>
+          <td class="text-muted">Příjem</td>
+          <td class="text-end">{{ result.revenue | isk }}</td>
+        </tr>
+        {% endif %}
+      </table>
+      {% if m_profit is not none %}
+      <div class="mt-2 pt-2" style="border-top:1px solid #21262d">
+        <div class="text-muted" style="font-size:.75rem">Zisk</div>
+        <div class="fw-bold" style="font-size:1.2rem" class="{% if m_profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
+          <span class="{% if m_profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
+            {% if m_profit >= 0 %}+{% endif %}{{ m_profit | isk }}
+          </span>
+        </div>
       </div>
+      {% endif %}
+    </div>
+
+    {# Se zásobami #}
+    <div class="col-sm-6 p-3">
+      <div class="mb-2 text-uppercase fw-semibold" style="color:#8b949e;font-size:.68rem;letter-spacing:.07em">
+        <i class="bi bi-box-seam me-1"></i>Se zásobami
+      </div>
+      <table class="w-100" style="font-size:.875rem;border-collapse:separate;border-spacing:0 2px">
+        <tr>
+          <td class="text-muted">Chybějící suroviny</td>
+          <td class="text-end fw-semibold text-isk">{{ (result.total_buy or 0) | isk }}</td>
+        </tr>
+        {% if result.fees %}
+        <tr>
+          <td class="text-muted">Job installation fee</td>
+          <td class="text-end" style="color:#e3b341">{{ result.fees.total_job_fee | isk }}</td>
+        </tr>
+        {% endif %}
+        <tr style="border-top:1px solid #21262d">
+          <td class="text-muted pt-2">Náklady celkem</td>
+          <td class="text-end fw-bold pt-2">{{ stock_total_cost | isk }}</td>
+        </tr>
+        {% if result.revenue is not none %}
+        <tr>
+          <td class="text-muted">Příjem</td>
+          <td class="text-end">{{ result.revenue | isk }}</td>
+        </tr>
+        {% endif %}
+      </table>
+      {% if s_profit is not none %}
+      <div class="mt-2 pt-2" style="border-top:1px solid #21262d">
+        <div class="text-muted" style="font-size:.75rem">Zisk</div>
+        <div class="fw-bold" style="font-size:1.2rem">
+          <span class="{% if s_profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
+            {% if s_profit >= 0 %}+{% endif %}{{ s_profit | isk }}
+          </span>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </div>
-  {% if result.fees.profit_market is not none %}
-  <div class="col-sm-6 col-lg-4">
-    <div class="card p-3 text-center">
-      <div class="text-muted small">Tržní zisk</div>
-      <div class="fw-bold fs-5 {% if result.fees.profit_market >= 0 %}text-profit{% else %}text-loss{% endif %}">
-        {% if result.fees.profit_market >= 0 %}+{% endif %}{{ result.fees.profit_market | isk }}
-      </div>
-      <div class="text-muted" style="font-size:.7rem">příjem − vše za tržní cenu − job fee</div>
-    </div>
+
+  {# Footer — job fee parametry #}
+  {% if result.fees %}
+  <div style="border-top:1px solid #21262d;padding:.4rem .75rem;font-size:.68rem;color:#6e7681">
+    <i class="bi bi-info-circle me-1"></i>
+    {% if result.fees.solar_system_id %}
+    výr. SCI {{ (result.fees.mfg_sci * 100) | round(2) }}% + tax {{ result.fees.facility_tax }}% + SCC 0.25%
+    {% if result.fees.rxn_sci is not none %}
+    &nbsp;·&nbsp; reak. SCI {{ (result.fees.rxn_sci * 100) | round(2) }}% + tax {{ result.fees.rxn_facility_tax }}% + SCC 0.25%
+    {% if result.fees.sep_rxn_station %}<span class="badge bg-secondary ms-1" style="font-size:.6rem">jiná stanice</span>{% endif %}
+    {% endif %}
+    {% else %}SCI neznámo · fac. tax {{ result.fees.facility_tax }}% + SCC 0.25%{% endif %}
   </div>
   {% endif %}
-  {% if result.fees.profit_stock is not none %}
-  <div class="col-sm-6 col-lg-4">
-    <div class="card p-3 text-center">
-      <div class="text-muted small">Zisk se zásobami</div>
-      <div class="fw-bold fs-5 {% if result.fees.profit_stock >= 0 %}text-profit{% else %}text-loss{% endif %}">
-        {% if result.fees.profit_stock >= 0 %}+{% endif %}{{ result.fees.profit_stock | isk }}
-      </div>
-      <div class="text-muted" style="font-size:.7rem">příjem − chybějící suroviny − job fee</div>
-    </div>
-  </div>
-  {% endif %}
+
 </div>
 {% endif %}
 
@@ -571,6 +655,11 @@
 {# === TAB: Výrobní postup === #}
 <div class="tab-pane fade" id="tab-process" style="padding-top:1rem">
 {% if result.manufacturing_steps %}
+<div class="mb-3">
+  <button class="btn btn-sm btn-primary" onclick="openSaveToProject()">
+    <i class="bi bi-kanban me-1"></i>Uložit do projektu
+  </button>
+</div>
 
 {% for step in result.manufacturing_steps %}
 <div class="mb-3">
@@ -681,7 +770,7 @@
               <tr style="background:#16191f">
                 <td colspan="5" class="text-muted small">
                   Job fee &nbsp;·&nbsp; EIV {{ job.eiv | isk }} ISK
-                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">SCI {{ (job.sci * 100) | round(2) }}%</span>
+                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">SCI {{ (job.sci * 100) | round(2) }}% + SCC 0.25%</span>
                 </td>
                 <td class="text-end fw-semibold" style="color:#e3b341;font-size:.85rem">{{ job.job_fee | isk }}</td>
               </tr>
@@ -703,10 +792,144 @@
 
 </div>{# end tab-content #}
 
+{# Modal: Uložit do projektu #}
+<div class="modal fade" id="saveToProjectModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:#1c2128;border-color:#30363d">
+      <div class="modal-header" style="border-color:#30363d">
+        <h6 class="modal-title"><i class="bi bi-kanban me-2"></i>Uložit do projektu</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="project-list-section">
+          <div class="text-muted small mb-2">Načítám projekty…</div>
+        </div>
+        <hr style="border-color:#30363d;margin:12px 0">
+        <div>
+          <label class="form-label text-muted small">Nebo vytvořit nový projekt</label>
+          <div class="d-flex gap-2">
+            <input type="text" id="save-new-project-name" class="form-control form-control-sm"
+                   placeholder="Název nového projektu…">
+            <button class="btn btn-sm btn-outline-primary" onclick="saveToNewProject()">Vytvořit</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-color:#30363d">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Zrušit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endif %} {# end if result #}
 {% endblock %}
 
 {% block scripts %}
+<script>
+// === Obnova posledního plánu ===
+const _FORM_FIELD_NAMES = [
+  'product','qty','form_me','form_te','mode',
+  'station','reaction_station','selling_station',
+  'facility_tax','reaction_facility_tax',
+  'facility_me_bonus','reaction_me_bonus',
+];
+
+function savePlanState() {
+  const form = document.getElementById('plan-form');
+  const data = {};
+  _FORM_FIELD_NAMES.forEach(n => {
+    const el = form.querySelector(`[name="${n}"]`);
+    if (el) data[n] = el.value;
+  });
+  data._station_display     = document.getElementById('station-display')?.value     || '';
+  data._rxn_station_display = document.getElementById('rxn-station-display')?.value || '';
+  data._sell_station_display = document.getElementById('sell-station-display')?.value || '';
+  localStorage.setItem('eve_plan_state', JSON.stringify(data));
+}
+
+function saveUiState() {
+  const toggle   = document.getElementById('stock-toggle');
+  const activeTab = document.querySelector('#planTabs .nav-link.active')?.dataset.bsTarget;
+  localStorage.setItem('eve_plan_ui', JSON.stringify({
+    stock_checked: toggle ? toggle.checked : true,
+    active_tab: activeTab || '#tab-materials',
+  }));
+}
+
+function restoreUiState() {
+  const raw = localStorage.getItem('eve_plan_ui');
+  if (!raw) return;
+  let ui;
+  try { ui = JSON.parse(raw); } catch { return; }
+
+  // Zásoby toggle
+  const toggle = document.getElementById('stock-toggle');
+  if (toggle && ui.stock_checked === false) {
+    toggle.checked = false;
+    if (typeof toggleStockMode === 'function') toggleStockMode(false);
+  }
+
+  // Aktivní záložka
+  if (ui.active_tab && ui.active_tab !== '#tab-materials') {
+    const btn = document.querySelector(`#planTabs [data-bs-target="${ui.active_tab}"]`);
+    if (btn) bootstrap.Tab.getOrCreateInstance(btn).show();
+  }
+}
+
+function restoreAndSubmitPlan() {
+  const raw = localStorage.getItem('eve_plan_state');
+  if (!raw) return;
+  let data;
+  try { data = JSON.parse(raw); } catch { return; }
+  const form = document.getElementById('plan-form');
+  _FORM_FIELD_NAMES.forEach(n => {
+    const el = form.querySelector(`[name="${n}"]`);
+    if (el && data[n] !== undefined) el.value = data[n];
+  });
+  const sd = document.getElementById('station-display');
+  const rd = document.getElementById('rxn-station-display');
+  const ld = document.getElementById('sell-station-display');
+  if (sd && data._station_display)     sd.value = data._station_display;
+  if (rd && data._rxn_station_display) rd.value = data._rxn_station_display;
+  if (ld && data._sell_station_display) ld.value = data._sell_station_display;
+  form.submit();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const hasResult = document.getElementById('has-result')?.value === 'true';
+  if (hasResult) {
+    savePlanState();
+    restoreUiState();
+    // Poslouchej změny UI stavu
+    document.getElementById('stock-toggle')?.addEventListener('change', saveUiState);
+    document.querySelectorAll('#planTabs .nav-link').forEach(btn =>
+      btn.addEventListener('shown.bs.tab', saveUiState)
+    );
+  } else {
+    restoreAndSubmitPlan();
+  }
+});
+
+// === localStorage: naposledy použité ===
+function _saveRecent(key, item, max = 10) {
+  let list = JSON.parse(localStorage.getItem(key) || '[]');
+  list = list.filter(x => x.id !== item.id);
+  list.unshift(item);
+  if (list.length > max) list.length = max;
+  localStorage.setItem(key, JSON.stringify(list));
+}
+function _getRecent(key) { return JSON.parse(localStorage.getItem(key) || '[]'); }
+function saveRecentBP(item) {
+  _saveRecent('eve_recent_bps', {
+    id: item.type_id, type_id: item.type_id, name: item.name,
+    me: item.me !== undefined ? item.me : 10,
+    te: item.te !== undefined ? item.te : 20,
+  });
+}
+function saveRecentStation(item) {
+  _saveRecent('eve_recent_stations', { id: item.location_id, location_id: item.location_id, name: item.name });
+}
+</script>
 <script>
 (function () {
   const input = document.getElementById('product-input');
@@ -720,6 +943,10 @@
     const q = input.value.trim();
     if (q.length < 2) { hide(); return; }
     timer = setTimeout(() => fetchSuggestions(q), 200);
+  });
+
+  input.addEventListener('focus', () => {
+    if (!input.value.trim()) showRecentBPs();
   });
 
   input.addEventListener('keydown', e => {
@@ -743,11 +970,11 @@
 
   function selectItem(item) {
     input.value = item.name;
-    // Předvyplň ME/TE z blueprintu pokud jsou dostupné
     const meIn = document.getElementById('me-input');
     const teIn = document.getElementById('te-input');
-    if (meIn && item.me !== undefined) meIn.value = item.me;
-    if (teIn && item.te !== undefined) teIn.value = item.te;
+    if (meIn) meIn.value = item.me !== undefined ? item.me : 10;
+    if (teIn) teIn.value = item.te !== undefined ? item.te : 20;
+    saveRecentBP(item);
     hide();
     input.focus();
   }
@@ -755,6 +982,37 @@
   function hide() {
     box.style.display = 'none';
     activeIdx = -1;
+  }
+
+  function showRecentBPs() {
+    const recent = _getRecent('eve_recent_bps');
+    if (!recent.length) return;
+    items = recent;
+    let html = `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Naposledy použité</div>`;
+    recent.forEach(item => {
+      html += `
+        <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
+          <img src="https://images.evetech.net/types/${item.type_id}/icon?size=32" width="28" height="28" class="rounded" style="flex-shrink:0">
+          <div style="flex:1;min-width:0">
+            <div class="fw-semibold text-truncate">${item.name}</div>
+            <div class="d-flex align-items-center gap-1 mt-1">
+              <span style="color:#3fb950;font-size:.75rem">ME ${item.me}</span>
+              <span style="color:#8b949e;font-size:.75rem">·</span>
+              <span style="color:#e3b341;font-size:.75rem">TE ${item.te}</span>
+            </div>
+          </div>
+        </div>`;
+    });
+    box.innerHTML = html;
+    box.style.display = 'block';
+    activeIdx = -1;
+    box.querySelectorAll('.suggest-item').forEach((el, i) => {
+      el.addEventListener('mouseenter', () => {
+        activeIdx = i;
+        box.querySelectorAll('.suggest-item').forEach((e2, j) => e2.classList.toggle('suggest-active', j === i));
+      });
+      el.addEventListener('click', () => selectItem(items[i]));
+    });
   }
 
   async function fetchSuggestions(q) {
@@ -820,6 +1078,12 @@
 </script>
 <style>
 .suggest-item:hover, .suggest-active { background: #21262d; }
+@media (min-width: 768px) {
+  .plan-rxn-section { border-left: 1px solid #30363d; }
+}
+@media (max-width: 767px) {
+  .plan-rxn-section { border-top: 1px solid #21262d; }
+}
 </style>
 
 <script>
@@ -839,6 +1103,10 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
     const q = display.value.trim();
     if (q.length < 2) { hide(); return; }
     timer = setTimeout(() => fetchSuggestions(q), 200);
+  });
+
+  display.addEventListener('focus', () => {
+    if (!display.value.trim()) showRecentStations();
   });
 
   display.addEventListener('keydown', e => {
@@ -862,12 +1130,92 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
   function selectItem(item) {
     display.value = item.name;
     hidden.value  = item.location_id;
+    saveRecentStation(item);
     hide();
     display.focus();
     if (onSelect) onSelect(item);
   }
 
   function hide() { box.style.display = 'none'; activeIdx = -1; }
+
+  function buildAddStructureHtml() {
+    return `<div style="border-top:1px solid #30363d;padding:6px 12px 6px">
+      <div style="color:#8b949e;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Přidat strukturu</div>
+      <div class="d-flex gap-1 mb-1">
+        <input id="${pfx}-add-raw" type="text" placeholder="ID, &quot;ID Jméno&quot; nebo EVE URL link"
+               class="form-control form-control-sm"
+               style="flex:1;background:#0d1117;border-color:#30363d;color:#e6edf3;font-size:.8rem">
+        <button id="${pfx}-add-btn" type="button" class="btn btn-sm"
+                style="background:#21262d;border-color:#30363d;color:#e6edf3;white-space:nowrap;font-size:.8rem">Přidat</button>
+      </div>
+      <button id="${pfx}-loc-btn" type="button" class="btn btn-sm w-100"
+              style="background:#0d1117;border-color:#30363d;color:#8b949e;font-size:.75rem">
+        <i class="bi bi-crosshair me-1"></i>Přidat moji aktuální lokaci
+      </button>
+    </div>`;
+  }
+
+  function _renderBox(html) {
+    box.innerHTML = html;
+    box.style.display = 'block';
+    activeIdx = -1;
+    box.querySelectorAll('.suggest-item').forEach((el, i) => {
+      el.addEventListener('mouseenter', () => {
+        activeIdx = i;
+        box.querySelectorAll('.suggest-item').forEach((e2, j) => e2.classList.toggle('suggest-active', j === i));
+      });
+      el.addEventListener('click', () => selectItem(items[i]));
+    });
+    const addBtn = document.getElementById(`${pfx}-add-btn`);
+    const addRaw = document.getElementById(`${pfx}-add-raw`);
+    const locBtn = document.getElementById(`${pfx}-loc-btn`);
+    if (addBtn) {
+      addBtn.addEventListener('click', async () => {
+        const raw = addRaw.value.trim(); if (!raw) return;
+        addBtn.textContent = '…'; addBtn.disabled = true;
+        try {
+          const fd = new FormData(); fd.append('raw', raw);
+          const r  = await fetch('/api/add-station', { method: 'POST', body: fd });
+          const d  = await r.json();
+          if (d.error) addBtn.textContent = 'Chyba';
+          else selectItem({ location_id: d.location_id, name: d.name });
+        } catch { addBtn.textContent = 'Chyba'; }
+        addBtn.disabled = false; addBtn.textContent = 'Přidat';
+      });
+      addRaw.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
+    }
+    if (locBtn) {
+      locBtn.addEventListener('click', async () => {
+        locBtn.textContent = '…'; locBtn.disabled = true;
+        try {
+          const r = await fetch('/api/my-location');
+          const d = await r.json();
+          if (d.in_space) locBtn.textContent = `V prostoru: ${d.solar_system_name}`;
+          else if (d.location_id) selectItem({ location_id: d.location_id, name: d.name });
+          else locBtn.textContent = d.error || 'Chyba';
+        } catch { locBtn.textContent = 'Chyba'; }
+        locBtn.disabled = false;
+      });
+    }
+    box.querySelector('div[style*="border-top"]')?.addEventListener('click', e => e.stopPropagation());
+  }
+
+  function showRecentStations() {
+    const recent = _getRecent('eve_recent_stations');
+    items = recent;
+    let html = '';
+    if (recent.length) {
+      html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Naposledy použité</div>`;
+      recent.forEach(item => {
+        html += `<div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
+          <i class="bi bi-clock-history" style="color:#8b949e;flex-shrink:0"></i>
+          <div style="flex:1;min-width:0"><div class="text-truncate">${item.name}</div>
+          <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div></div></div>`;
+      });
+    }
+    html += buildAddStructureHtml();
+    _renderBox(html);
+  }
 
   async function fetchSuggestions(q) {
     let data;
@@ -877,8 +1225,6 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
     } catch { return; }
 
     items = [...(data.owned || []), ...(data.other || [])];
-    if (!items.length) { hide(); return; }
-
     let html = '';
     if (data.owned?.length) {
       html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">Moje stanice</div>`;
@@ -898,73 +1244,9 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
           <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div></div></div>`;
       });
     }
-
-    html += `<div style="border-top:1px solid #30363d;padding:6px 12px 6px">
-      <div style="color:#8b949e;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Přidat strukturu</div>
-      <div class="d-flex gap-1 mb-1">
-        <input id="${pfx}-add-raw" type="text" placeholder="ID, &quot;ID Jméno&quot; nebo EVE URL link"
-               class="form-control form-control-sm"
-               style="flex:1;background:#0d1117;border-color:#30363d;color:#e6edf3;font-size:.8rem">
-        <button id="${pfx}-add-btn" type="button" class="btn btn-sm"
-                style="background:#21262d;border-color:#30363d;color:#e6edf3;white-space:nowrap;font-size:.8rem">
-          Přidat
-        </button>
-      </div>
-      <button id="${pfx}-loc-btn" type="button" class="btn btn-sm w-100"
-              style="background:#0d1117;border-color:#30363d;color:#8b949e;font-size:.75rem">
-        <i class="bi bi-crosshair me-1"></i>Přidat moji aktuální lokaci
-      </button>
-    </div>`;
-
-    box.innerHTML = html;
-    box.style.display = 'block';
-    activeIdx = -1;
-
-    box.querySelectorAll('.suggest-item').forEach((el, i) => {
-      el.addEventListener('mouseenter', () => {
-        activeIdx = i;
-        box.querySelectorAll('.suggest-item').forEach((e2, j) =>
-          e2.classList.toggle('suggest-active', j === i));
-      });
-      el.addEventListener('click', () => selectItem(items[i]));
-    });
-
-    const addBtn  = document.getElementById(`${pfx}-add-btn`);
-    const addRaw  = document.getElementById(`${pfx}-add-raw`);
-    const locBtn  = document.getElementById(`${pfx}-loc-btn`);
-
-    if (addBtn) {
-      addBtn.addEventListener('click', async () => {
-        const raw = addRaw.value.trim(); if (!raw) return;
-        addBtn.textContent = '…'; addBtn.disabled = true;
-        try {
-          const fd = new FormData(); fd.append('raw', raw);
-          const r  = await fetch('/api/add-station', { method: 'POST', body: fd });
-          const d  = await r.json();
-          if (d.error) addBtn.textContent = 'Chyba';
-          else selectItem({ location_id: d.location_id, name: d.name });
-        } catch { addBtn.textContent = 'Chyba'; }
-        addBtn.disabled = false; addBtn.textContent = 'Přidat';
-      });
-      addRaw.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
-    }
-
-    if (locBtn) {
-      locBtn.addEventListener('click', async () => {
-        locBtn.textContent = '…'; locBtn.disabled = true;
-        try {
-          const r = await fetch('/api/my-location');
-          const d = await r.json();
-          if (d.in_space) locBtn.textContent = `V prostoru: ${d.solar_system_name}`;
-          else if (d.location_id) selectItem({ location_id: d.location_id, name: d.name });
-          else locBtn.textContent = d.error || 'Chyba';
-        } catch { locBtn.textContent = 'Chyba'; }
-        locBtn.disabled = false;
-      });
-    }
-
-    box.querySelector('div[style*="border-top"]')
-      ?.addEventListener('click', e => e.stopPropagation());
+    html += buildAddStructureHtml();
+    _renderBox(html);
+    if (!items.length) { hide(); }
   }
 }
 
@@ -983,11 +1265,16 @@ makeStationSelector({
 
 // Submit fallback — pokud hidden je prázdné a display obsahuje číslo
 document.getElementById('plan-form')?.addEventListener('submit', () => {
-  ['station-display|station-id', 'rxn-station-display|rxn-station-id'].forEach(pair => {
+  ['station-display|station-id', 'rxn-station-display|rxn-station-id', 'sell-station-display|sell-station-id'].forEach(pair => {
     const [dId, hId] = pair.split('|');
     const d = document.getElementById(dId), h = document.getElementById(hId);
     if (d && h && !h.value && /^\d+$/.test(d.value.trim())) h.value = d.value.trim();
   });
+});
+
+// === Prodejní stanice ===
+makeStationSelector({
+  displayId: 'sell-station-display', hiddenId: 'sell-station-id', boxId: 'sell-station-suggestions',
 });
 
 // === Reakční stanice ===
@@ -1024,25 +1311,6 @@ function toggleStockMode(checked) {
   // stock badge
   const badge = document.getElementById('stock-badge');
   if (badge) badge.innerHTML = withMode ? badge.dataset.withHtml : badge.dataset.withoutHtml;
-
-  // summary buy
-  const buyVal = document.getElementById('summary-buy-val');
-  if (buyVal) {
-    const v = parseFloat(withMode ? buyVal.dataset.with : buyVal.dataset.without);
-    buyVal.textContent = isNaN(v) ? '—' : _isk(v);
-    const lbl = buyVal.parentElement?.querySelector('.summary-buy-label');
-    if (lbl) lbl.textContent = withMode ? 'Nákup surovin' : 'Nákup surovin (vše)';
-  }
-
-  // summary profit
-  const profitVal = document.getElementById('summary-profit-val');
-  if (profitVal) {
-    const v = parseFloat(withMode ? profitVal.dataset.with : profitVal.dataset.without);
-    if (!isNaN(v)) {
-      const cls = v >= 0 ? 'text-profit' : 'text-loss';
-      profitVal.innerHTML = `<span class="${cls}">${v >= 0 ? '+' : ''}${_isk(v)}</span>`;
-    }
-  }
 
   // material rows
   document.querySelectorAll('#tab-materials .table tbody tr[data-required]').forEach(row => {
@@ -1283,8 +1551,68 @@ function _autoSaveRigs(prefix) {
   });
 }
 
+async function fetchStationSellPrice(btn) {
+  const locationId = btn.dataset.locationId;
+  const typeId     = btn.dataset.typeId;
+  if (!locationId || !typeId) return;
+
+  const origHtml = btn.innerHTML;
+  btn.disabled   = true;
+  btn.innerHTML  = '<span class="spinner-border spinner-border-sm" style="width:.8em;height:.8em;border-width:2px"></span>';
+
+  try {
+    const r = await fetch(`/api/plan/fetch-sell-price?location_id=${locationId}&type_id=${typeId}`);
+    const d = await r.json();
+    const priceEl = document.getElementById('station-sell-price-val');
+
+    if (d.ok && d.best_sell) {
+      if (priceEl) {
+        priceEl.textContent = _isk(d.best_sell) + ' ISK/ks';
+        priceEl.style.color = '';
+        priceEl.style.fontSize = '';
+        priceEl.classList.remove('d-none');
+      }
+      btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+      btn.className = 'btn btn-link p-0';
+      btn.setAttribute('style', 'font-size:.75rem;color:#8b949e;line-height:1');
+      btn.title = 'Obnovit cenu';
+    } else {
+      if (priceEl) {
+        priceEl.textContent = d.error || 'Žádné prodejní příkazy';
+        priceEl.style.color = '#8b949e';
+        priceEl.style.fontSize = '.75rem';
+        priceEl.classList.remove('d-none');
+      }
+      btn.innerHTML = origHtml;
+    }
+  } catch {
+    btn.innerHTML = origHtml;
+  }
+  btn.disabled = false;
+}
+
+function saveDefaultTax(prefix) {
+  const inputId = prefix === 'mfg' ? 'facility-tax-input' : 'rxn-facility-tax-input';
+  const key     = prefix === 'mfg' ? 'eve_default_mfg_tax' : 'eve_default_rxn_tax';
+  const val = parseFloat(document.getElementById(inputId)?.value);
+  if (isNaN(val)) return;
+  localStorage.setItem(key, val.toFixed(1));
+  const btn = event.currentTarget;
+  const orig = btn.textContent;
+  btn.textContent = '✓ uloženo';
+  setTimeout(() => { btn.textContent = orig; }, 1200);
+}
+
 // Auto-load při page load (pokud je stanice již vybrána)
 document.addEventListener('DOMContentLoaded', () => {
+  // Aplikuj uložené výchozí hodnoty, jen pokud formulář ještě nebyl odeslán
+  if (!document.getElementById('has-result')?.value) {
+    const mfgDef = localStorage.getItem('eve_default_mfg_tax');
+    const rxnDef = localStorage.getItem('eve_default_rxn_tax');
+    if (mfgDef) document.getElementById('facility-tax-input').value = mfgDef;
+    if (rxnDef) document.getElementById('rxn-facility-tax-input').value = rxnDef;
+  }
+
   const stId = parseInt(document.getElementById('station-id')?.value);
   if (stId) loadStationInfo(stId, {
     taxId: 'facility-tax-input', sciDivId: 'sci-display',
@@ -1297,4 +1625,85 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 </script>
+
+{% if result %}
+<script>
+async function openSaveToProject() {
+  const modal = new bootstrap.Modal(document.getElementById('saveToProjectModal'));
+  modal.show();
+  // Load existing projects
+  const r = await fetch('/api/projects/list');
+  const d = await r.json();
+  const section = document.getElementById('project-list-section');
+  if (!d.projects.length) {
+    section.innerHTML = '<div class="text-muted small">Žádné projekty — vytvoř nový níže.</div>';
+  } else {
+    let html = '<div class="text-muted small mb-2">Přidat do existujícího projektu:</div>';
+    html += '<div class="d-flex flex-column gap-1">';
+    d.projects.forEach(p => {
+      const name = p.name.replace(/'/g, "\\'");
+      html += `<div class="d-flex align-items-center gap-1">
+        <button class="btn btn-sm text-start flex-grow-1" style="background:#21262d;border-color:#30363d;color:#e6edf3"
+                onclick="saveToProject(${p.id})">
+          <i class="bi bi-kanban me-2" style="color:#58a6ff"></i>${p.name}
+          <span class="text-muted ms-2" style="font-size:.75rem">${p.plan_count} položek</span>
+        </button>
+        <button class="btn btn-sm btn-link text-danger p-1" title="Smazat projekt"
+                onclick="deleteProjectFromModal(${p.id}, '${name}')">
+          <i class="bi bi-x-lg" style="font-size:.85rem"></i>
+        </button>
+      </div>`;
+    });
+    html += '</div>';
+    section.innerHTML = html;
+  }
+}
+
+async function _doSavePlan(projectId) {
+  const r = await fetch(`/api/projects/${projectId}/add-plan`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      plan_data: _PLAN_DATA,
+      station_name: _PLAN_STATION_NAME,
+      facility_tax: _PLAN_FACILITY_TAX,
+    }),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('saveToProjectModal'))?.hide();
+    window.location.href = `/projects/${projectId}`;
+  } else {
+    alert(d.error || 'Chyba při ukládání');
+  }
+}
+
+async function saveToProject(projectId) {
+  await _doSavePlan(projectId);
+}
+
+async function saveToNewProject() {
+  const name = document.getElementById('save-new-project-name').value.trim();
+  if (!name) return;
+  const r = await fetch('/api/projects/new', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
+  const d = await r.json();
+  if (d.ok) await _doSavePlan(d.project_id);
+  else alert(d.error || 'Chyba');
+}
+
+async function deleteProjectFromModal(projectId, projectName) {
+  if (!confirm(`Smazat projekt „${projectName}"? Tato akce je nevratná.`)) return;
+  await fetch(`/api/projects/${projectId}`, {method: 'DELETE'});
+  openSaveToProject();
+}
+
+document.getElementById('save-new-project-name')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') saveToNewProject();
+});
+</script>
+{% endif %}
 {% endblock %}

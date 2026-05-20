@@ -6,6 +6,9 @@ import httpx
 
 ESI_BASE = "https://esi.evetech.net/latest"
 
+# SCC Surcharge přidaný ve Viridian (červen 2023) — vždy 0.25 %
+_SCC = 0.0025
+
 
 def ensure_industry_tables(conn: sqlite3.Connection):
     conn.execute("""
@@ -327,7 +330,8 @@ async def derive_facility_tax(
 ) -> float | None:
     """
     Odvodí facility tax z charakterových výrobních jobů:
-        facility_tax = job.cost / EIV − SCI
+        facility_tax = job.cost / EIV − SCI − SCC
+    kde SCC = 0.0025 (State Compensation Commission surcharge, přidán ve Viridian 2023).
 
     Spolehlivost:
     - Používá POUZE joby spuštěné PO posledním downtimeu (SCI epoch shoda → přesné).
@@ -407,7 +411,7 @@ async def derive_facility_tax(
             continue  # Příliš nízká EIV → hlučný výsledek
 
         sci = await get_sci_for_system(conn, sys_id, act_name) if sys_id else 0.0
-        tax = cost / eiv - sci
+        tax = cost / eiv - sci - _SCC
         if 0.0 <= tax <= 0.25:
             derived.append(tax)
 

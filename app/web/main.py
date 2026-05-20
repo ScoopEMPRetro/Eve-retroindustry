@@ -1,6 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 import asyncio
+import datetime
 import os
 import json
 import sqlite3
@@ -49,6 +50,14 @@ from app.web.industry_helper import (
     get_rig_types,
     save_station_rigs_full,
     get_station_rigs_full,
+    _SCC,
+)
+from app.web.projects_helper import (
+    ensure_project_tables,
+    list_projects,
+    create_project,
+    add_plan_to_project,
+    get_project_detail,
 )
 
 DB_ABS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "eve_cache.db"))
@@ -83,8 +92,16 @@ def _format_number(v) -> str:
         return str(v)
 
 
+def _format_date(v) -> str:
+    try:
+        return datetime.datetime.fromtimestamp(float(v)).strftime('%d.%m.%Y %H:%M')
+    except Exception:
+        return str(v)
+
+
 templates.env.filters["isk"] = _isk
 templates.env.filters["format_number"] = _format_number
+templates.env.filters["format_date"] = _format_date
 
 
 def _tr(name: str, request: Request, context: dict) -> HTMLResponse:
@@ -100,6 +117,7 @@ def get_conn() -> sqlite3.Connection:
     ensure_price_table(conn)
     ensure_location_name_table(conn)
     ensure_industry_tables(conn)
+    ensure_project_tables(conn)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sde_groups (
             group_id INTEGER PRIMARY KEY,
@@ -298,10 +316,11 @@ async def plan_result(
     mode: str = Form("full"),
     form_me: str = Form(""),
     form_te: str = Form(""),
-    facility_tax: str = Form("5"),
+    facility_tax: str = Form("2.5"),
     reaction_facility_tax: str = Form(""),
     facility_me_bonus: str = Form("0"),
     reaction_me_bonus: str = Form("0"),
+    selling_station: int = Form(0),
 ):
     conn = get_conn()
     error = None
@@ -387,7 +406,7 @@ async def plan_result(
             except (ValueError, AttributeError):
                 return default
 
-        fac_tax_pct  = _safe_pct(facility_tax, 5.0)
+        fac_tax_pct  = _safe_pct(facility_tax, 2.5)
         fac_tax_rate = fac_tax_pct / 100
 
         # Reakční stanice — 0 znamená použít stejnou jako výrobní
@@ -438,7 +457,7 @@ async def plan_result(
                     eiv = sum(adj_prices.get(inp["type_id"], 0.0) * inp["quantity"]
                               for inp in job["inputs"])
 
-                job_fee = eiv * (sci + tax_rate)
+                job_fee = eiv * (sci + tax_rate + _SCC)
                 job["eiv"] = eiv
                 job["sci"] = sci
                 job["job_fee"] = job_fee
@@ -484,6 +503,18 @@ async def plan_result(
     loc_names = load_location_names_from_db(conn)
     station_name = loc_names.get(station, str(station))
     rxn_station_name = loc_names.get(reaction_station, str(reaction_station)) if reaction_station else ""
+
+    # Best sell cena produktu na prodejní stanici (z station_volume_cache)
+    sell_loc = selling_station if selling_station else station
+    station_sell_price: float | None = None
+    if plan_data and plan_data.get("product_type_id"):
+        svols = get_cached_station_volumes(conn, sell_loc)
+        if svols:
+            entry = svols.get(plan_data["product_type_id"])
+            if entry and entry[1]:
+                station_sell_price = entry[1]
+    selling_station_name = loc_names.get(sell_loc, str(sell_loc)) if sell_loc else ""
+
     conn.close()
 
     return _tr("plan.html", request, {
@@ -503,6 +534,11 @@ async def plan_result(
         "form_rxn_facility_tax": reaction_facility_tax if reaction_facility_tax.strip() else facility_tax,
         "form_facility_me_bonus": facility_me_bonus,
         "form_rxn_me_bonus": reaction_me_bonus,
+        "station_sell_price": station_sell_price,
+        "station_name": station_name,
+        "selling_station_name": selling_station_name,
+        "form_selling_station": selling_station or "",
+        "form_selling_station_name": selling_station_name if selling_station else "",
     })
 
 
@@ -1387,6 +1423,177 @@ async def my_location():
     except Exception as e:
         conn.close()
         return {"error": str(e)}
+
+
+@app.get("/api/plan/fetch-sell-price")
+async def fetch_plan_sell_price(location_id: int, type_id: int):
+    """Načte best sell cenu konkrétního produktu na zadané stanici, uloží do station_volume_cache."""
+    token = get_valid_token()
+    conn = get_conn()
+    ensure_price_table(conn)
+
+    # Zajisti přítomnost type_id v market_price_cache (fetchery to potřebují pro filtrování)
+    conn.execute(
+        "INSERT OR IGNORE INTO market_price_cache (type_id, sell_price, buy_price, cached_at) VALUES (?,NULL,NULL,0)",
+        (type_id,),
+    )
+    conn.commit()
+
+    region_id = await get_region_for_location(conn, location_id, token)
+
+    try:
+        if location_id >= 1_000_000_000:
+            if not token:
+                conn.close()
+                return {"ok": False, "error": "Pro přístup k marketu struktury je nutné přihlášení."}
+            result = await fetch_structure_market(conn, location_id, token, {type_id}, region_id)
+        else:
+            if not region_id:
+                conn.close()
+                return {"ok": False, "error": "Nepodařilo se určit region pro tuto lokaci."}
+            result = await fetch_station_volumes(conn, location_id, region_id, [type_id])
+    except PermissionError as e:
+        conn.close()
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        conn.close()
+        return {"ok": False, "error": str(e)}
+
+    conn.close()
+    best_sell = result.get(type_id, (None, None, None))[1] if result else None
+    return {"ok": True, "best_sell": best_sell}
+
+
+# ── Projects ────────────────────────────────────────────────────────────────
+
+@app.get("/projects", response_class=HTMLResponse)
+async def projects_list(request: Request):
+    conn = get_conn()
+    projects = list_projects(conn)
+    conn.close()
+    return _tr("projects.html", request, {"projects": projects})
+
+
+@app.get("/projects/{project_id}", response_class=HTMLResponse)
+async def project_detail_page(request: Request, project_id: int):
+    conn = get_conn()
+    detail = get_project_detail(conn, project_id)
+    conn.close()
+    if not detail:
+        return HTMLResponse("Projekt nenalezen", status_code=404)
+    return _tr("project_detail.html", request, {"project": detail})
+
+
+@app.get("/api/projects/list")
+async def api_projects_list():
+    conn = get_conn()
+    projects = list_projects(conn)
+    conn.close()
+    return {"projects": projects}
+
+
+@app.post("/api/projects/new")
+async def api_project_new(request: Request):
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        return {"ok": False, "error": "Název nesmí být prázdný"}
+    conn = get_conn()
+    pid = create_project(conn, name)
+    conn.close()
+    return {"ok": True, "project_id": pid, "name": name}
+
+
+@app.post("/api/projects/{project_id}/add-plan")
+async def api_project_add_plan(project_id: int, request: Request):
+    body = await request.json()
+    plan_data = body.get("plan_data")
+    if not plan_data:
+        return {"ok": False, "error": "Chybí data plánu"}
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id FROM production_projects WHERE id=?", (project_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return {"ok": False, "error": "Projekt nenalezen"}
+    plan_id = add_plan_to_project(
+        conn, project_id, plan_data,
+        body.get("station_name", ""),
+        float(body.get("facility_tax", 0)),
+    )
+    conn.close()
+    return {"ok": True, "plan_id": plan_id}
+
+
+@app.post("/api/project-jobs/toggle")
+async def api_project_job_toggle(request: Request):
+    """Toggle status of one or more job IDs (merged jobs share type_id+step)."""
+    body = await request.json()
+    job_ids = body.get("job_ids", [])
+    target = body.get("status")  # "completed" or "pending"
+    if not job_ids or target not in ("completed", "pending"):
+        return {"ok": False, "error": "bad request"}
+    conn = get_conn()
+    ph = ",".join("?" * len(job_ids))
+    conn.execute(
+        f"UPDATE project_jobs SET status=? WHERE id IN ({ph})",
+        [target] + list(job_ids),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True, "status": target}
+
+
+@app.post("/api/project-shopping/update")
+async def api_project_shopping_update(request: Request):
+    body = await request.json()
+    project_id = int(body.get("project_id", 0))
+    type_id = int(body.get("type_id", 0))
+    purchased = int(body.get("purchased", 0))
+    if not project_id or not type_id:
+        return {"ok": False}
+    conn = get_conn()
+    conn.execute(
+        "UPDATE project_shopping SET purchased=? WHERE project_id=? AND type_id=?",
+        (purchased, project_id, type_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.post("/api/projects/{project_id}/shopping/mark-all")
+async def api_project_shopping_mark_all(project_id: int):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE project_shopping SET purchased=needed WHERE project_id=?", (project_id,)
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.post("/api/project-plans/{plan_id}/toggle")
+async def api_project_plan_toggle(plan_id: int, request: Request):
+    body = await request.json()
+    status = body.get("status", "completed")
+    conn = get_conn()
+    conn.execute("UPDATE project_plans SET status=? WHERE id=?", (status, plan_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "status": status}
+
+
+@app.delete("/api/projects/{project_id}")
+async def api_project_delete(project_id: int):
+    conn = get_conn()
+    for tbl in ("project_jobs", "project_shopping", "project_plans", "production_projects"):
+        col = "id" if tbl == "production_projects" else "project_id"
+        conn.execute(f"DELETE FROM {tbl} WHERE {col}=?", (project_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 
 @app.get("/api/suggest")

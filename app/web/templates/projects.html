@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Výrobní projekty — EVE Retroindustry{% endblock %}
+{% block content %}
+<div class="row mb-4 align-items-center">
+  <div class="col">
+    <h4 class="mb-0"><i class="bi bi-kanban me-2 text-primary"></i>Výrobní projekty</h4>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-eve" onclick="newProjectModal()">
+      <i class="bi bi-plus-lg me-1"></i>Nový projekt
+    </button>
+  </div>
+</div>
+
+{% if not projects %}
+<div class="card p-4 text-center text-muted">
+  <i class="bi bi-inbox" style="font-size:2rem;opacity:.3"></i>
+  <div class="mt-2">Žádné projekty. Vyber výrobní plán a klikni <strong>Uložit do projektu</strong>.</div>
+</div>
+{% else %}
+<div class="row g-3">
+  {% for p in projects %}
+  <div class="col-sm-6 col-lg-4">
+    <a href="/projects/{{ p.id }}" class="text-decoration-none">
+      <div class="card h-100 p-3" style="border-color:#30363d;transition:border-color .15s"
+           onmouseover="this.style.borderColor='#58a6ff'" onmouseout="this.style.borderColor='#30363d'">
+        <div class="d-flex align-items-start justify-content-between mb-2">
+          <h6 class="mb-0 text-light">{{ p.name }}</h6>
+          {% if p.plan_count > 0 and p.completed_plans == p.plan_count %}
+          <span class="badge bg-success">Hotovo</span>
+          {% else %}
+          <span class="badge bg-secondary">Probíhá</span>
+          {% endif %}
+        </div>
+        <div class="text-muted small">
+          <div class="d-flex gap-3 mt-1">
+            <span><i class="bi bi-hammer me-1"></i>{{ p.plan_count }} položek
+              {% if p.completed_plans %}<span class="text-success">({{ p.completed_plans }} hotovo)</span>{% endif %}
+            </span>
+            {% if p.shopping_total %}
+            <span><i class="bi bi-cart me-1"></i>{{ p.shopping_done }}/{{ p.shopping_total }} nakoupeno</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="mt-auto pt-2" style="font-size:.75rem;color:#6e7681">
+          {{ p.updated_at | int | format_date }}
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# Modal nový projekt #}
+<div class="modal fade" id="newProjectModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content" style="background:#1c2128;border-color:#30363d">
+      <div class="modal-header" style="border-color:#30363d">
+        <h6 class="modal-title">Nový projekt</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="new-project-name" class="form-control" placeholder="Název projektu…" autofocus>
+      </div>
+      <div class="modal-footer" style="border-color:#30363d">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Zrušit</button>
+        <button type="button" class="btn btn-eve btn-sm" onclick="submitNewProject()">Vytvořit</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function newProjectModal() {
+  const m = new bootstrap.Modal(document.getElementById('newProjectModal'));
+  m.show();
+  setTimeout(() => document.getElementById('new-project-name').focus(), 300);
+}
+async function submitNewProject() {
+  const name = document.getElementById('new-project-name').value.trim();
+  if (!name) return;
+  const r = await fetch('/api/projects/new', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
+  const d = await r.json();
+  if (d.ok) window.location.href = '/projects/' + d.project_id;
+}
+document.getElementById('new-project-name')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitNewProject();
+});
+</script>
+{% endblock %}

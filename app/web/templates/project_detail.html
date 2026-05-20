@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — EVE Projekty{% endblock %}
+{% block content %}
+
+<div class="row mb-3 align-items-center">
+  <div class="col">
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb mb-1" style="font-size:.85rem">
+        <li class="breadcrumb-item"><a href="/projects" class="text-decoration-none">Projekty</a></li>
+        <li class="breadcrumb-item active">{{ project.name }}</li>
+      </ol>
+    </nav>
+    <h4 class="mb-0"><i class="bi bi-kanban me-2 text-primary"></i>{{ project.name }}</h4>
+  </div>
+  <div class="col-auto d-flex gap-2">
+    <a href="/plan" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-plus-lg me-1"></i>Přidat výrobní plán
+    </a>
+    <button class="btn btn-sm btn-outline-danger" onclick="deleteProject({{ project.id }})">
+      <i class="bi bi-trash me-1"></i>Smazat
+    </button>
+  </div>
+</div>
+
+{# Shrnutí #}
+<div class="row g-3 mb-4">
+  <div class="col-auto">
+    <div class="card px-3 py-2 text-center" style="min-width:110px">
+      <div class="fw-bold fs-4">{{ project.plans | length }}</div>
+      <div class="text-muted small">položek</div>
+    </div>
+  </div>
+  <div class="col-auto">
+    <div class="card px-3 py-2 text-center" style="min-width:110px">
+      <div class="fw-bold fs-4">{{ project.done_jobs }}/{{ project.total_jobs }}</div>
+      <div class="text-muted small">jobů hotovo</div>
+    </div>
+  </div>
+  <div class="col-auto">
+    <div class="card px-3 py-2 text-center" style="min-width:110px">
+      <div class="fw-bold fs-4">{{ project.shopping_done }}/{{ project.shopping | length }}</div>
+      <div class="text-muted small">nakoupeno</div>
+    </div>
+  </div>
+</div>
+
+{# ──── Položky k výrobě ──── #}
+<h6 class="text-muted text-uppercase mb-2" style="font-size:.75rem;letter-spacing:.06em">
+  <i class="bi bi-hammer me-1"></i>Položky k výrobě
+</h6>
+<div class="card mb-4">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
+      <thead>
+        <tr>
+          <th style="width:36px"></th>
+          <th>Produkt</th>
+          <th class="text-end">Počet</th>
+          <th>ME / TE</th>
+          <th>Stanice</th>
+          <th class="text-center" style="width:80px">Hotovo</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for plan in project.plans %}
+        <tr id="plan-row-{{ plan.id }}" class="{% if plan.status == 'completed' %}opacity-50{% endif %}">
+          <td>
+            <img src="https://images.evetech.net/types/{{ plan.product_type_id }}/icon?size=32"
+                 width="32" height="32" class="rounded" alt="">
+          </td>
+          <td class="fw-semibold">{{ plan.product_name }}</td>
+          <td class="text-end">{{ plan.quantity }}</td>
+          <td class="text-muted">
+            <span style="color:#3fb950">ME {{ plan.me }}</span>
+            &nbsp;/&nbsp;
+            <span style="color:#e3b341">TE {{ plan.te }}</span>
+          </td>
+          <td class="text-muted small">{{ plan.station_name or '—' }}</td>
+          <td class="text-center">
+            <div class="form-check d-flex justify-content-center mb-0">
+              <input class="form-check-input" type="checkbox" style="cursor:pointer;width:1.2em;height:1.2em"
+                     {% if plan.status == 'completed' %}checked{% endif %}
+                     onchange="togglePlan({{ plan.id }}, this.checked)">
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ──── Výrobní postup ──── #}
+{% if project.steps %}
+<h6 class="text-muted text-uppercase mb-2" style="font-size:.75rem;letter-spacing:.06em">
+  <i class="bi bi-diagram-3 me-1"></i>Výrobní postup
+</h6>
+{% for step in project.steps %}
+<div class="mb-3">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <span class="badge {% if step.all_done %}bg-success{% elif step.step == project.steps | length %}bg-primary{% else %}bg-secondary{% endif %} px-3 py-2">
+      Krok {{ step.step }}
+    </span>
+    {% if step.all_done %}
+    <span class="text-success small"><i class="bi bi-check-circle me-1"></i>Hotovo</span>
+    {% endif %}
+  </div>
+  <div class="accordion" id="step{{ step.step }}acc">
+    {% for job in step.jobs %}
+    {% set job_key = 'step' ~ step.step ~ 'job' ~ loop.index %}
+    <div class="accordion-item {% if job.completed %}opacity-50{% endif %}" id="job-row-{{ job.job_ids | join('-') }}"
+         style="background:#161b22;border-color:#30363d">
+      <h2 class="accordion-header">
+        {% if job.inputs %}
+        <button class="accordion-button collapsed" type="button"
+                data-bs-toggle="collapse" data-bs-target="#{{ job_key }}"
+                style="background:#161b22;color:#e6edf3;border-color:#30363d;font-size:.875rem">
+        {% else %}
+        <div class="accordion-button collapsed pe-none"
+             style="background:#161b22;color:#e6edf3;border-color:#30363d;font-size:.875rem;--bs-accordion-btn-icon:none">
+        {% endif %}
+          <img src="https://images.evetech.net/types/{{ job.type_id }}/icon?size=32"
+               width="28" height="28" class="rounded me-2" style="flex-shrink:0">
+          {% if job.activity == 'reaction' %}
+          <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REAKCE</span>
+          {% else %}
+          <span class="badge me-2 px-2" style="background:#0d6efd;font-size:.65rem;flex-shrink:0">VÝROBA</span>
+          {% endif %}
+          <span class="fw-semibold me-3" style="flex:0 0 32ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ job.name }}</span>
+          <span class="text-muted me-3" style="flex:0 0 10ch;font-variant-numeric:tabular-nums">×{{ job.quantity | int | format_number }}</span>
+          <span class="text-muted small me-2" style="flex:0 0 8ch">{{ job.runs }} run{% if job.runs != 1 %}s{% endif %}</span>
+          <span style="flex:1"></span>
+          <div class="form-check mb-0 me-2" onclick="event.stopPropagation()">
+            <input class="form-check-input" type="checkbox" style="cursor:pointer;width:1.2em;height:1.2em"
+                   data-job-ids="{{ job.job_ids | join(',') }}"
+                   {% if job.completed %}checked{% endif %}
+                   onchange="toggleJob(this)">
+          </div>
+        {% if job.inputs %}
+        </button>
+        {% else %}
+        </div>
+        {% endif %}
+      </h2>
+      {% if job.inputs %}
+      <div id="{{ job_key }}" class="accordion-collapse collapse">
+        <div class="accordion-body p-0">
+          <table class="table table-sm mb-0 align-middle" style="font-size:.8rem">
+            <thead>
+              <tr class="text-muted" style="border-color:#30363d">
+                <th style="width:28px"></th>
+                <th>Surovina</th>
+                <th class="text-end">Množství</th>
+                <th>Typ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for inp in job.inputs %}
+              <tr style="border-color:#21262d">
+                <td>
+                  <img src="https://images.evetech.net/types/{{ inp.type_id }}/icon?size=32"
+                       width="20" height="20" class="rounded" alt="">
+                </td>
+                <td>{{ inp.name }}</td>
+                <td class="text-end text-muted">{{ inp.quantity | int | format_number }}</td>
+                <td>
+                  {% if not inp.is_leaf %}
+                    {% if inp.activity == 'reaction' %}
+                    <span class="badge px-1" style="background:#6f42c1;font-size:.55rem">reakce</span>
+                    {% else %}
+                    <span class="badge px-1" style="background:#0d6efd;font-size:.55rem">výroba</span>
+                    {% endif %}
+                  {% else %}
+                  <span class="text-muted" style="font-size:.75rem">surovina</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{# ──── Nákupní seznam ──── #}
+{% if project.shopping %}
+<div class="d-flex align-items-center justify-content-between mb-2 mt-3">
+  <h6 class="text-muted text-uppercase mb-0" style="font-size:.75rem;letter-spacing:.06em">
+    <i class="bi bi-cart me-1"></i>Nákupní seznam ({{ project.shopping_done }}/{{ project.shopping | length }})
+  </h6>
+  <button class="btn btn-sm btn-outline-success" onclick="markAllPurchased({{ project.id }})">
+    <i class="bi bi-check-all me-1"></i>Označit vše jako nakoupeno
+  </button>
+</div>
+<div class="card mb-4">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
+      <thead>
+        <tr>
+          <th style="width:36px"></th>
+          <th>Surovina</th>
+          <th class="text-end">Potřeba</th>
+          <th class="text-end">Nakoupeno</th>
+          <th class="text-center" style="width:100px">Nakoupeno</th>
+        </tr>
+      </thead>
+      <tbody id="shopping-tbody">
+        {% for item in project.shopping %}
+        {% set done = item.purchased >= item.needed %}
+        <tr id="shop-row-{{ item.type_id }}" class="{% if done %}opacity-50{% endif %}">
+          <td>
+            <img src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=32"
+                 width="28" height="28" class="rounded" alt="">
+          </td>
+          <td>{{ item.name }}</td>
+          <td class="text-end fw-semibold">{{ item.needed | format_number }}</td>
+          <td class="text-end" id="shop-purchased-{{ item.type_id }}">
+            {% if item.purchased > 0 %}
+            <span class="{% if done %}text-success{% else %}text-warning{% endif %}">{{ item.purchased | format_number }}</span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            <div class="form-check d-flex justify-content-center mb-0">
+              <input class="form-check-input" type="checkbox" style="cursor:pointer;width:1.2em;height:1.2em"
+                     data-project-id="{{ project.id }}"
+                     data-type-id="{{ item.type_id }}"
+                     data-needed="{{ item.needed }}"
+                     {% if done %}checked{% endif %}
+                     onchange="toggleShopping(this)">
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<script>
+async function togglePlan(planId, done) {
+  const status = done ? 'completed' : 'pending';
+  await fetch(`/api/project-plans/${planId}/toggle`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status}),
+  });
+  const row = document.getElementById(`plan-row-${planId}`);
+  if (row) row.className = done ? 'opacity-50' : '';
+}
+
+async function toggleJob(cb) {
+  const jobIds = cb.dataset.jobIds.split(',').map(Number);
+  const done = cb.checked;
+  const status = done ? 'completed' : 'pending';
+  await fetch('/api/project-jobs/toggle', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({job_ids: jobIds, status}),
+  });
+  const row = cb.closest('tr');
+  if (row) row.className = done ? 'opacity-50' : '';
+}
+
+async function toggleShopping(cb) {
+  const projectId = parseInt(cb.dataset.projectId);
+  const typeId = parseInt(cb.dataset.typeId);
+  const needed = parseInt(cb.dataset.needed);
+  const purchased = cb.checked ? needed : 0;
+  await fetch('/api/project-shopping/update', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({project_id: projectId, type_id: typeId, purchased}),
+  });
+  const row = cb.closest('tr');
+  if (row) row.className = cb.checked ? 'opacity-50' : '';
+  const el = document.getElementById(`shop-purchased-${typeId}`);
+  if (el) {
+    el.innerHTML = cb.checked
+      ? `<span class="text-success">${needed.toLocaleString('cs-CZ')}</span>`
+      : '<span class="text-muted">—</span>';
+  }
+}
+
+async function markAllPurchased(projectId) {
+  await fetch(`/api/projects/${projectId}/shopping/mark-all`, {method: 'POST'});
+  document.querySelectorAll('#shopping-tbody input[type=checkbox]').forEach(cb => {
+    cb.checked = true;
+    const row = cb.closest('tr');
+    if (row) row.className = 'opacity-50';
+    const typeId = parseInt(cb.dataset.typeId);
+    const needed = parseInt(cb.dataset.needed);
+    const el = document.getElementById(`shop-purchased-${typeId}`);
+    if (el) {
+      el.innerHTML = `<span class="text-success">${needed.toLocaleString('cs-CZ')}</span>`;
+    }
+  });
+}
+
+async function deleteProject(projectId) {
+  if (!confirm('Smazat projekt? Tato akce je nevratná.')) return;
+  await fetch(`/api/projects/${projectId}`, {method: 'DELETE'});
+  window.location.href = '/projects';
+}
+
+</script>
+{% endblock %}
