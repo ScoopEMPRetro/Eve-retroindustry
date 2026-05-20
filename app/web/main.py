@@ -334,6 +334,7 @@ async def dashboard(request: Request):
     logged_in = is_logged_in()
     char_name = char_id = None
     bp_count = asset_locations = 0
+    total_assets_value = None
     price_stats = {}
 
     conn = get_conn()
