@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.2.6"
+APP_VERSION = "0.2.7"
 
 import asyncio
 import datetime
@@ -27,7 +27,7 @@ from app.db.type_resolver import resolve_names_bulk
 from app.esi.client import search_type_by_name
 from app.cache.blueprint_cache import resolve_type
 from app.db.database import get_session
-from app.manufacturing.planner import build_plan, find_blueprint_for_product
+from app.manufacturing.planner import build_plan, find_blueprint_for_product, calc_job_time, format_duration
 from app.bom.resolver import BOMResolver
 from app.market.prices import ensure_price_table, fetch_station_volumes, get_cached_station_volumes, fetch_structure_market
 from app.web.prices_helper import (
@@ -52,11 +52,18 @@ from app.web.industry_helper import (
     derive_facility_tax,
     get_station_me_bonus,
     save_station_me_bonus,
+    get_station_te_multiplier,
     populate_rig_bonuses,
     get_rig_types,
     save_station_rigs_full,
     get_station_rigs_full,
     _SCC,
+)
+from app.character.skills import (
+    ensure_skills_table,
+    fetch_skills,
+    get_cached_skills,
+    MANUFACTURING_SKILL_IDS,
 )
 from app.web.projects_helper import (
     ensure_project_tables,
@@ -210,6 +217,7 @@ def get_conn() -> sqlite3.Connection:
     ensure_bp_table(conn)
     ensure_assets_table(conn)
     ensure_corp_assets_table(conn)
+    ensure_skills_table(conn)
     ensure_price_table(conn)
     ensure_location_name_table(conn)
     ensure_industry_tables(conn)
@@ -369,6 +377,7 @@ async def _bg_initial_sync():
         async with httpx.AsyncClient() as client:
             await fetch_blueprints(client, char_id, token, conn)
             all_assets = await fetch_assets(client, char_id, token, conn)
+            await fetch_skills(client, char_id, token, conn)
             try:
                 _, corp_assets = await fetch_corp_assets(client, char_id, token, conn)
             except Exception:
@@ -487,10 +496,17 @@ async def dashboard(request: Request):
 async def plan_form(request: Request):
     conn = get_conn()
     char = get_character()
+    token = get_valid_token()
     location_ids = []
+    char_skills: dict[int, int] = {}
     if char:
         raw = _load_assets_from_cache(conn, char[0])
         location_ids = sorted({a["location_id"] for a in raw if not a.get("is_singleton", False)})
+        if token:
+            async with httpx.AsyncClient() as client:
+                char_skills = await fetch_skills(client, char[0], token, conn)
+        else:
+            char_skills = get_cached_skills(conn, char[0])
     product_param = request.query_params.get("product", "")
     if product_param.strip().isdigit():
         row = conn.execute("SELECT name FROM sde_types WHERE type_id=?", (int(product_param),)).fetchone()
@@ -502,6 +518,8 @@ async def plan_form(request: Request):
         "result": None,
         "error": None,
         "form_product": product_param,
+        "form_industry":     str(char_skills.get(3380, 0)),
+        "form_adv_industry": str(char_skills.get(3388, 0)),
     })
 
 
@@ -520,6 +538,8 @@ async def plan_result(
     facility_me_bonus: str = Form("0"),
     reaction_me_bonus: str = Form("0"),
     selling_station: int = Form(0),
+    form_industry: str = Form("0"),
+    form_adv_industry: str = Form("0"),
 ):
     conn = get_conn()
     error = None
@@ -528,6 +548,15 @@ async def plan_result(
     # Převeď ME/TE na int pokud zadány
     me_override: int | None = int(form_me) if form_me.strip().isdigit() else None
     te_override: int | None = int(form_te) if form_te.strip().isdigit() else None
+
+    def _clamp_skill(s: str, max_val: int = 5) -> int:
+        try:
+            return max(0, min(max_val, int(s.strip())))
+        except (ValueError, AttributeError):
+            return 0
+
+    industry_level     = _clamp_skill(form_industry)
+    adv_industry_level = _clamp_skill(form_adv_industry)
 
     def _parse_pct(s: str) -> float:
         try:
@@ -635,8 +664,16 @@ async def plan_result(
         mfg_sci = await get_sci_for_system(conn, solar_system_id, "manufacturing") if solar_system_id else 0.0
         rxn_sci = await get_sci_for_system(conn, rxn_solar_system_id, "reaction") if rxn_solar_system_id else 0.0
 
+        # TE multiplikátory pro stanice (struktura + rigy)
+        mfg_te_mult = get_station_te_multiplier(conn, station)
+        rxn_te_mult = get_station_te_multiplier(conn, eff_rxn_station) if sep_rxn_station else mfg_te_mult
+
         total_job_fee = 0.0
+        total_mfg_time_s = 0   # čas všech výrobních kroků (sekvenčně)
+        total_rxn_time_s = 0
         for step in plan_data["manufacturing_steps"]:
+            step_mfg_time = 0
+            step_rxn_time = 0
             for job in step["jobs"]:
                 is_rxn   = job.get("activity") == "reaction"
                 sci      = rxn_sci      if is_rxn else mfg_sci
@@ -662,6 +699,34 @@ async def plan_result(
                 job["job_fee"] = job_fee
                 total_job_fee += job_fee
 
+                # Doba jobu
+                if bp_id:
+                    bp_time_row = conn.execute(
+                        "SELECT manufacturing_time, reaction_time FROM sde_blueprints"
+                        " WHERE blueprint_type_id=?", (bp_id,)
+                    ).fetchone()
+                    base_time = (bp_time_row[1] if is_rxn else bp_time_row[0]) if bp_time_row else None
+                    if base_time:
+                        job_te = te if not is_rxn else 0
+                        job_secs = calc_job_time(
+                            base_time=base_time,
+                            runs=runs,
+                            te=job_te,
+                            industry_level=industry_level,
+                            adv_industry_level=adv_industry_level,
+                            facility_te_multiplier=rxn_te_mult if is_rxn else mfg_te_mult,
+                            is_reaction=is_rxn,
+                        )
+                        job["job_duration_seconds"] = job_secs
+                        job["job_duration"] = format_duration(job_secs)
+                        if is_rxn:
+                            step_rxn_time = max(step_rxn_time, job_secs)
+                        else:
+                            step_mfg_time = max(step_mfg_time, job_secs)
+
+            total_mfg_time_s += step_mfg_time
+            total_rxn_time_s += step_rxn_time
+
         # Tržní cena všech surovin (bez ohledu na sklad)
         full_mat_cost = sum(
             m.get("total_price") or 0.0 for m in plan_data.get("materials", [])
@@ -675,6 +740,7 @@ async def plan_result(
         # Zisk se zásobami: revenue − jen chybějící suroviny − job fee
         profit_stock  = (rev - buy_cost - total_job_fee) if rev is not None else None
 
+        total_time_s = total_mfg_time_s + total_rxn_time_s
         plan_data["fees"] = {
             "solar_system_id":     solar_system_id,
             "rxn_solar_system_id": rxn_solar_system_id,
@@ -684,6 +750,10 @@ async def plan_result(
             "facility_tax":        fac_tax_pct,
             "rxn_facility_tax":    rxn_fac_tax_pct,
             "total_job_fee":       total_job_fee,
+            "total_time_s":        total_time_s,
+            "total_time":          format_duration(total_time_s) if total_time_s else None,
+            "mfg_te_pct":          round((1 - mfg_te_mult) * 100, 1),
+            "rxn_te_pct":          round((1 - rxn_te_mult) * 100, 1) if sep_rxn_station else None,
             "full_mat_cost":       full_mat_cost,
             "profit_market":       profit_market,
             "profit_stock":        profit_stock,
@@ -738,6 +808,8 @@ async def plan_result(
         "selling_station_name": selling_station_name,
         "form_selling_station": selling_station or "",
         "form_selling_station_name": selling_station_name if selling_station else "",
+        "form_industry":     form_industry,
+        "form_adv_industry": form_adv_industry,
     })
 
 

@@ -44,6 +44,22 @@
         <input type="number" name="form_te" id="te-input" class="form-control"
                min="0" max="20" placeholder="—" value="{{ form_te or '' }}">
       </div>
+      <div class="col-4 col-sm-2 col-lg-1">
+        <label class="form-label text-muted small" title="Industry skill level 0–5">
+          <i class="bi bi-person-gear me-1"></i>Industry
+          <span class="text-muted" style="font-size:.7rem">(0–5)</span>
+        </label>
+        <input type="number" name="form_industry" class="form-control"
+               min="0" max="5" placeholder="0" value="{{ form_industry or '0' }}">
+      </div>
+      <div class="col-4 col-sm-2 col-lg-1">
+        <label class="form-label text-muted small" title="Advanced Industry skill level 0–5">
+          <i class="bi bi-person-gear me-1"></i>Adv. Industry
+          <span class="text-muted" style="font-size:.7rem">(0–5)</span>
+        </label>
+        <input type="number" name="form_adv_industry" class="form-control"
+               min="0" max="5" placeholder="0" value="{{ form_adv_industry or '0' }}">
+      </div>
       <div class="col-sm-4 col-lg-2">
         <label class="form-label text-muted small">Mode</label>
         <select name="mode" class="form-select">
@@ -297,6 +313,9 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
           {% if form_facility_me_bonus and form_facility_me_bonus != '0' %}
           &nbsp;·&nbsp;Rig ME: <strong class="text-info">{{ form_facility_me_bonus }}%</strong>
           {% endif %}
+          {% if result.fees and result.fees.mfg_te_pct %}
+          &nbsp;·&nbsp;Facility TE: <strong class="text-info">{{ result.fees.mfg_te_pct }}%</strong>
+          {% endif %}
           {% if result.blueprint.manual %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">entered manually</span>{% endif %}
         </span>
       {% else %}
@@ -305,6 +324,17 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
       <div class="mt-1">
         <span class="badge bg-secondary">{{ result.mode }}</span>
         <span class="text-muted small ms-2">Station ID: {{ result.location_id }}</span>
+        {% if form_industry and form_industry != '0' %}
+        <span class="text-muted small ms-2"><i class="bi bi-person-gear"></i> Industry {{ form_industry }}</span>
+        {% endif %}
+        {% if form_adv_industry and form_adv_industry != '0' %}
+        <span class="text-muted small ms-2">Adv. Industry {{ form_adv_industry }}</span>
+        {% endif %}
+        {% if result.fees and result.fees.total_time %}
+        <span class="badge bg-secondary ms-2" style="font-size:.7rem">
+          <i class="bi bi-clock me-1"></i>{{ result.fees.total_time }}
+        </span>
+        {% endif %}
       </div>
     </div>
     <div class="col-auto text-end">
@@ -766,6 +796,15 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
                 <td class="text-end fw-semibold text-isk">{{ job.input_cost | isk }}</td>
               </tr>
               {% endif %}
+              {% if job.job_duration is defined %}
+              <tr style="background:#16191f">
+                <td colspan="5" class="text-muted small">
+                  <i class="bi bi-clock me-1"></i>Build time
+                  <span class="text-muted" style="font-size:.7rem">({{ job.runs }} run{{ 's' if job.runs != 1 }})</span>
+                </td>
+                <td class="text-end fw-semibold text-warning" style="font-size:.85rem">{{ job.job_duration }}</td>
+              </tr>
+              {% endif %}
               {% if job.job_fee is defined and job.job_fee > 0 %}
               <tr style="background:#16191f">
                 <td colspan="5" class="text-muted small">
@@ -828,7 +867,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
 <script>
 // === Obnova posledního plánu ===
 const _FORM_FIELD_NAMES = [
-  'product','qty','form_me','form_te','mode',
+  'product','qty','form_me','form_te','form_industry','form_adv_industry','mode',
   'station','reaction_station','selling_station',
   'facility_tax','reaction_facility_tax',
   'facility_me_bonus','reaction_me_bonus',
@@ -1261,7 +1300,14 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
       });
     }
     if (!items.length) {
-      html += `<div class="px-3 py-2 text-muted small">No stations found — try a system name (e.g. "Jita") or paste a station ID below.</div>`;
+      if (data.cache_empty) {
+        html += `<div class="px-3 py-2 small">
+          <div class="text-warning mb-1"><i class="bi bi-exclamation-triangle me-1"></i>Location data not loaded yet</div>
+          <div class="text-muted" style="font-size:.8rem">Go to <a href="/assets" class="text-muted">Assets</a> to load your stations, or type a full system name (e.g. <em>Jita</em>) to search via ESI.</div>
+        </div>`;
+      } else {
+        html += `<div class="px-3 py-2 text-muted small">No stations found — try a system name (e.g. "Jita") or paste a station ID below.</div>`;
+      }
     }
     html += buildAddStructureHtml();
     _renderBox(html);

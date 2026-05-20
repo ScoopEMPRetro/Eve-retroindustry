@@ -94,6 +94,15 @@ STRUCTURE_TYPE_MAP: dict[str, tuple[str, str]] = {
     "tatara":  ("L",  "reaction"),
 }
 
+# Structure type → TE bonus (% reduction of job time)
+STRUCTURE_TE_BONUS: dict[str, float] = {
+    "raitaru": 1.0,
+    "azbel":   2.0,
+    "sotiyo":  4.0,
+    "athanor": 1.0,
+    "tatara":  2.0,
+}
+
 
 def populate_rig_bonuses(conn: sqlite3.Connection) -> None:
     """Populate rig_bonuses from local SDE. No-op if already populated."""
@@ -195,6 +204,40 @@ def get_station_rigs_full(conn: sqlite3.Connection, location_id: int) -> dict:
         "structure_type": row[1],
         "rigs": [row[2], row[3], row[4]],
     }
+
+
+def get_station_te_multiplier(conn: sqlite3.Connection, location_id: int) -> float:
+    """Vrátí kombinovaný multiplikátor doby výroby pro stanici (např. 0.79 = 21 % rychleji).
+
+    Zahrnuje bonus struktury (Raitaru/Azbel/Sotiyo) a rigs (TE rig bonusy aplikovány
+    multiplikativně).
+    """
+    ensure_industry_tables(conn)
+    row = conn.execute(
+        "SELECT structure_type, rig1_type_id, rig2_type_id, rig3_type_id"
+        " FROM station_rigs WHERE location_id=?",
+        (location_id,),
+    ).fetchone()
+    if not row:
+        return 1.0
+
+    structure_type = row[0] or ""
+    structure_te_pct = STRUCTURE_TE_BONUS.get(structure_type, 0.0)
+    multiplier = 1.0 - structure_te_pct / 100
+
+    rig_ids = [r for r in [row[1], row[2], row[3]] if r]
+    if rig_ids:
+        unique_ids = list(set(rig_ids))
+        ph = ",".join("?" * len(unique_ids))
+        rig_te_map = {r[0]: r[1] for r in conn.execute(
+            f"SELECT type_id, te_bonus FROM rig_bonuses WHERE type_id IN ({ph})",
+            unique_ids,
+        ).fetchall()}
+        for rid in rig_ids:
+            te_b = rig_te_map.get(rid, 0.0) / 100
+            multiplier *= (1.0 - te_b)
+
+    return max(0.01, multiplier)  # nikdy nezáporné
 
 
 def get_station_me_bonus(conn: sqlite3.Connection, location_id: int) -> float:
