@@ -459,12 +459,17 @@ async def plan_form(request: Request):
     if char:
         raw = _load_assets_from_cache(conn, char[0])
         location_ids = sorted({a["location_id"] for a in raw if not a.get("is_singleton", False)})
+    product_param = request.query_params.get("product", "")
+    if product_param.strip().isdigit():
+        row = conn.execute("SELECT name FROM sde_types WHERE type_id=?", (int(product_param),)).fetchone()
+        if row:
+            product_param = row[0]
     conn.close()
     return _tr("plan.html", request, {
         "locations": location_ids,
         "result": None,
         "error": None,
-        "form_product": request.query_params.get("product", ""),
+        "form_product": product_param,
     })
 
 
