@@ -72,9 +72,9 @@
   </div>
   <div class="col-lg-6">
     <div class="card p-4 h-100">
-      <h6 class="mb-1"><i class="bi bi-geo-alt me-2 text-primary"></i>Station Volume</h6>
+      <h6 class="mb-1"><i class="bi bi-geo-alt me-2 text-primary"></i>Custom Station Prices</h6>
       <p class="text-muted small mb-3">
-        Search for a station or citadel and fetch sell stock and traded volume for all items in the table.
+        Search for a station or citadel and fetch sell prices and traded volume for all items in the table.
       </p>
       <div class="d-flex gap-2 align-items-start mb-2">
         <div class="position-relative flex-grow-1">
@@ -549,25 +549,33 @@
       document.querySelectorAll('.stn-name').forEach(el => el.textContent = stationShortName);
       document.querySelectorAll('.station-col').forEach(el => el.style.display = '');
 
-      // Naplň buňky
+      // Naplň buňky — vždy čti tbody znovu (může být null při první inicializaci)
+      const liveTable = document.getElementById('price-table');
+      const liveTbody = liveTable?.querySelector('tbody');
       const data = json.data;
       const na = '<span class="text-muted">—</span>';
-      tbody.querySelectorAll('tr').forEach(tr => {
-        const tid = tr.dataset.id;
-        const sellCell   = tr.querySelector('.station-sell-cell');
-        if (!sellCell) return;
-        const tradedCell = tr.querySelector('.station-traded-cell');
-        const availCell  = tr.querySelector('.station-avail-cell');
 
-        const entry  = data[tid];
-        const vol    = entry?.volume;
-        const sell   = entry?.best_sell;
-        const traded = entry?.traded_volume;
+      if (!liveTbody) {
+        stationStatus.textContent = `Loaded ${Object.keys(data).length} items. Refresh the page to see station prices.`;
+        stationStatus.classList.remove('d-none');
+      } else {
+        liveTbody.querySelectorAll('tr').forEach(tr => {
+          const tid = tr.dataset.id;
+          const sellCell   = tr.querySelector('.station-sell-cell');
+          if (!sellCell) return;
+          const tradedCell = tr.querySelector('.station-traded-cell');
+          const availCell  = tr.querySelector('.station-avail-cell');
 
-        sellCell.innerHTML   = sell   != null ? sell.toLocaleString('cs-CZ', {minimumFractionDigits:2, maximumFractionDigits:2})   : na;
-        tradedCell.innerHTML = traded != null && traded > 0 ? traded.toLocaleString('cs-CZ') : na;
-        availCell.innerHTML  = vol    != null && vol   > 0  ? vol.toLocaleString('cs-CZ')    : na;
-      });
+          const entry  = data[tid];
+          const vol    = entry?.volume;
+          const sell   = entry?.best_sell;
+          const traded = entry?.traded_volume;
+
+          sellCell.innerHTML   = sell   != null ? sell.toLocaleString('cs-CZ', {minimumFractionDigits:2, maximumFractionDigits:2}) : na;
+          tradedCell.innerHTML = traded != null && traded > 0 ? traded.toLocaleString('cs-CZ') : na;
+          availCell.innerHTML  = vol    != null && vol   > 0  ? vol.toLocaleString('cs-CZ')    : na;
+        });
+      }
     } catch(e) {
       clearInterval(fakeInterval);
       stationVolBar.className = 'progress-bar bg-danger';

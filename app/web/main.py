@@ -464,6 +464,7 @@ async def plan_form(request: Request):
         "locations": location_ids,
         "result": None,
         "error": None,
+        "form_product": request.query_params.get("product", ""),
     })
 
 
@@ -2044,6 +2045,8 @@ async def api_station_volume(request: Request):
         }}
 
     type_ids = [r[0] for r in conn.execute("SELECT type_id FROM market_price_cache").fetchall()]
+    if not type_ids:
+        type_ids = _refresh_type_ids(conn)
 
     def _fmt(result):
         return {"ok": True, "cached": False, "data": {

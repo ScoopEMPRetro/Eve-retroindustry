@@ -47,7 +47,7 @@
           {% if bp.runs == '∞' %}<span class="text-muted">∞</span>{% else %}{{ bp.runs }}{% endif %}
         </td>
         <td>
-          <a href="/plan?product={{ bp.name | urlencode }}" class="btn btn-outline-secondary btn-sm"
+          <a href="/plan?product={{ bp.product_type_id }}" class="btn btn-outline-secondary btn-sm"
              title="Open in Manufacturing Plan">
             <i class="bi bi-hammer"></i>
           </a>
