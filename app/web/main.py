@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.2.7"
+APP_VERSION = "0.2.8"
 
 import asyncio
 import datetime
@@ -63,7 +63,7 @@ from app.character.skills import (
     ensure_skills_table,
     fetch_skills,
     get_cached_skills,
-    MANUFACTURING_SKILL_IDS,
+    get_mfg_skill_ids,
 )
 from app.web.projects_helper import (
     ensure_project_tables,
@@ -230,6 +230,37 @@ def get_conn() -> sqlite3.Connection:
     """)
     conn.commit()
     return conn
+
+
+def _science_skill_mult(
+    conn: sqlite3.Connection,
+    bp_type_id: int,
+    activity: str,
+    skills: dict[int, int],
+) -> tuple[float, list[tuple[str, int, float]]]:
+    """Vrátí (multiplier, [(skill_name, level, bonus_pct), ...]) pro science skilly blueprintu.
+
+    Každý required skill s time bonusem přispívá (1 - level * bonus_pct/100).
+    Industry a AdvIndustry jsou zpracovány zvlášť — zde je přeskakujeme.
+    """
+    try:
+        rows = conn.execute(
+            """SELECT bs.skill_type_id, st.skill_name, bs.required_level, st.time_bonus_pct
+               FROM sde_blueprint_skills bs
+               JOIN sde_skill_time_bonus st ON st.skill_type_id = bs.skill_type_id
+               WHERE bs.blueprint_type_id = ? AND bs.activity = ?""",
+            (bp_type_id, activity),
+        ).fetchall()
+    except Exception:
+        return 1.0, []
+
+    mult = 1.0
+    details: list[tuple[str, int, float]] = []
+    for skill_id, skill_name, _req_level, bonus_pct in rows:
+        level = skills.get(skill_id, 0)
+        mult *= 1.0 - level * bonus_pct / 100
+        details.append((skill_name, level, bonus_pct))
+    return max(0.01, mult), details
 
 
 async def _ensure_groups_populated(conn: sqlite3.Connection) -> None:
@@ -588,8 +619,11 @@ async def plan_result(
             session.close()
 
         async with httpx.AsyncClient() as client:
-            blueprints = await fetch_blueprints(client, char_id, token, conn)
-            all_assets = await fetch_assets(client, char_id, token, conn)
+            blueprints, all_assets, char_skills = await asyncio.gather(
+                fetch_blueprints(client, char_id, token, conn),
+                fetch_assets(client, char_id, token, conn),
+                fetch_skills(client, char_id, token, conn),
+            )
 
         available = assets_at_location(all_assets, station)
 
@@ -707,6 +741,8 @@ async def plan_result(
                     ).fetchone()
                     base_time = (bp_time_row[1] if is_rxn else bp_time_row[0]) if bp_time_row else None
                     if base_time:
+                        activity_name = job.get("activity", "manufacturing")
+                        sci_mult, sci_details = _science_skill_mult(conn, bp_id, activity_name, char_skills)
                         job_te = te if not is_rxn else 0
                         job_secs = calc_job_time(
                             base_time=base_time,
@@ -716,9 +752,11 @@ async def plan_result(
                             adv_industry_level=adv_industry_level,
                             facility_te_multiplier=rxn_te_mult if is_rxn else mfg_te_mult,
                             is_reaction=is_rxn,
+                            science_skill_mult=sci_mult,
                         )
                         job["job_duration_seconds"] = job_secs
                         job["job_duration"] = format_duration(job_secs)
+                        job["science_skills"] = sci_details  # [(name, level, bonus_pct)]
                         if is_rxn:
                             step_rxn_time = max(step_rxn_time, job_secs)
                         else:

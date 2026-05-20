@@ -44,22 +44,8 @@
         <input type="number" name="form_te" id="te-input" class="form-control"
                min="0" max="20" placeholder="—" value="{{ form_te or '' }}">
       </div>
-      <div class="col-4 col-sm-2 col-lg-1">
-        <label class="form-label text-muted small" title="Industry skill level 0–5">
-          <i class="bi bi-person-gear me-1"></i>Industry
-          <span class="text-muted" style="font-size:.7rem">(0–5)</span>
-        </label>
-        <input type="number" name="form_industry" class="form-control"
-               min="0" max="5" placeholder="0" value="{{ form_industry or '0' }}">
-      </div>
-      <div class="col-4 col-sm-2 col-lg-1">
-        <label class="form-label text-muted small" title="Advanced Industry skill level 0–5">
-          <i class="bi bi-person-gear me-1"></i>Adv. Industry
-          <span class="text-muted" style="font-size:.7rem">(0–5)</span>
-        </label>
-        <input type="number" name="form_adv_industry" class="form-control"
-               min="0" max="5" placeholder="0" value="{{ form_adv_industry or '0' }}">
-      </div>
+      <input type="hidden" name="form_industry"     value="{{ form_industry or '0' }}">
+      <input type="hidden" name="form_adv_industry" value="{{ form_adv_industry or '0' }}">
       <div class="col-sm-4 col-lg-2">
         <label class="form-label text-muted small">Mode</label>
         <select name="mode" class="form-select">
@@ -324,12 +310,9 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
       <div class="mt-1">
         <span class="badge bg-secondary">{{ result.mode }}</span>
         <span class="text-muted small ms-2">Station ID: {{ result.location_id }}</span>
-        {% if form_industry and form_industry != '0' %}
-        <span class="text-muted small ms-2"><i class="bi bi-person-gear"></i> Industry {{ form_industry }}</span>
-        {% endif %}
-        {% if form_adv_industry and form_adv_industry != '0' %}
-        <span class="text-muted small ms-2">Adv. Industry {{ form_adv_industry }}</span>
-        {% endif %}
+        <span class="text-muted small ms-2" title="Industry / Advanced Industry skill levels (loaded from ESI)">
+          <i class="bi bi-person-gear me-1"></i>Industry {{ form_industry or '0' }} &nbsp;·&nbsp; Adv. Industry {{ form_adv_industry or '0' }}
+        </span>
         {% if result.fees and result.fees.total_time %}
         <span class="badge bg-secondary ms-2" style="font-size:.7rem">
           <i class="bi bi-clock me-1"></i>{{ result.fees.total_time }}
@@ -801,6 +784,13 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
                 <td colspan="5" class="text-muted small">
                   <i class="bi bi-clock me-1"></i>Build time
                   <span class="text-muted" style="font-size:.7rem">({{ job.runs }} run{{ 's' if job.runs != 1 }})</span>
+                  {% if job.science_skills %}
+                  <span class="ms-2" style="font-size:.7rem">
+                    {% for sname, slevel, spct in job.science_skills %}
+                    <span class="badge bg-secondary" title="{{ spct }}% per level">{{ sname }} L{{ slevel }}</span>
+                    {% endfor %}
+                  </span>
+                  {% endif %}
                 </td>
                 <td class="text-end fw-semibold text-warning" style="font-size:.85rem">{{ job.job_duration }}</td>
               </tr>
@@ -867,7 +857,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
 <script>
 // === Obnova posledního plánu ===
 const _FORM_FIELD_NAMES = [
-  'product','qty','form_me','form_te','form_industry','form_adv_industry','mode',
+  'product','qty','form_me','form_te','mode',
   'station','reaction_station','selling_station',
   'facility_tax','reaction_facility_tax',
   'facility_me_bonus','reaction_me_bonus',

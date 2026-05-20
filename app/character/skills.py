@@ -8,11 +8,17 @@ import httpx
 ESI_BASE  = "https://esi.evetech.net/latest"
 CACHE_TTL = 3600  # 1 hodina
 
-# Skilly relevantní pro výrobu {type_id: (name, time_bonus_per_level_pct)}
-MANUFACTURING_SKILL_IDS = {
-    3380: ("Industry",           4.0),  # -4 % čas/level
-    3388: ("Advanced Industry",  3.0),  # -3 % čas/level
-}
+# Fallback pokud sde_skill_time_bonus tabulka ještě neexistuje
+_FALLBACK_SKILL_IDS = {3380, 3388}
+
+
+def get_mfg_skill_ids(conn: sqlite3.Connection) -> set[int]:
+    """Vrátí set type_id všech skillů, které mají time bonus v SDE."""
+    try:
+        rows = conn.execute("SELECT skill_type_id FROM sde_skill_time_bonus").fetchall()
+        return {r[0] for r in rows} if rows else _FALLBACK_SKILL_IDS
+    except sqlite3.OperationalError:
+        return _FALLBACK_SKILL_IDS
 
 
 def ensure_skills_table(conn: sqlite3.Connection):
@@ -51,11 +57,15 @@ async def fetch_skills(
     conn: sqlite3.Connection,
     force_refresh: bool = False,
 ) -> dict[int, int]:
-    """Vrátí {type_id: trained_level} pro výrobní skilly postavy."""
+    """Vrátí {type_id: trained_level} pro všechny výrobní skilly s time bonusem."""
+    skill_ids = get_mfg_skill_ids(conn)
+
     if not force_refresh:
         cached = _load_cache(conn, character_id)
         if cached is not None:
-            return cached
+            # Doplň nové skill IDs (SDE mohlo přibýt skillů od posledního fetche)
+            if skill_ids.issubset(cached.keys()):
+                return cached
 
     try:
         r = await client.get(
@@ -65,21 +75,23 @@ async def fetch_skills(
             timeout=10,
         )
         if r.status_code != 200:
-            return {}
+            return {sid: 0 for sid in skill_ids}
         all_skills = {s["skill_id"]: s["trained_skill_level"] for s in r.json().get("skills", [])}
-        # Filtruj jen relevantní skilly
-        result = {sid: all_skills.get(sid, 0) for sid in MANUFACTURING_SKILL_IDS}
+        result = {sid: all_skills.get(sid, 0) for sid in skill_ids}
         _save_cache(conn, character_id, result)
         return result
     except Exception:
-        return {}
+        return {sid: 0 for sid in skill_ids}
 
 
 def get_cached_skills(conn: sqlite3.Connection, character_id: int) -> dict[int, int]:
-    """Načte skilly z DB bez ESI volání. Vrátí prázdný dict pokud cache neexistuje."""
+    """Načte skilly z DB bez ESI volání. Vrátí nuly pokud cache neexistuje."""
+    skill_ids = get_mfg_skill_ids(conn)
     row = conn.execute(
         "SELECT data_json FROM char_skills_cache WHERE character_id=?", (character_id,)
     ).fetchone()
     if not row:
-        return {sid: 0 for sid in MANUFACTURING_SKILL_IDS}
-    return {int(k): v for k, v in json.loads(row[0]).items()}
+        return {sid: 0 for sid in skill_ids}
+    cached = {int(k): v for k, v in json.loads(row[0]).items()}
+    # Doplň případné chybějící skill IDs
+    return {sid: cached.get(sid, 0) for sid in skill_ids}

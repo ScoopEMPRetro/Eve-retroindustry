@@ -3,12 +3,19 @@ Import CCP SDE dat do SQLite databáze.
 Parsuje fsd/blueprints.yaml a fsd/types.yaml.
 Použití: python import_sde.py
 """
+import re
 import yaml
 import sqlite3
 import os
 import time
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+
+# Matches "1% reduction in manufacturing time" in English skill descriptions
+_BONUS_RE = re.compile(
+    r'(\d+(?:\.\d+)?)\s*%\s*reduction\s+in\s+manufacturing\s+time',
+    re.IGNORECASE,
+)
 
 console = Console()
 
@@ -52,13 +59,29 @@ def init_db(conn: sqlite3.Connection):
             reaction_time        INTEGER DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS sde_blueprint_skills (
+            blueprint_type_id  INTEGER NOT NULL,
+            activity           TEXT NOT NULL,
+            skill_type_id      INTEGER NOT NULL,
+            required_level     INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (blueprint_type_id, activity, skill_type_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS sde_skill_time_bonus (
+            skill_type_id   INTEGER PRIMARY KEY,
+            skill_name      TEXT NOT NULL,
+            time_bonus_pct  REAL NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_bp_product ON sde_blueprint_products(product_type_id);
         CREATE INDEX IF NOT EXISTS idx_bp_materials ON sde_blueprint_materials(blueprint_type_id, activity);
+        CREATE INDEX IF NOT EXISTS idx_bp_skills ON sde_blueprint_skills(blueprint_type_id, activity);
     """)
     conn.commit()
 
 
-def import_types(conn: sqlite3.Connection):
+def import_types(conn: sqlite3.Connection) -> dict:
+    """Returns parsed types_data for reuse in skill bonus import."""
     console.print("[cyan]Načítám types.yaml (147 MB, chvíli trvá)...[/]")
     t0 = time.time()
 
@@ -88,6 +111,40 @@ def import_types(conn: sqlite3.Connection):
     )
     conn.commit()
     console.print(f"[green]Importováno {len(rows):,} typů[/]")
+    return data
+
+
+_SKILL_EXCLUDE = {3380, 3388}  # Handled separately in calc_job_time
+_IMPLANT_GROUP  = 743           # Zainou/manufacturing implants — not fetchable via ESI skills
+
+
+def import_skill_time_bonuses(conn: sqlite3.Connection, types_data: dict):
+    """Populate sde_skill_time_bonus from type descriptions."""
+    rows = []
+    for type_id, info in types_data.items():
+        if not isinstance(info, dict):
+            continue
+        tid = int(type_id)
+        if tid in _SKILL_EXCLUDE:
+            continue
+        if info.get("groupID") == _IMPLANT_GROUP:
+            continue
+        desc_field = info.get("description", {})
+        desc_en = desc_field.get("en", "") if isinstance(desc_field, dict) else str(desc_field)
+        m = _BONUS_RE.search(desc_en)
+        if not m:
+            continue
+        bonus_pct = float(m.group(1))
+        name_field = info.get("name", {})
+        name = name_field.get("en", "") if isinstance(name_field, dict) else str(name_field)
+        rows.append((tid, name, bonus_pct))
+
+    conn.execute("DELETE FROM sde_skill_time_bonus")
+    conn.executemany(
+        "INSERT OR REPLACE INTO sde_skill_time_bonus VALUES (?,?,?)", rows
+    )
+    conn.commit()
+    console.print(f"[green]Importováno {len(rows)} skillů s time bonusem[/]")
 
 
 def import_blueprints(conn: sqlite3.Connection):
@@ -98,7 +155,7 @@ def import_blueprints(conn: sqlite3.Connection):
 
     console.print(f"[dim]Importuji {len(data):,} blueprintů...[/]")
 
-    bp_rows, mat_rows, prod_rows = [], [], []
+    bp_rows, mat_rows, prod_rows, skill_rows = [], [], [], []
 
     for bp_type_id, info in data.items():
         if not isinstance(info, dict):
@@ -134,6 +191,14 @@ def import_blueprints(conn: sqlite3.Connection):
                     float(prod.get("probability", 1.0)),
                 ))
 
+            for skill in activity.get("skills") or []:
+                skill_rows.append((
+                    int(bp_type_id),
+                    activity_name,
+                    int(skill["typeID"]),
+                    int(skill.get("level", 1)),
+                ))
+
     conn.executemany(
         "INSERT OR REPLACE INTO sde_blueprints VALUES (?,?,?,?)",
         bp_rows
@@ -146,11 +211,17 @@ def import_blueprints(conn: sqlite3.Connection):
         "INSERT OR REPLACE INTO sde_blueprint_products VALUES (?,?,?,?,?)",
         prod_rows
     )
+    conn.execute("DELETE FROM sde_blueprint_skills")
+    conn.executemany(
+        "INSERT OR REPLACE INTO sde_blueprint_skills VALUES (?,?,?,?)",
+        skill_rows
+    )
     conn.commit()
 
     console.print(f"[green]Importováno: {len(bp_rows):,} blueprintů, "
                   f"{len(mat_rows):,} materiálových řádků, "
-                  f"{len(prod_rows):,} produktových řádků[/]")
+                  f"{len(prod_rows):,} produktových řádků, "
+                  f"{len(skill_rows):,} skill řádků[/]")
 
 
 def main():
@@ -167,7 +238,8 @@ def main():
     init_db(conn)
 
     t_start = time.time()
-    import_types(conn)
+    types_data = import_types(conn)
+    import_skill_time_bonuses(conn, types_data)
     import_blueprints(conn)
     conn.close()
 

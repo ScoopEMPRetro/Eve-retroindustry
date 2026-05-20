@@ -21,6 +21,8 @@ SDE_TABLES = {
     "sde_blueprints",
     "sde_blueprint_materials",
     "sde_blueprint_products",
+    "sde_blueprint_skills",
+    "sde_skill_time_bonus",
     "rig_bonuses",
 }
 

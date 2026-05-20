@@ -30,6 +30,7 @@ def calc_job_time(
     adv_industry_level: int,
     facility_te_multiplier: float = 1.0,
     is_reaction: bool = False,
+    science_skill_mult: float = 1.0,
 ) -> int:
     """Vrátí celkovou dobu jobu v sekundách (runs × čas/run po aplikaci bonusů).
 
@@ -38,6 +39,7 @@ def calc_job_time(
         × (1 − te × 0.01)               # Blueprint TE (0–20)
         × (1 − industry × 0.04)         # Industry skill (jen výroba)
         × (1 − adv_industry × 0.03)     # Advanced Industry skill (jen výroba)
+        × science_skill_mult             # science skilly požadované blueprintem (předpočítáno)
         × facility_te_multiplier         # struktura + rigy (předpočítáno)
     Reakce: Industry/AdvIndustry neaplikují.
     """
@@ -45,6 +47,7 @@ def calc_job_time(
     if not is_reaction:
         mult *= 1.0 - min(industry_level, 5) * 0.04
         mult *= 1.0 - min(adv_industry_level, 5) * 0.03
+    mult *= max(0.01, science_skill_mult)
     mult *= max(0.01, facility_te_multiplier)
     time_per_run = max(1, round(base_time * mult))
     return time_per_run * max(1, runs)
