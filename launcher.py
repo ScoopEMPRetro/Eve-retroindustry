@@ -5,12 +5,14 @@ Entry point for both development mode and PyInstaller frozen bundle.
 
 Usage (dev):   python launcher.py
 Usage (build): pyinstaller eve_retroindustry.spec
+
+On first run, the app will prompt the user to download game data (~5 MB)
+via the browser before the main UI becomes available.
 """
 from __future__ import annotations
 
 import multiprocessing
 import os
-import shutil
 import sys
 import threading
 import time
@@ -38,19 +40,6 @@ os.environ.setdefault("EVE_BUNDLE_DIR", _BUNDLE_DIR)
 
 
 # ---------------------------------------------------------------------------
-# First-run: seed eve_cache.db from bundled sde_base.db
-# ---------------------------------------------------------------------------
-
-def _ensure_db() -> None:
-    db_path = os.path.join(_APP_DIR, "eve_cache.db")
-    sde_base = os.path.join(_BUNDLE_DIR, "sde_base.db")
-    if not os.path.exists(db_path) and os.path.exists(sde_base):
-        print("[setup] Creating eve_cache.db from bundled SDE data…")
-        shutil.copy2(sde_base, db_path)
-        print("[setup] Done.")
-
-
-# ---------------------------------------------------------------------------
 # Browser auto-open
 # ---------------------------------------------------------------------------
 
@@ -64,8 +53,6 @@ def _open_browser() -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    _ensure_db()
-
     threading.Thread(target=_open_browser, daemon=True).start()
 
     print("=" * 56)

@@ -75,20 +75,39 @@ _BUNDLE_DIR = os.environ.get("EVE_BUNDLE_DIR") or os.path.abspath(
 DB_ABS = os.path.join(_APP_DIR, "eve_cache.db")
 TEMPLATES_DIR = Path(_BUNDLE_DIR) / "app" / "web" / "templates"
 
+SDE_DOWNLOAD_URL = (
+    "https://github.com/ScoopEMPRetro/Eve-retroindustry"
+    "/releases/latest/download/sde_base.db"
+)
+
+# Set to True once SDE tables are confirmed present. Guards the setup gate.
+_SDE_READY: list[bool] = [False]
+
 app = FastAPI(title="EVE Retroindustry")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
+@app.middleware("http")
+async def _setup_gate(request: Request, call_next):
+    """Redirect every request to /setup until SDE data is available."""
+    if not _SDE_READY[0] and not request.url.path.startswith("/setup"):
+        return RedirectResponse("/setup")
+    return await call_next(request)
+
+
 @app.on_event("startup")
 async def _startup_populate_groups():
-    """Načte jména skupin z ESI a rig bonusy ze SDE při startu."""
+    """Check SDE readiness, load group names and rig bonuses."""
     try:
         conn = get_conn()
-        populate_rig_bonuses(conn)
-        await _ensure_groups_populated(conn)
+        count = conn.execute("SELECT COUNT(*) FROM sde_types").fetchone()[0]
+        _SDE_READY[0] = count > 0
+        if _SDE_READY[0]:
+            populate_rig_bonuses(conn)
+            await _ensure_groups_populated(conn)
         conn.close()
     except Exception:
-        pass
+        _SDE_READY[0] = False
 
 
 def _isk(v: float | None) -> str:
@@ -120,6 +139,64 @@ def _tr(name: str, request: Request, context: dict) -> HTMLResponse:
     """Starlette nové API: request jako první argument."""
     context.setdefault("character", get_character())
     return templates.TemplateResponse(request, name, context)
+
+
+# ---------------------------------------------------------------------------
+# First-run setup routes
+# ---------------------------------------------------------------------------
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request):
+    return _tr("setup.html", request, {"sde_url": SDE_DOWNLOAD_URL})
+
+
+@app.get("/setup/download")
+async def setup_download():
+    """SSE stream: downloads sde_base.db, writes to eve_cache.db, sets _SDE_READY."""
+
+    async def _stream():
+        tmp_path = DB_ABS + ".download"
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
+                async with client.stream("GET", SDE_DOWNLOAD_URL) as r:
+                    if r.status_code != 200:
+                        yield f"data: {json.dumps({'error': f'HTTP {r.status_code}'})}\n\n"
+                        return
+                    total = int(r.headers.get("content-length", 0))
+                    downloaded = 0
+                    with open(tmp_path, "wb") as f:
+                        async for chunk in r.aiter_bytes(65536):
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            pct = int(downloaded * 100 / total) if total else 0
+                            yield f"data: {json.dumps({'downloaded': downloaded, 'total': total, 'pct': pct})}\n\n"
+
+            import shutil
+            shutil.move(tmp_path, DB_ABS)
+
+            # Re-run startup population now that SDE is available
+            _SDE_READY[0] = True
+            conn = get_conn()
+            try:
+                populate_rig_bonuses(conn)
+                await _ensure_groups_populated(conn)
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
+            yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except Exception as exc:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def get_conn() -> sqlite3.Connection:

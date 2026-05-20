@@ -23,8 +23,6 @@ a = Analysis(
     datas=[
         # Jinja2 templates
         ("app/web/templates", "app/web/templates"),
-        # Bundled SDE database (created by scripts/build_sde_base.py)
-        ("sde_base.db", "."),
     ],
     hiddenimports=[
         # uvicorn internals not auto-detected

@@ -25,15 +25,6 @@ echo Installing dependencies...
 pip install -q -r requirements.txt
 pip install -q pyinstaller
 
-REM Build sde_base.db
-echo.
-echo Building sde_base.db...
-python scripts\build_sde_base.py
-if errorlevel 1 (
-    echo ERROR: build_sde_base.py failed.
-    pause & exit /b 1
-)
-
 REM Run PyInstaller
 echo.
 echo Running PyInstaller...

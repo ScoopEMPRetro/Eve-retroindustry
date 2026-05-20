@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Setup — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center mt-5">
+  <div class="col-lg-5 col-md-7">
+
+    <div class="text-center mb-4">
+      <i class="bi bi-rocket-takeoff-fill" style="font-size:3rem;color:#58a6ff"></i>
+      <h4 class="mt-2 mb-0">EVE Retroindustry</h4>
+      <span class="text-muted small">First-time setup</span>
+    </div>
+
+    <div class="card p-4" id="setup-card">
+      <h6 class="fw-semibold mb-1">Game data required</h6>
+      <p class="text-muted small mb-3">
+        The app needs to download the EVE Online static data export (SDE) before it can start.
+        This is a one-time download (~5 MB) stored locally on your machine.
+      </p>
+
+      {# Download button #}
+      <button id="dl-btn" class="btn btn-eve w-100" onclick="startDownload()">
+        <i class="bi bi-download me-2"></i>Download Game Data
+      </button>
+
+      {# Progress (hidden until download starts) #}
+      <div id="progress-area" class="d-none mt-3">
+        <div class="d-flex justify-content-between mb-1">
+          <small id="progress-text" class="text-muted">Connecting…</small>
+          <small id="progress-pct" class="text-muted">0%</small>
+        </div>
+        <div class="progress" style="height:6px;background:#21262d">
+          <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+               role="progressbar" style="width:0%"></div>
+        </div>
+      </div>
+
+      {# Error area #}
+      <div id="error-area" class="d-none mt-3">
+        <div class="alert alert-danger py-2 small mb-2" id="error-msg"></div>
+        <p class="text-muted small mb-0">
+          If the download keeps failing, you can download
+          <a href="{{ sde_url }}" target="_blank" rel="noopener">sde_base.db manually</a>
+          and rename it to <code>eve_cache.db</code> in the same folder as the application,
+          then restart.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function startDownload() {
+  document.getElementById('dl-btn').disabled = true;
+  document.getElementById('dl-btn').innerHTML =
+    '<span class="spinner-border spinner-border-sm me-1"></span>Downloading…';
+  document.getElementById('progress-area').classList.remove('d-none');
+  document.getElementById('error-area').classList.add('d-none');
+
+  const bar  = document.getElementById('progress-bar');
+  const text = document.getElementById('progress-text');
+  const pct  = document.getElementById('progress-pct');
+
+  const es = new EventSource('/setup/download');
+
+  es.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+
+    if (d.error) {
+      es.close();
+      document.getElementById('dl-btn').disabled = false;
+      document.getElementById('dl-btn').innerHTML =
+        '<i class="bi bi-arrow-clockwise me-2"></i>Retry';
+      document.getElementById('error-area').classList.remove('d-none');
+      document.getElementById('error-msg').textContent = 'Error: ' + d.error;
+      bar.className = 'progress-bar bg-danger';
+      bar.style.width = '100%';
+      return;
+    }
+
+    if (d.done) {
+      es.close();
+      bar.className = 'progress-bar bg-success';
+      bar.style.width = '100%';
+      text.textContent = 'Done! Redirecting…';
+      pct.textContent = '100%';
+      setTimeout(() => { window.location.href = '/'; }, 800);
+      return;
+    }
+
+    const p = d.pct || 0;
+    bar.style.width = p + '%';
+    bar.setAttribute('aria-valuenow', p);
+    pct.textContent = p + '%';
+    if (d.total) {
+      const mb = (d.downloaded / 1048576).toFixed(1);
+      const tot = (d.total / 1048576).toFixed(1);
+      text.textContent = `${mb} / ${tot} MB`;
+    } else {
+      text.textContent = `${(d.downloaded / 1048576).toFixed(1)} MB…`;
+    }
+  };
+
+  es.onerror = () => {
+    es.close();
+    document.getElementById('dl-btn').disabled = false;
+    document.getElementById('dl-btn').innerHTML =
+      '<i class="bi bi-arrow-clockwise me-2"></i>Retry';
+    document.getElementById('error-area').classList.remove('d-none');
+    document.getElementById('error-msg').textContent =
+      'Connection lost. Check your internet connection and try again.';
+    bar.className = 'progress-bar bg-danger';
+  };
+}
+</script>
+{% endblock %}

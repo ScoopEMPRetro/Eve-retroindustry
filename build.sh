@@ -18,11 +18,6 @@ echo "Installing dependencies..."
 pip install -q -r requirements.txt
 pip install -q pyinstaller
 
-# sde_base.db
-echo
-echo "Building sde_base.db..."
-python scripts/build_sde_base.py
-
 # PyInstaller
 echo
 echo "Running PyInstaller..."
