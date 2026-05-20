@@ -908,8 +908,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.addEventListener('shown.bs.tab', saveUiState)
     );
   } else if (prefilledProduct) {
-    // Přišli jsme z blueprintů s předvyplněným produktem — rovnou odešli, neobnovuj localStorage
-    document.getElementById('plan-form')?.submit();
+    // Přišli jsme z blueprintů — produkt je předvyplněn, zobraz formulář bez restore
   } else {
     restoreAndSubmitPlan();
   }
