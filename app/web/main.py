@@ -1,5 +1,8 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
+
+APP_VERSION = "0.1.0"
+
 import asyncio
 import datetime
 import os
@@ -1891,3 +1894,8 @@ async def api_station_volume(request: Request):
     result = await fetch_station_volumes(conn, location_id, region_id, type_ids)
     conn.close()
     return _fmt(result)
+
+
+@app.get("/about", response_class=HTMLResponse)
+async def about_page(request: Request):
+    return _tr("about.html", request, {"version": APP_VERSION})

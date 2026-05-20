@@ -65,6 +65,10 @@
         </li>
       </ul>
       <ul class="navbar-nav ms-auto align-items-center gap-2">
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path == '/about' %}active{% endif %}"
+             href="/about" style="font-size:.85rem;opacity:.7">About</a>
+        </li>
         {% if character %}
         <li class="nav-item d-flex align-items-center gap-2">
           <img src="https://images.evetech.net/characters/{{ character[0] }}/portrait?size=32"
