@@ -67,7 +67,7 @@ jobs:
           merge-multiple: true
           path: artifacts/
 
-      - name: Create GitHub Release
+      - name: Upload Release Assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -75,4 +75,8 @@ jobs:
             --title "EVE Retroindustry ${{ github.ref_name }}" \
             --generate-notes \
             artifacts/*.zip \
-            sde_base.db
+            sde_base.db \
+          || gh release upload ${{ github.ref_name }} \
+            artifacts/*.zip \
+            sde_base.db \
+            --clobber
