@@ -23,6 +23,8 @@ a = Analysis(
     datas=[
         # Jinja2 templates
         ("app/web/templates", "app/web/templates"),
+        # App icon (tray + taskbar)
+        ("assets/icon.ico", "assets"),
     ],
     hiddenimports=[
         # JWT / auth
@@ -98,6 +100,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,          # No terminal window — app lives in system tray
+    icon="assets/icon.ico",
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,

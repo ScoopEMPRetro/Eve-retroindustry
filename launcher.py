@@ -36,47 +36,55 @@ else:
 os.environ.setdefault("EVE_APP_DIR", _APP_DIR)
 os.environ.setdefault("EVE_BUNDLE_DIR", _BUNDLE_DIR)
 
+# console=False in PyInstaller sets sys.stdout/stderr to None;
+# uvicorn's log formatter crashes on None.isatty() — redirect to devnull.
+if getattr(sys, "frozen", False) and sys.stdout is None:
+    _devnull = open(os.devnull, "w")
+    sys.stdout = _devnull
+    sys.stderr = _devnull
+
 
 # ---------------------------------------------------------------------------
-# Tray icon image — hexagonal factory (matches SVG logo, 100×100 viewbox)
+# Tray icon image — load from bundled .ico, fall back to PIL drawing
 # ---------------------------------------------------------------------------
 
-def _make_tray_image(size: int = 64):
-    from PIL import Image, ImageDraw
+def _load_tray_image():
+    from PIL import Image
 
+    ico_path = os.path.join(_BUNDLE_DIR, "assets", "icon.ico")
+    if os.path.isfile(ico_path):
+        img = Image.open(ico_path)
+        img.load()
+        # Pick 64×64 frame if available, otherwise largest
+        try:
+            img.size  # current frame
+            sizes = img.info.get("sizes", set())
+            target = (64, 64) if (64, 64) in sizes else max(sizes, key=lambda s: s[0], default=None)
+            if target:
+                img = img.resize(target, Image.LANCZOS)
+        except Exception:
+            pass
+        return img.convert("RGBA")
+
+    # Fallback: draw programmatically
+    from PIL import ImageDraw
+    size = 64
     img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     s    = size / 100.0
-
-    bg   = (13,  17,  23,  255)  # #0d1117
-    gold = (227, 179, 65,  255)  # #e3b341
+    bg   = (13,  17,  23,  255)
+    gold = (227, 179, 65,  255)
 
     def pt(x: float, y: float) -> tuple[float, float]:
         return (x * s, y * s)
 
-    hex_pts = [
-        pt(50,  3),
-        pt(95, 26.5),
-        pt(95, 73.5),
-        pt(50, 97),
-        pt( 5, 73.5),
-        pt( 5, 26.5),
-    ]
-
+    hex_pts = [pt(50,3), pt(95,26.5), pt(95,73.5), pt(50,97), pt(5,73.5), pt(5,26.5)]
     draw.polygon(hex_pts, fill=bg)
-
-    stroke = max(2, int(s * 5))
-    draw.line(hex_pts + [hex_pts[0]], fill=gold, width=stroke)
-
-    # Factory left tower
+    draw.line(hex_pts + [hex_pts[0]], fill=gold, width=max(2, int(s * 5)))
     draw.rectangle([pt(26, 32), pt(39, 64)], fill=gold)
-    # Factory right tower
     draw.rectangle([pt(62, 40), pt(74, 64)], fill=gold)
-    # Factory base
     draw.rectangle([pt(18, 62), pt(82, 85)], fill=gold)
-    # Door cutout
     draw.rectangle([pt(43, 68), pt(57, 85)], fill=bg)
-
     return img
 
 
@@ -117,7 +125,7 @@ def main() -> None:
 
     threading.Thread(target=_open_browser, daemon=True).start()
 
-    image = _make_tray_image(64)
+    image = _load_tray_image()
 
     def on_open(icon: pystray.Icon, item: pystray.MenuItem) -> None:
         webbrowser.open("http://127.0.0.1:8000")
