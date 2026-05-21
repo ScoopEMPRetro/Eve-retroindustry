@@ -757,6 +757,7 @@ async def plan_result(
                 job_fee = eiv * (sci * (1.0 - cost_bonus) + tax_rate + _SCC)
                 job["eiv"] = eiv
                 job["sci"] = sci
+                job["tax_pct"] = round(tax_rate * 100, 2)
                 job["job_fee"] = job_fee
                 if not skip_fee:
                     total_job_fee += job_fee

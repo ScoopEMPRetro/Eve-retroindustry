@@ -124,13 +124,13 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
     # === Ships ===
     if group_id in (25, 420, 31, 237, 1283):
         cats.add("SHIP_S_BASIC"); cats.add("ANY_SHIP")
-    elif group_id in (26, 419, 28, 463, 1201, 543, 380):
+    elif group_id in (26, 419, 28, 463, 1201):
         cats.add("SHIP_M_BASIC"); cats.add("ANY_SHIP")
     elif group_id in (27, 513, 941):
         cats.add("SHIP_L_BASIC"); cats.add("ANY_SHIP")
-    elif group_id in (324, 834, 830, 831, 893, 1527, 541, 1305, 1534, 540):
+    elif group_id in (324, 834, 830, 831, 893, 1527, 541, 1305, 1534):
         cats.add("SHIP_S_ADV"); cats.add("ANY_SHIP")
-    elif group_id in (358, 832, 894, 906, 833, 963, 1202, 1972):
+    elif group_id in (358, 832, 894, 906, 833, 963, 1202, 1972, 540, 543, 380):
         cats.add("SHIP_M_ADV"); cats.add("ANY_SHIP")
     elif group_id in (900, 898, 902):
         cats.add("SHIP_L_ADV"); cats.add("ANY_SHIP")
@@ -138,7 +138,8 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
         cats.add("SHIP_CAPITAL"); cats.add("ANY_SHIP")
 
     # === Drones / Fighters ===
-    elif "drone" in n or "fighter" in n:
+    # Exclude drone MODULES (ship fittings that affect drones) — handled as EQUIPMENT below
+    elif ("drone" in n or "fighter" in n) and group_id not in (644, 645, 646, 647, 1292):
         cats.add("DRONE")
 
     # === Ammunition ===
@@ -200,6 +201,8 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
           or group_id in (12, 340, 448, 649, 1212)  # Cargo containers
           or n.startswith("rig ")               # Ship rigs (Rig Armor, Rig Shield, ...)
           or group_id in (1232, 1233, 1234, 1308)  # More rig groups
+          # Drone modules (ship modules that affect drones, not actual drones)
+          or group_id in (644, 645, 646, 647, 1292)
           # Empirically verified Equipment groups via EVE Ref API
           or group_id in (
               1154,  # Signature Suppressor

@@ -813,7 +813,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
               <tr style="background:#16191f">
                 <td colspan="5" class="text-muted small">
                   Job fee &nbsp;·&nbsp; EIV {{ job.eiv | isk }} ISK
-                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">SCI {{ (job.sci * 100) | round(2) }}% + SCC 4.0%</span>
+                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">SCI {{ (job.sci * 100) | round(2) }}% + tax {{ job.tax_pct }}% + SCC 4.0%</span>
                 </td>
                 <td class="text-end fw-semibold" style="color:#e3b341;font-size:.85rem">{{ job.job_fee | isk }}</td>
               </tr>
