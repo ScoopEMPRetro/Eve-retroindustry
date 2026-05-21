@@ -25,15 +25,34 @@
   {% endif %}
 </div>
 
-{# Formulář #}
-<div class="card mb-4 p-3">
+{# Formulář — restructured for clarity #}
+<style>
+  .plan-section-label {
+    font-size: .7rem; letter-spacing: .08em; text-transform: uppercase;
+    color: #8b949e; font-weight: 600; margin-bottom: .5rem;
+  }
+  .plan-divider { border-top: 1px solid #21262d; margin: 1rem 0; }
+  .plan-form .form-label { font-size: .7rem; color: #8b949e; margin-bottom: .25rem; }
+  .plan-form .station-input { background: #0d1117; }
+  .plan-form .facility-block { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: .75rem; }
+  .plan-form .facility-block.mfg { border-left: 3px solid #e3b341; }
+  .plan-form .facility-block.rxn { border-left: 3px solid #b392f0; }
+</style>
+
+<div class="card mb-4 p-3 plan-form">
   <form method="post" action="/plan" id="plan-form">
     <input type="hidden" name="plan_char_id" value="{{ plan_char_id or active_char_id or '' }}">
+    <input type="hidden" name="form_industry"     value="{{ form_industry or '0' }}">
+    <input type="hidden" name="form_adv_industry" value="{{ form_adv_industry or '0' }}">
+    <input type="hidden" name="facility_me_bonus" id="mfg-me-bonus-input" value="{{ form_facility_me_bonus or '0' }}">
+    <input type="hidden" name="reaction_me_bonus" id="rxn-me-bonus-input" value="{{ form_rxn_me_bonus or '0' }}">
+    <input type="hidden" id="has-result" value="{{ 'true' if result else '' }}">
 
-    {# Řádek 1: Co a kolik vyrábět #}
-    <div class="row g-3 align-items-end">
-      <div class="col-sm-6 col-lg-4" style="position:relative">
-        <label class="form-label text-muted small">Product</label>
+    {# ── Section 1: Product ─────────────────────────────────────── #}
+    <div class="plan-section-label"><i class="bi bi-box me-1"></i>Product</div>
+    <div class="row g-3 align-items-end mb-1">
+      <div class="col-12 col-lg-7" style="position:relative">
+        <label class="form-label">What to manufacture</label>
         <input type="text" name="product" id="product-input" class="form-control"
                placeholder="Phoenix, Raven, 19726…"
                value="{{ form_product or '' }}" required autocomplete="off">
@@ -44,46 +63,30 @@
           font-size:.875rem; margin-top:2px;
         "></div>
       </div>
-      <div class="col-4 col-sm-2 col-lg-1">
-        <label class="form-label text-muted small">Quantity</label>
+      <div class="col-4 col-lg-1">
+        <label class="form-label">Quantity</label>
         <input type="number" name="qty" class="form-control" min="1" value="{{ form_qty or 1 }}">
       </div>
-      <div class="col-4 col-sm-2 col-lg-1">
-        <label class="form-label text-muted small" title="Material Efficiency 0–10">ME
-          <span class="text-muted" style="font-size:.7rem">(0–10)</span>
-        </label>
-        <input type="number" name="form_me" id="me-input" class="form-control"
-               min="0" max="10" placeholder="—" value="{{ form_me or '' }}">
-      </div>
-      <div class="col-4 col-sm-2 col-lg-1">
-        <label class="form-label text-muted small" title="Time Efficiency 0–20">TE
-          <span class="text-muted" style="font-size:.7rem">(0–20)</span>
-        </label>
-        <input type="number" name="form_te" id="te-input" class="form-control"
-               min="0" max="20" placeholder="—" value="{{ form_te or '' }}">
-      </div>
-      <input type="hidden" name="form_industry"     value="{{ form_industry or '0' }}">
-      <input type="hidden" name="form_adv_industry" value="{{ form_adv_industry or '0' }}">
-      <div class="col-sm-4 col-lg-2">
-        <label class="form-label text-muted small">Mode</label>
+      <div class="col-8 col-lg-4">
+        <label class="form-label">Mode</label>
         <select name="mode" class="form-select">
-          <option value="full"       {% if form_mode == 'full'       %}selected{% endif %}>Full — basic materials</option>
-          <option value="components" {% if form_mode == 'components' %}selected{% endif %}>Components — 1st level</option>
-          <option value="optimal"    {% if form_mode == 'optimal'    %}selected{% endif %}>Optimal — make vs buy</option>
+          <option value="full"       {% if form_mode == 'full'       %}selected{% endif %}>Full — break down to basic materials</option>
+          <option value="components" {% if form_mode == 'components' %}selected{% endif %}>Components — buy first-level components</option>
+          <option value="optimal"    {% if form_mode == 'optimal'    %}selected{% endif %}>Optimal — auto make-vs-buy</option>
         </select>
-      </div>
-      <div class="col-sm-auto ms-sm-auto">
-        <button type="submit" class="btn btn-eve px-4">
-          <i class="bi bi-calculator me-1"></i>Calculate
-        </button>
       </div>
     </div>
 
-    {# Řádek 2: Stanice — výrobní | reakční | prodejní #}
-    <div class="row g-3 align-items-end mt-1">
-      <div class="col-sm-4" style="position:relative">
-        <label class="form-label text-muted small">Manufacturing station</label>
-        <input type="text" id="station-display" class="form-control"
+    <div class="plan-divider"></div>
+
+    {# ── Section 2: Locations ───────────────────────────────────── #}
+    <div class="plan-section-label"><i class="bi bi-geo-alt me-1"></i>Locations</div>
+    <div class="row g-3 mb-1">
+      <div class="col-12 col-md-4" style="position:relative">
+        <label class="form-label">
+          <i class="bi bi-hammer me-1" style="color:#e3b341"></i>Manufacturing station
+        </label>
+        <input type="text" id="station-display" class="form-control station-input"
                placeholder="Jita, 60003760…"
                value="{{ form_station_name or form_station or '' }}" autocomplete="off">
         <input type="hidden" name="station" id="station-id"
@@ -95,12 +98,12 @@
           font-size:.875rem; margin-top:2px;
         "></div>
       </div>
-      <div class="col-sm-4" style="position:relative">
-        <label class="form-label text-muted small">
-          Reaction station
-          <span class="text-muted" style="font-size:.7rem;opacity:.6">(or manufacturing)</span>
+      <div class="col-12 col-md-4 plan-rxn-section" style="position:relative">
+        <label class="form-label">
+          <i class="bi bi-arrows-angle-contract me-1" style="color:#b392f0"></i>Reaction station
+          <span class="text-muted" style="font-size:.7rem;opacity:.6">— defaults to mfg</span>
         </label>
-        <input type="text" id="rxn-station-display" class="form-control"
+        <input type="text" id="rxn-station-display" class="form-control station-input"
                placeholder="same as manufacturing…"
                value="{{ form_rxn_station_name or '' }}" autocomplete="off">
         <input type="hidden" name="reaction_station" id="rxn-station-id"
@@ -112,12 +115,12 @@
           font-size:.875rem; margin-top:2px; min-width:260px;
         "></div>
       </div>
-      <div class="col-sm-4" style="position:relative">
-        <label class="form-label text-muted small">
-          Sell station
-          <span class="text-muted" style="font-size:.7rem;opacity:.6">(for pricing)</span>
+      <div class="col-12 col-md-4" style="position:relative">
+        <label class="form-label">
+          <i class="bi bi-currency-exchange me-1 text-isk"></i>Sell station
+          <span class="text-muted" style="font-size:.7rem;opacity:.6">— for pricing</span>
         </label>
-        <input type="text" id="sell-station-display" class="form-control"
+        <input type="text" id="sell-station-display" class="form-control station-input"
                placeholder="same as manufacturing…"
                value="{{ form_selling_station_name or '' }}" autocomplete="off">
         <input type="hidden" name="selling_station" id="sell-station-id"
@@ -131,155 +134,169 @@
       </div>
     </div>
 
-    {# Řádek 3: Výrobní poplatky — Výroba vlevo, Reakce vpravo #}
-    <div class="row g-0 mt-2 pt-2" style="border-top:1px solid #21262d">
+    <div class="plan-divider"></div>
 
-      {# === Výroba === #}
-      <div class="col-12 col-md-6 pe-md-3 pb-2 pb-md-0">
-        <div class="d-flex flex-wrap align-items-end gap-2">
-          <span class="d-flex align-items-center text-muted small fw-semibold" style="width:4rem;height:31px">
-            <i class="bi bi-hammer me-1" style="color:#e3b341"></i>Manufacturing
-          </span>
-          <div>
-            <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
-              Facility tax (%)
-              <span id="facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
-            </label>
-            <div class="d-flex align-items-center gap-1">
-              <input type="number" name="facility_tax" id="facility-tax-input"
-                     class="form-control form-control-sm"
-                     step="0.1" min="0" max="25" value="{{ form_facility_tax or '2.5' }}"
-                     style="width:80px">
-              <button type="button" class="btn btn-link p-0 text-muted" style="font-size:.65rem;white-space:nowrap"
-                      onclick="saveDefaultTax('mfg')" title="Save as default value for new plans">★ default</button>
-            </div>
-          </div>
-          <div id="sci-display" class="d-none align-items-end" style="height:31px">
-            <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
+    {# ── Section 3: Facility setup ──────────────────────────────── #}
+    <div class="plan-section-label"><i class="bi bi-building me-1"></i>Facility setup</div>
+    <div class="row g-3">
+
+      {# === Manufacturing facility block === #}
+      <div class="col-12 col-lg-6">
+        <div class="facility-block mfg">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="fw-semibold" style="color:#e3b341;font-size:.85rem">
+              <i class="bi bi-hammer me-1"></i>Manufacturing
+            </span>
+            <span id="sci-display" class="d-none" style="font-size:.75rem;color:#8b949e">SCI
               <span id="sci-mfg-val" class="fw-semibold" style="color:#e3b341"></span>
             </span>
           </div>
-          <div>
-            <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Structure</label>
-            <select id="mfg-structure-type" class="form-select form-select-sm" style="width:155px"
-                    onchange="onStructureTypeChange('mfg', this.value)">
-              <option value="npc">NPC station</option>
-              <option value="raitaru">Raitaru (M-Set)</option>
-              <option value="azbel">Azbel (L-Set)</option>
-              <option value="sotiyo">Sotiyo (XL-Set)</option>
-            </select>
+          <div class="row g-2 align-items-end">
+            <div class="col-auto">
+              <label class="form-label d-flex align-items-center gap-1">
+                Tax %
+                <span id="facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
+              </label>
+              <div class="d-flex align-items-center gap-1">
+                <input type="number" name="facility_tax" id="facility-tax-input"
+                       class="form-control form-control-sm"
+                       step="0.1" min="0" max="25" value="{{ form_facility_tax or '2.5' }}"
+                       style="width:80px">
+                <button type="button" class="btn btn-link p-0 text-muted" style="font-size:.65rem;white-space:nowrap"
+                        onclick="saveDefaultTax('mfg')" title="Save as default for new plans">★</button>
+              </div>
+            </div>
+            <div class="col">
+              <label class="form-label">Structure</label>
+              <select id="mfg-structure-type" class="form-select form-select-sm"
+                      onchange="onStructureTypeChange('mfg', this.value)">
+                <option value="npc">NPC station</option>
+                <option value="raitaru">Raitaru (M-Set)</option>
+                <option value="azbel">Azbel (L-Set)</option>
+                <option value="sotiyo">Sotiyo (XL-Set)</option>
+              </select>
+            </div>
+          </div>
+          <div id="mfg-rig-container" class="d-none mt-2 pt-2" style="border-top:1px dashed #21262d">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <span class="text-muted small"><i class="bi bi-gear me-1"></i>Rigs</span>
+              <span class="badge" style="background:#2d2200;color:#e3b341;font-size:.75rem">
+                ME <span id="mfg-me-bonus-display">−0%</span>
+              </span>
+            </div>
+            <div class="d-flex flex-column gap-1">
+              <select id="mfg-rig1-select" class="form-select form-select-sm rig-select"
+                      onchange="onRigChange('mfg')">
+                <option value="">— Slot 1: none —</option>
+              </select>
+              <select id="mfg-rig2-select" class="form-select form-select-sm rig-select"
+                      onchange="onRigChange('mfg')">
+                <option value="">— Slot 2: none —</option>
+              </select>
+              <select id="mfg-rig3-select" class="form-select form-select-sm rig-select"
+                      onchange="onRigChange('mfg')">
+                <option value="">— Slot 3: none —</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
-      <input type="hidden" name="facility_me_bonus" id="mfg-me-bonus-input" value="{{ form_facility_me_bonus or '0' }}">
 
-      {# === Reakce === #}
-      <div class="col-12 col-md-6 ps-md-3 pt-2 pt-md-0 plan-rxn-section">
-        <div class="d-flex flex-wrap align-items-end gap-2">
-          <span class="d-flex align-items-center text-muted small fw-semibold" style="width:4rem;height:31px">
-            <i class="bi bi-arrows-angle-contract me-1" style="color:#b392f0"></i>Reaction
-          </span>
-          <div>
-            <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
-              Facility tax (%)
-              <span id="rxn-facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
-            </label>
-            <div class="d-flex align-items-center gap-1">
-              <input type="number" name="reaction_facility_tax" id="rxn-facility-tax-input"
-                     class="form-control form-control-sm"
-                     step="0.1" min="0" max="25" value="{{ form_rxn_facility_tax or '2.5' }}"
-                     style="width:80px">
-              <button type="button" class="btn btn-link p-0 text-muted" style="font-size:.65rem;white-space:nowrap"
-                      onclick="saveDefaultTax('rxn')" title="Save as default value for new plans">★ default</button>
-            </div>
-          </div>
-          <div id="rxn-sci-display" class="d-none align-items-end" style="height:31px">
-            <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
+      {# === Reaction facility block === #}
+      <div class="col-12 col-lg-6 plan-rxn-section">
+        <div class="facility-block rxn">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="fw-semibold" style="color:#b392f0;font-size:.85rem">
+              <i class="bi bi-arrows-angle-contract me-1"></i>Reaction
+            </span>
+            <span id="rxn-sci-display" class="d-none" style="font-size:.75rem;color:#8b949e">SCI
               <span id="rxn-sci-val" class="fw-semibold" style="color:#b392f0"></span>
             </span>
           </div>
-          <div>
-            <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Structure</label>
-            <select id="rxn-structure-type" class="form-select form-select-sm" style="width:155px"
-                    onchange="onStructureTypeChange('rxn', this.value)">
-              <option value="npc">NPC station</option>
-              <option value="athanor">Athanor (M-Set)</option>
-              <option value="tatara">Tatara (L-Set)</option>
-            </select>
+          <div class="row g-2 align-items-end">
+            <div class="col-auto">
+              <label class="form-label d-flex align-items-center gap-1">
+                Tax %
+                <span id="rxn-facility-tax-input-badge" class="badge bg-secondary ms-1" style="display:none;font-size:.6rem"></span>
+              </label>
+              <div class="d-flex align-items-center gap-1">
+                <input type="number" name="reaction_facility_tax" id="rxn-facility-tax-input"
+                       class="form-control form-control-sm"
+                       step="0.1" min="0" max="25" value="{{ form_rxn_facility_tax or '2.5' }}"
+                       style="width:80px">
+                <button type="button" class="btn btn-link p-0 text-muted" style="font-size:.65rem;white-space:nowrap"
+                        onclick="saveDefaultTax('rxn')" title="Save as default for new plans">★</button>
+              </div>
+            </div>
+            <div class="col">
+              <label class="form-label">Structure</label>
+              <select id="rxn-structure-type" class="form-select form-select-sm"
+                      onchange="onStructureTypeChange('rxn', this.value)">
+                <option value="npc">NPC station</option>
+                <option value="athanor">Athanor (M-Set)</option>
+                <option value="tatara">Tatara (L-Set)</option>
+              </select>
+            </div>
+          </div>
+          <div id="rxn-rig-container" class="d-none mt-2 pt-2" style="border-top:1px dashed #21262d">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <span class="text-muted small"><i class="bi bi-gear me-1"></i>Rigs</span>
+              <span class="badge" style="background:#2d2200;color:#b392f0;font-size:.75rem">
+                ME <span id="rxn-me-bonus-display">−0%</span>
+              </span>
+            </div>
+            <div class="d-flex flex-column gap-1">
+              <select id="rxn-rig1-select" class="form-select form-select-sm rig-select"
+                      onchange="onRigChange('rxn')">
+                <option value="">— Slot 1: none —</option>
+              </select>
+              <select id="rxn-rig2-select" class="form-select form-select-sm rig-select"
+                      onchange="onRigChange('rxn')">
+                <option value="">— Slot 2: none —</option>
+              </select>
+              <select id="rxn-rig3-select" class="form-select form-select-sm rig-select"
+                      onchange="onRigChange('rxn')">
+                <option value="">— Slot 3: none —</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
-      <input type="hidden" name="reaction_me_bonus" id="rxn-me-bonus-input" value="{{ form_rxn_me_bonus or '0' }}">
-
     </div>
 
-    {# Rig sloty — výroba #}
-    <div id="mfg-rig-container" class="row g-2 align-items-end mt-1 pt-1 d-none" style="border-top:1px solid #21262d">
-      <div class="col-auto d-flex align-items-center pb-1">
-        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#e3b341">Manufacturing rigs</span></span>
+    {# ── Section 4: Advanced overrides (collapsed by default) ──── #}
+    <details class="mt-3" {% if form_me or form_te %}open{% endif %}>
+      <summary class="text-muted small" style="cursor:pointer;user-select:none">
+        <i class="bi bi-sliders me-1"></i>Advanced — blueprint ME/TE override
+      </summary>
+      <div class="row g-2 mt-1 align-items-end" style="max-width:340px">
+        <div class="col-6">
+          <label class="form-label" title="Material Efficiency 0–10">ME override
+            <span class="text-muted" style="font-size:.65rem">(0–10)</span>
+          </label>
+          <input type="number" name="form_me" id="me-input" class="form-control form-control-sm"
+                 min="0" max="10" placeholder="auto" value="{{ form_me or '' }}">
+        </div>
+        <div class="col-6">
+          <label class="form-label" title="Time Efficiency 0–20">TE override
+            <span class="text-muted" style="font-size:.65rem">(0–20)</span>
+          </label>
+          <input type="number" name="form_te" id="te-input" class="form-control form-control-sm"
+                 min="0" max="20" placeholder="auto" value="{{ form_te or '' }}">
+        </div>
       </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 1</label>
-        <select id="mfg-rig1-select" class="form-select form-select-sm rig-select" style="width:280px"
-                onchange="onRigChange('mfg')">
-          <option value="">— none —</option>
-        </select>
+      <div class="text-muted mt-1" style="font-size:.7rem">
+        Leave blank to use values from your blueprint cache. Override only when planning without owning the BP.
       </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 2</label>
-        <select id="mfg-rig2-select" class="form-select form-select-sm rig-select" style="width:280px"
-                onchange="onRigChange('mfg')">
-          <option value="">— none —</option>
-        </select>
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 3</label>
-        <select id="mfg-rig3-select" class="form-select form-select-sm rig-select" style="width:280px"
-                onchange="onRigChange('mfg')">
-          <option value="">— none —</option>
-        </select>
-      </div>
-      <div class="col-auto d-flex align-items-end pb-1">
-        <span class="badge px-3 py-2" style="background:#2d2200;color:#e3b341;font-size:.8rem">
-          ME <span id="mfg-me-bonus-display">−0%</span>
-        </span>
-      </div>
-    </div>
+    </details>
 
-    {# Rig sloty — reakce #}
-    <div id="rxn-rig-container" class="row g-2 align-items-end mt-1 pt-1 d-none" style="border-top:1px solid #21262d">
-      <div class="col-auto d-flex align-items-center pb-1">
-        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#b392f0">Reaction rigs</span></span>
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 1</label>
-        <select id="rxn-rig1-select" class="form-select form-select-sm rig-select" style="width:280px"
-                onchange="onRigChange('rxn')">
-          <option value="">— none —</option>
-        </select>
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 2</label>
-        <select id="rxn-rig2-select" class="form-select form-select-sm rig-select" style="width:280px"
-                onchange="onRigChange('rxn')">
-          <option value="">— none —</option>
-        </select>
-      </div>
-      <div class="col-auto">
-        <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 3</label>
-        <select id="rxn-rig3-select" class="form-select form-select-sm rig-select" style="width:280px"
-                onchange="onRigChange('rxn')">
-          <option value="">— none —</option>
-        </select>
-      </div>
-      <div class="col-auto d-flex align-items-end pb-1">
-        <span class="badge px-3 py-2" style="background:#2d2200;color:#e3b341;font-size:.8rem">
-          ME <span id="rxn-me-bonus-display">−0%</span>
-        </span>
-      </div>
+    {# ── Submit ─────────────────────────────────────────────────── #}
+    <div class="plan-divider"></div>
+    <div class="text-end">
+      <button type="submit" class="btn btn-eve btn-lg px-5">
+        <i class="bi bi-calculator me-2"></i>Calculate
+      </button>
     </div>
-
-    <input type="hidden" id="has-result" value="{{ 'true' if result else '' }}">
   </form>
 </div>
 
@@ -1153,12 +1170,9 @@ function saveRecentStation(item) {
 </script>
 <style>
 .suggest-item:hover, .suggest-active { background: #21262d; }
-@media (min-width: 768px) {
-  .plan-rxn-section { border-left: 1px solid #30363d; }
-}
-@media (max-width: 767px) {
-  .plan-rxn-section { border-top: 1px solid #21262d; }
-}
+.plan-form details > summary { padding: .25rem 0; }
+.plan-form details[open] > summary { color: #e3b341; }
+.plan-form details > summary::marker { color: #8b949e; }
 </style>
 
 <script>
