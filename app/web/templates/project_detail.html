@@ -124,7 +124,7 @@
           {% if job.activity == 'reaction' %}
           <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REACTION</span>
           {% else %}
-          <span class="badge me-2 px-2" style="background:#0d6efd;font-size:.65rem;flex-shrink:0">MANUFACTURING</span>
+          <span class="badge me-2 px-2" style="background:#3d2c00;color:#e3b341;font-size:.65rem;flex-shrink:0">MANUFACTURING</span>
           {% endif %}
           <span class="fw-semibold me-3" style="flex:0 0 32ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ job.name }}</span>
           <span class="text-muted me-3" style="flex:0 0 10ch;font-variant-numeric:tabular-nums">×{{ job.quantity | int | format_number }}</span>
@@ -168,7 +168,7 @@
                     {% if inp.activity == 'reaction' %}
                     <span class="badge px-1" style="background:#6f42c1;font-size:.55rem">reaction</span>
                     {% else %}
-                    <span class="badge px-1" style="background:#0d6efd;font-size:.55rem">manufacturing</span>
+                    <span class="badge px-1" style="background:#3d2c00;color:#e3b341;font-size:.55rem">manufacturing</span>
                     {% endif %}
                   {% else %}
                   <span class="text-muted" style="font-size:.75rem">material</span>

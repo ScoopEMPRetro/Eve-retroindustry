@@ -120,7 +120,7 @@
       <div class="col-12 col-md-6 pe-md-3 pb-2 pb-md-0">
         <div class="d-flex flex-wrap align-items-end gap-2">
           <span class="d-flex align-items-center text-muted small fw-semibold" style="width:4rem;height:31px">
-            <i class="bi bi-hammer me-1" style="color:#79c0ff"></i>Manufacturing
+            <i class="bi bi-hammer me-1" style="color:#e3b341"></i>Manufacturing
           </span>
           <div>
             <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
@@ -138,7 +138,7 @@
           </div>
           <div id="sci-display" class="d-none align-items-end" style="height:31px">
             <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
-              <span id="sci-mfg-val" class="fw-semibold" style="color:#79c0ff"></span>
+              <span id="sci-mfg-val" class="fw-semibold" style="color:#e3b341"></span>
             </span>
           </div>
           <div>
@@ -159,7 +159,7 @@
       <div class="col-12 col-md-6 ps-md-3 pt-2 pt-md-0 plan-rxn-section">
         <div class="d-flex flex-wrap align-items-end gap-2">
           <span class="d-flex align-items-center text-muted small fw-semibold" style="width:4rem;height:31px">
-            <i class="bi bi-arrows-angle-contract me-1" style="color:#a5d6ff"></i>Reaction
+            <i class="bi bi-arrows-angle-contract me-1" style="color:#b392f0"></i>Reaction
           </span>
           <div>
             <label class="form-label mb-1 d-flex align-items-center gap-1" style="font-size:.7rem;color:#8b949e">
@@ -177,7 +177,7 @@
           </div>
           <div id="rxn-sci-display" class="d-none align-items-end" style="height:31px">
             <span style="font-size:.75rem;color:#8b949e">SCI&nbsp;
-              <span id="rxn-sci-val" class="fw-semibold" style="color:#a5d6ff"></span>
+              <span id="rxn-sci-val" class="fw-semibold" style="color:#b392f0"></span>
             </span>
           </div>
           <div>
@@ -198,7 +198,7 @@
     {# Rig sloty — výroba #}
     <div id="mfg-rig-container" class="row g-2 align-items-end mt-1 pt-1 d-none" style="border-top:1px solid #21262d">
       <div class="col-auto d-flex align-items-center pb-1">
-        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#79c0ff">Manufacturing rigs</span></span>
+        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#e3b341">Manufacturing rigs</span></span>
       </div>
       <div class="col-auto">
         <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 1</label>
@@ -222,7 +222,7 @@
         </select>
       </div>
       <div class="col-auto d-flex align-items-end pb-1">
-        <span class="badge px-3 py-2" style="background:#1f3a4f;color:#79c0ff;font-size:.8rem">
+        <span class="badge px-3 py-2" style="background:#2d2200;color:#e3b341;font-size:.8rem">
           ME <span id="mfg-me-bonus-display">−0%</span>
         </span>
       </div>
@@ -231,7 +231,7 @@
     {# Rig sloty — reakce #}
     <div id="rxn-rig-container" class="row g-2 align-items-end mt-1 pt-1 d-none" style="border-top:1px solid #21262d">
       <div class="col-auto d-flex align-items-center pb-1">
-        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#a5d6ff">Reaction rigs</span></span>
+        <span class="text-muted small"><i class="bi bi-gear me-1"></i><span style="color:#b392f0">Reaction rigs</span></span>
       </div>
       <div class="col-auto">
         <label class="form-label mb-1" style="font-size:.7rem;color:#8b949e">Slot 1</label>
@@ -255,7 +255,7 @@
         </select>
       </div>
       <div class="col-auto d-flex align-items-end pb-1">
-        <span class="badge px-3 py-2" style="background:#1a2f3a;color:#a5d6ff;font-size:.8rem">
+        <span class="badge px-3 py-2" style="background:#2d2200;color:#e3b341;font-size:.8rem">
           ME <span id="rxn-me-bonus-display">−0%</span>
         </span>
       </div>
@@ -713,7 +713,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
           {% if job.activity == 'reaction' %}
           <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REACTION</span>
           {% else %}
-          <span class="badge me-2 px-2" style="background:#0d6efd;font-size:.65rem;flex-shrink:0">MANUFACTURING</span>
+          <span class="badge me-2 px-2" style="background:#3d2c00;color:#e3b341;font-size:.65rem;flex-shrink:0">MANUFACTURING</span>
           {% endif %}
           <span class="fw-semibold me-1">{{ job.name }}</span>
           {% if job.me is defined %}
@@ -775,7 +775,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
                     {% if inp.activity == 'reaction' %}
                     <span class="badge ms-1 px-1" style="background:#6f42c1;font-size:.6rem">reaction</span>
                     {% else %}
-                    <span class="badge ms-1 px-1" style="background:#0d6efd;font-size:.6rem">manufacturing</span>
+                    <span class="badge ms-1 px-1" style="background:#3d2c00;color:#e3b341;font-size:.6rem">manufacturing</span>
                     {% endif %}
                   {% endif %}
                 </td>
@@ -1299,7 +1299,7 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
       html += `<div class="suggest-header px-3 py-1" style="color:#8b949e;font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #30363d;padding-top:8px!important">My stations</div>`;
       data.owned.forEach(item => {
         html += `<div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
-          <i class="bi bi-geo-alt-fill" style="color:#58a6ff;flex-shrink:0"></i>
+          <i class="bi bi-geo-alt-fill" style="color:#e3b341;flex-shrink:0"></i>
           <div style="flex:1;min-width:0"><div class="fw-semibold text-truncate">${item.name}</div>
           <div style="color:#8b949e;font-size:.75rem">${item.location_id}</div></div></div>`;
       });
@@ -1723,7 +1723,7 @@ async function openSaveToProject() {
       html += `<div class="d-flex align-items-center gap-1">
         <button class="btn btn-sm text-start flex-grow-1" style="background:#21262d;border-color:#30363d;color:#e6edf3"
                 onclick="saveToProject(${p.id})">
-          <i class="bi bi-kanban me-2" style="color:#58a6ff"></i>${p.name}
+          <i class="bi bi-kanban me-2" style="color:#e3b341"></i>${p.name}
           <span class="text-muted ms-2" style="font-size:.75rem">${p.plan_count} items</span>
         </button>
         <button class="btn btn-sm btn-link text-danger p-1" title="Delete project"
