@@ -1,18 +1,21 @@
 # EVE Retroindustry
 
-A local industry calculator for EVE Online. Runs as a web app on your machine — blueprint cost analysis, bill of materials expansion, Jita market pricing, asset tracking, and production project management.
+A local industry calculator for EVE Online. Runs as a web app on your machine — blueprint cost analysis, bill of materials expansion, Jita market pricing, asset tracking, and production project management. Multi-character support: load all your alts and switch between them per page.
 
+![Production Plan — Rorqual](docs/screenshots/production-plan-rorqual.png)
 
 ---
 
 ## Features
 
-- **Production Planner** — enter any ship or component, get a full bill of materials with Jita buy/sell prices and your asset coverage
-- **Blueprint Library** — overview of all character blueprints with ME/TE levels, BPO vs BPC
-- **Asset Tracking** — full character inventory sorted by location with estimated ISK value
-- **Jita Price Cache** — fetches live market data from ESI, caches locally, refreshes on demand
-- **Production Projects** — track multi-run manufacturing batches
-- **EVE SSO Login** — OAuth2 PKCE, no password stored, works with any EVE character
+- **Production Planner** — enter any ship or component, pick a station, get a full bill of materials with Jita buy/sell prices, your asset coverage, manufacturing job time and fees (EIV × SCI × facility tax × SCC), profit vs. market and vs. stock, and the cheapest make-vs-buy decomposition
+- **Multi-character** — log in any number of alts via EVE SSO. Switch the active character from the navbar; on Assets and Blueprints pages, toggle between **All** (every alt merged, each row stamped with the owning character's portrait) and per-character views. Production Plan has its own character picker so you can let one alt's skills drive the calc while you stay logged in as another
+- **Blueprint Library** — full character (and alt) blueprint list with ME/TE levels, BPO vs BPC, runs remaining, organised by station and container
+- **Asset Tracking** — character + corporation inventory grouped by location and container, with estimated ISK value per stack and per station
+- **Jita Price Cache** — fetches live market data from ESI, caches locally, refresh on demand; custom price overrides for items missing from Jita
+- **Structure & Rig Modelling** — supports Raitaru / Azbel / Sotiyo / Athanor / Tatara with per-slot rig selection; ME/TE bonuses applied correctly with security multiplier (highsec 1.0× / lowsec 1.9× / null 2.1×)
+- **Production Projects** — save a plan as a project, track which jobs are done, and get a unified shopping list across multi-stage manufacturing
+- **System tray** — runs in the system tray; right-click for **Open App** and **Quit**
 
 ---
 
@@ -22,7 +25,7 @@ A local industry calculator for EVE Online. Runs as a web app on your machine �
 2. Extract the ZIP anywhere
 3. Run `EVE_Retroindustry.exe` (Windows) or `EVE_Retroindustry` (Linux)
 4. On first launch the app downloads ~5 MB of game data automatically
-5. Click **Log In** in the top right and authenticate with your EVE character
+5. Open the system tray icon → **Open App**, then click **Log In** in the top right and authenticate with your EVE character. Add more alts by clicking **+ Add Character** in the character dropdown.
 
 No Python, no dependencies, no installation wizard.
 
@@ -37,7 +40,7 @@ Requires Python 3.11+.
 ```bash
 git clone https://github.com/ScoopEMPRetro/Eve-retroindustry.git
 cd Eve-retroindustry
-python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -66,18 +69,16 @@ git tag v0.x.y && git push origin v0.x.y
 ```
 
 The workflow builds Windows and Linux binaries and creates a GitHub Release with:
-- `EVE_Retroindustry_windows.zip`
-- `EVE_Retroindustry_linux.zip`
+
+- `EVE_Retroindustry-vX.Y.Z-win64.zip`
+- `EVE_Retroindustry-vX.Y.Z-linux.zip`
 - `sde_base.db` (game data, downloaded by the app on first run)
 
 To build locally:
 
 ```bash
-# Linux
-bash build.sh
-
-# Windows
-build.bat
+python scripts/build_sde_base.py
+pyinstaller eve_retroindustry.spec --noconfirm
 ```
 
 ---
@@ -91,6 +92,7 @@ build.bat
 | Database | SQLite via sqlite3 |
 | EVE API | ESI (esi.evetech.net) |
 | HTTP client | httpx (async) |
+| Tray icon | pystray + Pillow |
 | Packaging | PyInstaller (onedir) |
 
 ---
@@ -101,8 +103,9 @@ All data is stored locally on your machine in:
 
 | File | Contents |
 |---|---|
-| `eve_cache.db` | Blueprints, assets, prices, projects |
-| `.eve_config.json` | OAuth tokens, character ID |
+| `eve_cache.db` | Blueprints, assets, prices, projects, OAuth tokens for all characters |
+| `.eve_config.json` | EVE SSO client ID only |
+| `eve_retroindustry.log` | Application log (frozen builds only) |
 
 Nothing is sent to any third-party server other than the official EVE Online ESI API (`esi.evetech.net`) and the EVE SSO login server (`login.eveonline.com`).
 
