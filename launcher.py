@@ -36,12 +36,19 @@ else:
 os.environ.setdefault("EVE_APP_DIR", _APP_DIR)
 os.environ.setdefault("EVE_BUNDLE_DIR", _BUNDLE_DIR)
 
-# console=False in PyInstaller sets sys.stdout/stderr to None;
-# uvicorn's log formatter crashes on None.isatty() — redirect to devnull.
+# console=False in PyInstaller sets sys.stdout/stderr to None. Redirect to a
+# rotating log file next to the .exe so tracebacks survive (uvicorn's log
+# formatter also calls stream.isatty() which would crash on None).
 if getattr(sys, "frozen", False) and sys.stdout is None:
-    _devnull = open(os.devnull, "w")
-    sys.stdout = _devnull
-    sys.stderr = _devnull
+    _log_path = os.path.join(_APP_DIR, "eve_retroindustry.log")
+    try:
+        _log_file = open(_log_path, "a", buffering=1, encoding="utf-8")
+    except Exception:
+        _log_file = open(os.devnull, "w")
+    sys.stdout = _log_file
+    sys.stderr = _log_file
+    # Make sys.stdout/stderr look like a TTY-less stream to uvicorn's formatter
+    setattr(_log_file, "isatty", lambda: False)
 
 
 # ---------------------------------------------------------------------------

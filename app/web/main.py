@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 
 import asyncio
 import datetime
@@ -113,6 +113,18 @@ _sync_state: dict = {"running": False, "done": False}
 
 app = FastAPI(title="EVE Retroindustry")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+@app.exception_handler(Exception)
+async def _log_unhandled(request: Request, exc: Exception):
+    """Log every uncaught exception with traceback so console=False bundles can be debugged."""
+    import traceback
+    from fastapi.responses import PlainTextResponse
+    tb = traceback.format_exc()
+    print(f"[error] {request.method} {request.url.path} -> {type(exc).__name__}: {exc}\n{tb}",
+          flush=True)
+    return PlainTextResponse(f"Internal Server Error\n\n{type(exc).__name__}: {exc}\n\n{tb}",
+                             status_code=500)
 
 
 @app.middleware("http")
@@ -495,6 +507,7 @@ async def auth_login():
 
 async def _bg_initial_sync():
     """Fetch blueprints + personal + corp assets from ESI for every known char."""
+    conn = None
     try:
         conn = get_conn()
         chars = list_characters(conn)
@@ -506,7 +519,11 @@ async def _bg_initial_sync():
 
         async with httpx.AsyncClient() as client:
             for char_id, _name in chars:
-                token = _get_valid_token_for(conn, char_id)
+                try:
+                    token = _get_valid_token_for(conn, char_id)
+                except Exception as exc:
+                    print(f"[sync] token refresh failed for {char_id}: {exc}", flush=True)
+                    continue
                 if not token:
                     continue
                 any_token = token
@@ -518,19 +535,31 @@ async def _bg_initial_sync():
                         corp_id, corp = await fetch_corp_assets(client, char_id, token, conn)
                         if corp_id:
                             update_corporation_id(conn, char_id, corp_id)
-                    except Exception:
+                    except Exception as exc:
+                        print(f"[sync] corp_assets failed for {char_id}: {exc}", flush=True)
                         corp = []
                     all_loc_ids |= {a.location_id for a in personal}
                     all_loc_ids |= {a.location_id for a in corp}
                     update_last_sync(conn, char_id)
-                except Exception:
+                except Exception as exc:
+                    print(f"[sync] character {char_id} sync failed: {exc}", flush=True)
                     continue
 
         if all_loc_ids and any_token:
-            await resolve_station_names_bulk(list(all_loc_ids), token=any_token, conn=conn)
-
-        conn.close()
+            try:
+                await resolve_station_names_bulk(list(all_loc_ids), token=any_token, conn=conn)
+            except Exception as exc:
+                print(f"[sync] resolve_station_names_bulk failed: {exc}", flush=True)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        print(f"[sync] fatal: {exc}", flush=True)
     finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
         _sync_state["running"] = False
         _sync_state["done"] = True
 
