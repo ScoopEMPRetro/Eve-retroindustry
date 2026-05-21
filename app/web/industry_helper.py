@@ -157,10 +157,8 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
     # === Components ===
     elif group_id == 873:
         cats.add("CAP_COMPONENT")
-        cats.add("STRUCTURE_OR_COMPONENT")
     elif group_id in (913, 716, 964, 4096):  # Advanced components, data interfaces, hybrid tech, molecular-forged
         cats.add("ADV_COMPONENT")
-        cats.add("STRUCTURE_OR_COMPONENT")
     elif group_id in (954, 956, 957, 958):  # T3 subsystems
         cats.add("ADV_COMPONENT")
     elif group_id in (334, 536, 1314):  # Construction Components, Structure Components, Unknown Components

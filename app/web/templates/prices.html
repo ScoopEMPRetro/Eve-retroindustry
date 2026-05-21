@@ -250,6 +250,28 @@
   let inGroupMode = false;
   let searchDebounce = null;
 
+  // Persists across searches so station data survives tbody replacement
+  let loadedStationData = null;
+
+  function applyStationDataToTbody() {
+    if (!loadedStationData || !tbody) return;
+    tbody.querySelectorAll('tr').forEach(tr => {
+      const tid = tr.dataset.id;
+      const sellCell   = tr.querySelector('.station-sell-cell');
+      if (!sellCell) return;
+      sellCell.style.display = '';
+      tr.querySelector('.station-traded-cell').style.display = '';
+      tr.querySelector('.station-avail-cell').style.display = '';
+      const entry  = loadedStationData[tid];
+      const sell   = entry?.best_sell;
+      const traded = entry?.traded_volume;
+      const vol    = entry?.volume;
+      sellCell.innerHTML   = sell   != null ? sell.toLocaleString('cs-CZ', {minimumFractionDigits:2, maximumFractionDigits:2}) : na;
+      tr.querySelector('.station-traded-cell').innerHTML = traded != null && traded > 0 ? traded.toLocaleString('cs-CZ') : na;
+      tr.querySelector('.station-avail-cell').innerHTML  = vol    != null && vol   > 0  ? vol.toLocaleString('cs-CZ')    : na;
+    });
+  }
+
   const fmt = n => n != null
     ? n.toLocaleString('cs-CZ', {minimumFractionDigits:2, maximumFractionDigits:2})
     : '<span class="text-muted">—</span>';
@@ -311,6 +333,7 @@
     tbody.innerHTML = '';
     originalRows.forEach(tr => tbody.appendChild(tr));
     inGroupMode = false;
+    applyStationDataToTbody();
   }
 
   function applyNameFilter(q) {
@@ -344,6 +367,7 @@
         if (data.items && data.items.length) {
           data_group_name = data.group_name || '';
           tbody.innerHTML = data.items.map(makeGroupRow).join('');
+          applyStationDataToTbody();
           inGroupMode = true;
           noResults.classList.add('d-none');
           if (data.fetching_prices) {
@@ -358,6 +382,7 @@
                 if (d2.items && d2.items.length && search.value.trim().toLowerCase() === q) {
                   data_group_name = d2.group_name || '';
                   tbody.innerHTML = d2.items.map(makeGroupRow).join('');
+                  applyStationDataToTbody();
                 }
               } catch { /* ignore */ }
             }, 6000);
@@ -596,6 +621,7 @@
       // Naplň buňky — vždy čti tbody znovu (může být null při první inicializaci)
       const liveTable = document.getElementById('price-table');
       const liveTbody = liveTable?.querySelector('tbody');
+      loadedStationData = json.data;
       const data = json.data;
       const na = '<span class="text-muted">—</span>';
 

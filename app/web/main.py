@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.2.10"
+APP_VERSION = "0.2.11"
 
 import asyncio
 import datetime
@@ -730,6 +730,9 @@ async def plan_result(
         for step in plan_data["manufacturing_steps"]:
             step_mfg_time = 0
             step_rxn_time = 0
+            # V "components" módu kupujeme 1. úroveň z trhu — instalační poplatky
+            # platíme jen za finální job (sestavení produktu samotného).
+            skip_fee = (mode == "components" and not step.get("is_final"))
             for job in step["jobs"]:
                 is_rxn   = job.get("activity") == "reaction"
                 sci      = rxn_sci      if is_rxn else mfg_sci
@@ -755,7 +758,8 @@ async def plan_result(
                 job["eiv"] = eiv
                 job["sci"] = sci
                 job["job_fee"] = job_fee
-                total_job_fee += job_fee
+                if not skip_fee:
+                    total_job_fee += job_fee
 
                 # Doba jobu
                 if bp_id:

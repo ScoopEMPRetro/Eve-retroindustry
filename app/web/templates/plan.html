@@ -479,12 +479,12 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
   <div style="border-top:1px solid #21262d;padding:.4rem .75rem;font-size:.68rem;color:#6e7681">
     <i class="bi bi-info-circle me-1"></i>
     {% if result.fees.solar_system_id %}
-    mfg. SCI {{ (result.fees.mfg_sci * 100) | round(2) }}% + tax {{ result.fees.facility_tax }}% + SCC 0.25%
+    mfg. SCI {{ (result.fees.mfg_sci * 100) | round(2) }}% + tax {{ result.fees.facility_tax }}% + SCC 4.0%
     {% if result.fees.rxn_sci is not none %}
-    &nbsp;·&nbsp; rxn. SCI {{ (result.fees.rxn_sci * 100) | round(2) }}% + tax {{ result.fees.rxn_facility_tax }}% + SCC 0.25%
+    &nbsp;·&nbsp; rxn. SCI {{ (result.fees.rxn_sci * 100) | round(2) }}% + tax {{ result.fees.rxn_facility_tax }}% + SCC 4.0%
     {% if result.fees.sep_rxn_station %}<span class="badge bg-secondary ms-1" style="font-size:.6rem">different station</span>{% endif %}
     {% endif %}
-    {% else %}SCI unknown · fac. tax {{ result.fees.facility_tax }}% + SCC 0.25%{% endif %}
+    {% else %}SCI unknown · fac. tax {{ result.fees.facility_tax }}% + SCC 4.0%{% endif %}
   </div>
   {% endif %}
 
@@ -813,7 +813,7 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
               <tr style="background:#16191f">
                 <td colspan="5" class="text-muted small">
                   Job fee &nbsp;·&nbsp; EIV {{ job.eiv | isk }} ISK
-                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">SCI {{ (job.sci * 100) | round(2) }}% + SCC 0.25%</span>
+                  <span class="badge bg-secondary ms-1" style="font-size:.6rem">SCI {{ (job.sci * 100) | round(2) }}% + SCC 4.0%</span>
                 </td>
                 <td class="text-end fw-semibold" style="color:#e3b341;font-size:.85rem">{{ job.job_fee | isk }}</td>
               </tr>
