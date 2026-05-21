@@ -57,6 +57,10 @@
     .refresh-btn { min-width: 160px; }
     .price-source-jita { color: #3fb950; font-size: .75rem; }
     .price-source-adj  { color: #8b949e; font-size: .75rem; }
+    /* Override Bootstrap text-primary to gold (except loading spinners) */
+    .text-primary { color: var(--eve-gold) !important; }
+    .spinner-border.text-primary,
+    .spinner-grow.text-primary  { color: #58a6ff !important; }
     .htmx-indicator { display: none; }
     .htmx-request .htmx-indicator { display: inline-block; }
     .htmx-request.htmx-indicator  { display: inline-block; }
