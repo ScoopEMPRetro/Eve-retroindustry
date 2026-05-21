@@ -57,6 +57,13 @@ a = Analysis(
         # email (used by httpx internally)
         "email.mime.text",
         "email.mime.multipart",
+        # Tray icon
+        "pystray",
+        "pystray._base",
+        "pystray._win32",
+        "PIL",
+        "PIL.Image",
+        "PIL.ImageDraw",
     ],
     hookspath=[],
     hooksconfig={},
@@ -67,7 +74,6 @@ a = Analysis(
         "matplotlib",
         "numpy",
         "pandas",
-        "PIL",
         "PyQt5",
         "PyQt6",
         "wx",
@@ -91,7 +97,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,           # Keep console visible — shows "Server running" + errors
+    console=False,          # No terminal window — app lives in system tray
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
