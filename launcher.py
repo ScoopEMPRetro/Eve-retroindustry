@@ -18,6 +18,11 @@ import threading
 import time
 import webbrowser
 
+# Windows: suppress harmless ConnectionResetError noise from ProactorEventLoop
+if sys.platform == "win32":
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 
 # ---------------------------------------------------------------------------
 # Path resolution

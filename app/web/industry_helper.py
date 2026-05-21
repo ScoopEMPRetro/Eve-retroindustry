@@ -157,8 +157,11 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
     # === Components ===
     elif group_id == 873:
         cats.add("CAP_COMPONENT")
-    elif group_id in (913, 716, 964, 4096):  # Advanced components, data interfaces, hybrid tech, molecular-forged
+    elif group_id in (913, 716, 964):  # Advanced components, data interfaces, hybrid tech
         cats.add("ADV_COMPONENT")
+    elif group_id == 4096:  # Molecular-Forged Materials — reaction output + used as ADV_COMPONENT
+        cats.add("ADV_COMPONENT")
+        cats.add("REACT_ANY")
     elif group_id in (954, 956, 957, 958):  # T3 subsystems
         cats.add("ADV_COMPONENT")
     elif group_id in (334, 536, 1314):  # Construction Components, Structure Components, Unknown Components
@@ -168,6 +171,17 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
     elif group_id == 1136:  # Fuel Block
         cats.add("STRUCTURE")
         cats.add("STRUCTURE_OR_COMPONENT")
+
+    # === Reaction outputs (Athanor/Tatara) ===
+    elif group_id in (428, 429):  # Intermediate Materials (simple), Composite (complex moon reactions)
+        cats.add("REACT_COMPOSITE")
+        cats.add("REACT_ANY")
+    elif group_id == 974:  # Hybrid Polymers
+        cats.add("REACT_HYBRID")
+        cats.add("REACT_ANY")
+    elif group_id == 712:  # Biochemical Material
+        cats.add("REACT_BIO")
+        cats.add("REACT_ANY")
 
     # === Structures (Upwell + starbase + deployables) ===
     elif (group_id in (365, 397, 404, 413, 438, 444, 471, 815, 838, 839, 1106, 1404,
