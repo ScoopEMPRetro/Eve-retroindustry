@@ -23,7 +23,89 @@ def ensure_location_name_table(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE location_name_cache ADD COLUMN solar_system_id INTEGER")
     if "region_id" not in cols:
         conn.execute("ALTER TABLE location_name_cache ADD COLUMN region_id INTEGER")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS solar_system_cache (
+            system_id       INTEGER PRIMARY KEY,
+            security_status REAL,
+            cached_at       INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+        )
+    """)
     conn.commit()
+
+
+async def get_security_status(
+    conn: sqlite3.Connection,
+    system_id: int,
+) -> float | None:
+    """Vrátí security_status pro daný systém. Cachuje výsledek napevno
+    (sec status se nemění běžně — jen FW state, který ignorujeme)."""
+    ensure_location_name_table(conn)
+    row = conn.execute(
+        "SELECT security_status FROM solar_system_cache WHERE system_id=?",
+        (system_id,),
+    ).fetchone()
+    if row and row[0] is not None:
+        return row[0]
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                f"{ESI_BASE}/universe/systems/{system_id}/",
+                params={"datasource": "tranquility"},
+                timeout=10,
+            )
+        if r.status_code == 200:
+            sec = r.json().get("security_status")
+            if sec is not None:
+                conn.execute(
+                    "INSERT OR REPLACE INTO solar_system_cache (system_id, security_status) VALUES (?,?)",
+                    (system_id, float(sec)),
+                )
+                conn.commit()
+                return float(sec)
+    except Exception:
+        pass
+    return None
+
+
+def get_cached_security(conn: sqlite3.Connection, system_id: int) -> float | None:
+    """Synchronní čtení security z cache. Vrátí None pokud není cached."""
+    row = conn.execute(
+        "SELECT security_status FROM solar_system_cache WHERE system_id=?",
+        (system_id,),
+    ).fetchone()
+    return row[0] if row and row[0] is not None else None
+
+
+def security_multiplier(sec_status: float | None) -> float:
+    """Per CCP: rig bonusy v lowsec ×1.9, v null/WH ×2.1, jinak ×1.0.
+
+    None → highsec fallback (1.0), aby se sběr ESI dat neblokoval výpočet.
+    """
+    if sec_status is None:
+        return 1.0
+    if sec_status >= 0.5:
+        return 1.0
+    if sec_status > 0.0:
+        return 1.9
+    return 2.1
+
+
+def get_station_security_multiplier(
+    conn: sqlite3.Connection,
+    location_id: int,
+) -> float:
+    """Synchronně vrátí rig security multiplier pro stanici (1.0/1.9/2.1).
+
+    Předpokládá, že solar_system_cache byla naplněna z /api/station-industry-info.
+    """
+    row = conn.execute(
+        "SELECT solar_system_id FROM location_name_cache WHERE location_id=?",
+        (location_id,),
+    ).fetchone()
+    if not row or not row[0]:
+        return 1.0
+    return security_multiplier(get_cached_security(conn, row[0]))
 
 
 async def get_region_for_location(conn: sqlite3.Connection, location_id: int, token: str | None = None) -> int | None:

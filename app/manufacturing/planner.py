@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 import sqlite3
 
-from app.bom.resolver import BOMResolver, BOMNode
+from app.bom.resolver import BOMResolver, BOMNode, StationFacility
 from app.bom.optimizer import optimize, get_shopping_list
 from app.character.blueprints import CharBlueprint
 
@@ -150,8 +150,8 @@ def build_plan(
     db_path: str,
     mode: PlanMode = "full",
     prices: dict[int, tuple[float | None, float | None]] | None = None,
-    facility_me_bonus: float = 0.0,
-    rxn_me_bonus: float = 0.0,
+    mfg_facility: StationFacility | None = None,
+    rxn_facility: StationFacility | None = None,
 ) -> ManufacturingPlan:
     db_conn = sqlite3.connect(db_path)
 
@@ -159,10 +159,10 @@ def build_plan(
     me = bp.material_efficiency if bp else 0
     te = bp.time_efficiency     if bp else 0
 
-    resolver = BOMResolver(db_path)
+    resolver = BOMResolver(db_path, blueprints=blueprints)
     root = resolver.resolve(
         product_type_id, quantity, me=float(me),
-        facility_me_bonus=facility_me_bonus, rxn_me_bonus=rxn_me_bonus,
+        mfg_facility=mfg_facility, rxn_facility=rxn_facility,
     )
     resolver.close()
     db_conn.close()

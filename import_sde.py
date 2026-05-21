@@ -11,9 +11,11 @@ import time
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 
-# Matches "1% reduction in manufacturing time" in English skill descriptions
+# Matches "1% reduction in manufacturing time" or "...in reaction time".
+# Reactions skill (45746) has "...reaction time per skill level" — without
+# this alternation it would be silently dropped from sde_skill_time_bonus.
 _BONUS_RE = re.compile(
-    r'(\d+(?:\.\d+)?)\s*%\s*reduction\s+in\s+manufacturing\s+time',
+    r'(\d+(?:\.\d+)?)\s*%\s*reduction\s+in\s+(?:manufacturing|reaction)\s+time',
     re.IGNORECASE,
 )
 
@@ -29,10 +31,11 @@ TYPES_YAML = os.path.join(SDE_DIR, "types.yaml")
 def init_db(conn: sqlite3.Connection):
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS sde_types (
-            type_id     INTEGER PRIMARY KEY,
-            name        TEXT NOT NULL,
-            group_id    INTEGER,
-            published   INTEGER DEFAULT 1
+            type_id         INTEGER PRIMARY KEY,
+            name            TEXT NOT NULL,
+            group_id        INTEGER,
+            published       INTEGER DEFAULT 1,
+            market_group_id INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS sde_blueprint_materials (
@@ -103,10 +106,12 @@ def import_types(conn: sqlite3.Connection) -> dict:
             name,
             info.get("groupID"),
             1 if info.get("published", True) else 0,
+            info.get("marketGroupID"),
         ))
 
     conn.executemany(
-        "INSERT OR REPLACE INTO sde_types (type_id, name, group_id, published) VALUES (?,?,?,?)",
+        "INSERT OR REPLACE INTO sde_types (type_id, name, group_id, published, market_group_id)"
+        " VALUES (?,?,?,?,?)",
         rows
     )
     conn.commit()

@@ -14,8 +14,10 @@ from app.market.prices import (
     fetch_adjusted_prices,
     fetch_jita_price,
     fetch_jita_prices_bulk,
+    fetch_region_orders_bulk,
     ensure_price_table,
     PRICE_CACHE_TTL,
+    JITA_REGION,
 )
 
 
@@ -101,16 +103,42 @@ async def get_prices_for_ids(
     return result
 
 
-def get_all_price_items(conn: sqlite3.Connection) -> list[dict]:
-    """Vrátí všechny itemy z cache s názvy, objemem a custom cenami, seřazené podle názvu."""
+def get_all_price_items(
+    conn: sqlite3.Connection,
+    relevant_ids: set[int] | None = None,
+) -> list[dict]:
+    """Vrátí itemy z cache pro initial render.
+
+    Pokud `relevant_ids` je předán, vrátí jen ty + všechny s custom_price.
+    Bez něj vrátí celou cache (legacy chování — pomalé pro 19k+ řádků).
+
+    Pro velkou cache (~19k typů) je render všech řádků v HTML extrémně pomalý
+    (48 MB+ stránka). Místo toho UI loaduje zbytek přes `/api/prices/search` na
+    vyžádání. Default sada = user assets + blueprints + custom_price overrides.
+    """
     ensure_price_table(conn)
-    rows = conn.execute("""
-        SELECT m.type_id, t.name, m.sell_price, m.buy_price, m.cached_at, c.price AS custom_price, m.volume, m.jita_available
+    if relevant_ids is None:
+        where_clause = ""
+        params: tuple = ()
+    else:
+        # Vždy zahrň všechno s custom_price
+        ph = ",".join("?" * len(relevant_ids)) if relevant_ids else "NULL"
+        where_clause = (
+            f"WHERE m.type_id IN ({ph}) OR c.price IS NOT NULL"
+            if relevant_ids
+            else "WHERE c.price IS NOT NULL"
+        )
+        params = tuple(relevant_ids)
+
+    rows = conn.execute(f"""
+        SELECT m.type_id, t.name, m.sell_price, m.buy_price, m.cached_at,
+               c.price AS custom_price, m.volume, m.jita_available
         FROM market_price_cache m
         LEFT JOIN sde_types t ON t.type_id = m.type_id
         LEFT JOIN custom_price_override c ON c.type_id = m.type_id
+        {where_clause}
         ORDER BY t.name ASC NULLS LAST
-    """).fetchall()
+    """, params).fetchall()
     now = time.time()
     return [
         {
@@ -141,40 +169,92 @@ def set_custom_price(conn: sqlite3.Connection, type_id: int, price: float | None
     conn.commit()
 
 
+def _persist_bulk_orders(
+    conn: sqlite3.Connection,
+    bulk: dict[int, dict],
+    wanted: set[int],
+) -> int:
+    """Zapíše agregovaná data z bulk fetch do market_price_cache.
+    Pro type_ids ze `wanted` které nemají žádný order (chybí v `bulk`) zapíše None
+    (žádná aktivní objednávka v regionu = explicitně bez ceny).
+    Vrátí počet zapsaných záznamů s aspoň jednou cenou (sell nebo buy).
+    """
+    now = time.time()
+    rows: list[tuple] = []
+    refreshed = 0
+    for tid in wanted:
+        d = bulk.get(tid)
+        if d is None:
+            # Žádný order v regionu → zapíšeme None (explicitně bez ceny)
+            rows.append((tid, None, None, None, now))
+            continue
+        sell = d.get("sell")
+        buy  = d.get("buy")
+        jita_avail = d.get("jita_available")
+        if sell is not None or buy is not None:
+            refreshed += 1
+        # Volume (7-day history) v tomto refresh nepřepisujeme — zachová stará hodnota
+        rows.append((tid, sell, buy, jita_avail, now))
+    # Použijeme COALESCE pro volume — INSERT OR REPLACE smaže existující volume,
+    # takže místo toho použijeme UPSERT
+    conn.executemany(
+        """INSERT INTO market_price_cache (type_id, sell_price, buy_price, jita_available, cached_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(type_id) DO UPDATE SET
+             sell_price = excluded.sell_price,
+             buy_price = excluded.buy_price,
+             jita_available = excluded.jita_available,
+             cached_at = excluded.cached_at""",
+        rows,
+    )
+    conn.commit()
+    return refreshed
+
+
 async def refresh_jita_prices_all(conn: sqlite3.Connection, type_ids: list[int]) -> int:
-    """Stáhne čerstvé Jita ceny pro všechny předané type_ids. Vrátí počet úspěšně načtených."""
+    """Stáhne čerstvé Jita ceny pro všechny předané type_ids — bulk paginated region orders.
+    Volume (7-day history) v tomto refresh nepřepisujeme; běží jen jednotlivě přes
+    `fetch_jita_price` (per-item endpoint). Vrátí počet typů s aspoň jednou cenou.
+    """
     ensure_price_table(conn)
+    wanted = set(type_ids)
     async with httpx.AsyncClient() as client:
-        result = await fetch_jita_prices_bulk(client, conn, type_ids, force=True)
-    return sum(1 for v in result.values() if v[0] is not None)
+        bulk = await fetch_region_orders_bulk(client, JITA_REGION)
+    return _persist_bulk_orders(conn, bulk, wanted)
 
 
 async def stream_jita_refresh(conn: sqlite3.Connection, type_ids: list[int]):
-    """Async generator yielding SSE text chunks for Jita price refresh progress."""
+    """Async generator yielding SSE chunks. Bulk paginated fetch — progress
+    se posílá po každé stránce orders endpointu (~500 stránek pro Jita region).
+    """
     ensure_price_table(conn)
-    total = len(type_ids)
-    counter = [0]
+    wanted = set(type_ids)
+    total_pages_holder = [0]
+    completed_holder = [0]
 
-    async def _fetch_one(client, tid):
-        await fetch_jita_price(client, conn, tid, force=True)
-        counter[0] += 1
+    async def _progress(done: int, total: int):
+        total_pages_holder[0] = total
+        completed_holder[0] = done
+
+    bulk_holder: dict = {}
 
     async def _run():
         async with httpx.AsyncClient() as client:
-            await asyncio.gather(
-                *[_fetch_one(client, tid) for tid in type_ids],
-                return_exceptions=True,
+            bulk_holder.update(
+                await fetch_region_orders_bulk(client, JITA_REGION, progress_cb=_progress)
             )
 
     task = asyncio.create_task(_run())
-
     while not task.done():
-        pct = int(counter[0] * 100 / total) if total else 100
-        yield f"data: {_json.dumps({'current': counter[0], 'total': total, 'pct': pct})}\n\n"
-        await asyncio.sleep(0.4)
-
+        total = total_pages_holder[0]
+        done = completed_holder[0]
+        pct = int(done * 100 / total) if total else 0
+        yield f"data: {_json.dumps({'current': done, 'total': total, 'pct': pct})}\n\n"
+        await asyncio.sleep(0.5)
     await task
-    yield f"data: {_json.dumps({'pct': 100, 'done': True, 'refreshed': counter[0], 'total': total})}\n\n"
+
+    refreshed = _persist_bulk_orders(conn, bulk_holder, wanted)
+    yield f"data: {_json.dumps({'pct': 100, 'done': True, 'refreshed': refreshed, 'total': len(wanted)})}\n\n"
 
 
 def _fmt_ts(ts: float | None) -> str:

@@ -121,8 +121,11 @@
   <div class="row align-items-center mb-3 g-2">
     <div class="col">
       <h6 class="mb-0"><i class="bi bi-table me-2 text-primary"></i>Item Price Overview
-        <span class="text-muted fw-normal fs-6 ms-2">({{ items|length }} items)</span>
+        <span class="text-muted fw-normal fs-6 ms-2">
+          ({{ items|length }} your items · {{ stats.total }} total in cache)
+        </span>
       </h6>
+      <small class="text-muted">Search any item by name or category — full cache is loaded on demand.</small>
     </div>
     <div class="col-auto">
       <input type="search" id="price-search" class="form-control form-control-sm"
@@ -256,7 +259,12 @@
   const na = '<span class="text-muted">—</span>';
 
   function makeGroupRow(item) {
-    return `<tr data-name="${item.name.toLowerCase()}" data-id="${item.type_id}">
+    const customVal = item.custom_price != null ? item.custom_price : '';
+    const customBadge = item.custom_price != null
+      ? `<span class="badge bg-warning text-dark ms-1 custom-badge" style="font-size:.65em">custom</span>` : '';
+    const resetBtnStyle = item.custom_price != null ? '' : 'style="display:none"';
+    return `<tr data-name="${item.name.toLowerCase()}" data-id="${item.type_id}"
+                data-jita-sell="${item.sell_price != null ? item.sell_price : ''}">
       <td class="py-1">
         <img src="https://images.evetech.net/types/${item.type_id}/icon?size=32"
              width="24" height="24" class="rounded-1" loading="lazy"
@@ -264,6 +272,8 @@
       </td>
       <td class="py-1 align-middle">
         ${item.name}
+        ${item.fresh === false ? '<span class="badge bg-secondary ms-1" style="font-size:.65em">stale</span>' : ''}
+        ${customBadge}
         ${item.group_name && item.group_name !== data_group_name
           ? `<span class="badge bg-secondary ms-1" style="font-size:.65em">${item.group_name}</span>`
           : ''}
@@ -275,7 +285,21 @@
       <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-traded-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-avail-cell" style="display:none">${na}</td>
-      <td class="py-1">${na}</td>
+      <td class="py-1">
+        <div class="input-group input-group-sm">
+          <input type="number" class="form-control custom-price-input font-monospace"
+                 min="0" step="0.01" value="${customVal}" placeholder="Jita sell"
+                 data-id="${item.type_id}">
+          <button class="btn btn-outline-secondary custom-price-save" type="button"
+                  data-id="${item.type_id}" title="Save custom price">
+            <i class="bi bi-check-lg"></i>
+          </button>
+          <button class="btn btn-outline-warning custom-price-reset" type="button"
+                  data-id="${item.type_id}" title="Reset to Jita price" ${resetBtnStyle}>
+            <i class="bi bi-arrow-counterclockwise"></i>
+          </button>
+        </div>
+      </td>
     </tr>`;
   }
 
@@ -314,13 +338,15 @@
         const r = await fetch('/api/prices/search?q=' + encodeURIComponent(q));
         const data = await r.json();
 
-        if (data.mode === 'group' && data.items.length) {
-          data_group_name = data.group_name;
+        // V obou módech (group / name) renderujeme výsledky z API.
+        // Initial render obsahuje jen user items (~1.8k), takže client-side filter
+        // by nezobrazil ostatní z 19k cache.
+        if (data.items && data.items.length) {
+          data_group_name = data.group_name || '';
           tbody.innerHTML = data.items.map(makeGroupRow).join('');
           inGroupMode = true;
-          noResults.classList.toggle('d-none', data.items.length > 0);
+          noResults.classList.add('d-none');
           if (data.fetching_prices) {
-            // Prices are being fetched in the background — auto-refresh results after 6 s
             const fetchingBanner = document.createElement('tr');
             fetchingBanner.id = 'fetching-banner';
             fetchingBanner.innerHTML = '<td colspan="7" class="text-center text-muted py-2" style="font-size:.8rem"><span class="spinner-border spinner-border-sm me-1"></span>Fetching prices… results will update automatically.</td>';
@@ -329,15 +355,15 @@
               try {
                 const r2 = await fetch('/api/prices/search?q=' + encodeURIComponent(q));
                 const d2 = await r2.json();
-                if (d2.mode === 'group' && d2.items.length && search.value.trim().toLowerCase() === q) {
-                  data_group_name = d2.group_name;
+                if (d2.items && d2.items.length && search.value.trim().toLowerCase() === q) {
+                  data_group_name = d2.group_name || '';
                   tbody.innerHTML = d2.items.map(makeGroupRow).join('');
                 }
               } catch { /* ignore */ }
             }, 6000);
           }
         } else {
-          // Name mód: obnov originál + client-side filter
+          // Žádný výsledek z API — fallback na client-side filter
           restoreOriginal();
           applyNameFilter(q);
         }

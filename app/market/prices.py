@@ -210,6 +210,105 @@ async def fetch_jita_prices_bulk(
     }
 
 
+# ---------------------------------------------------------------------------
+# Bulk Jita orders — stáhne všechny aktivní orders v regionu naráz (paginated)
+# ---------------------------------------------------------------------------
+
+async def _fetch_orders_page(
+    client: httpx.AsyncClient,
+    region_id: int,
+    page: int,
+) -> tuple[list[dict], int]:
+    """Stáhne jednu stránku orders a vrátí (orders, x_pages)."""
+    async with _JITA_SEM:
+        for attempt in range(3):
+            try:
+                r = await client.get(
+                    f"{ESI_BASE}/markets/{region_id}/orders/",
+                    params={"order_type": "all", "datasource": "tranquility", "page": page},
+                    timeout=30,
+                )
+            except (httpx.TimeoutException, httpx.ConnectError):
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt * 3)
+                    continue
+                return [], 0
+            if r.status_code in (420, 429):
+                retry_after = int(r.headers.get("Retry-After", 60))
+                await asyncio.sleep(min(retry_after, 120))
+                continue
+            if r.status_code != 200:
+                if attempt < 2:
+                    await asyncio.sleep(5)
+                    continue
+                return [], 0
+            return r.json(), int(r.headers.get("x-pages", 1))
+        return [], 0
+
+
+async def fetch_region_orders_bulk(
+    client: httpx.AsyncClient,
+    region_id: int = JITA_REGION,
+    progress_cb=None,
+) -> dict[int, dict]:
+    """Stáhne VŠECHNY aktivní orders pro region paginovaně a agreguje
+    per type_id: {type_id: {sell, buy, jita_available}}.
+
+    Tohle je řádově efektivnější než per-type call: ~500 stránek vs. 19k volání.
+    progress_cb(page, total_pages) zavoláno po každé stránce (pokud zadáno).
+    """
+    # První stránka — odhalí celkový počet stránek
+    first, total_pages = await _fetch_orders_page(client, region_id, 1)
+    if not first and total_pages == 0:
+        return {}
+
+    pages_data: list[list[dict]] = [first]
+    if progress_cb:
+        await _maybe_call(progress_cb, 1, total_pages)
+
+    # Zbylé stránky paralelně (semaphore _JITA_SEM omezí počet souběžných requestů)
+    remaining = list(range(2, total_pages + 1))
+    completed = [1]
+    lock = asyncio.Lock()
+
+    async def _one(p: int):
+        page_data, _ = await _fetch_orders_page(client, region_id, p)
+        async with lock:
+            pages_data.append(page_data)
+            completed[0] += 1
+            if progress_cb:
+                await _maybe_call(progress_cb, completed[0], total_pages)
+
+    await asyncio.gather(*[_one(p) for p in remaining], return_exceptions=True)
+
+    # Agregace per type_id
+    agg: dict[int, dict] = {}
+    for page_orders in pages_data:
+        for o in page_orders:
+            tid = o.get("type_id")
+            price = o.get("price")
+            if tid is None or price is None:
+                continue
+            entry = agg.setdefault(tid, {"sell": None, "buy": None, "jita_available": 0})
+            if o.get("is_buy_order"):
+                if entry["buy"] is None or price > entry["buy"]:
+                    entry["buy"] = price
+            else:
+                if entry["sell"] is None or price < entry["sell"]:
+                    entry["sell"] = price
+                if o.get("location_id") == JITA_STATION:
+                    entry["jita_available"] += int(o.get("volume_remain", 0))
+    return agg
+
+
+async def _maybe_call(cb, *args):
+    """Helper — callback může být sync nebo async."""
+    if asyncio.iscoroutinefunction(cb):
+        await cb(*args)
+    else:
+        cb(*args)
+
+
 _STATION_SEM = asyncio.Semaphore(20)
 STATION_VOLUME_TTL = 60 * 30
 _region_cache: dict[int, int] = {}  # structure_id → region_id (in-memory)

@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.2.9"
+APP_VERSION = "0.2.10"
 
 import asyncio
 import datetime
@@ -44,6 +44,7 @@ from app.web.location_resolver import (
     load_location_names_from_db,
     locations_in_system,
     get_region_for_location,
+    get_security_status,
 )
 from app.web.industry_helper import (
     ensure_industry_tables,
@@ -53,6 +54,11 @@ from app.web.industry_helper import (
     get_station_me_bonus,
     save_station_me_bonus,
     get_station_te_multiplier,
+    get_station_me_bonus_pct,
+    get_station_me_multiplier,
+    get_station_facility,
+    get_product_te_multiplier,
+    get_station_cost_bonus,
     populate_rig_bonuses,
     get_rig_types,
     save_station_rigs_full,
@@ -595,8 +601,9 @@ async def plan_result(
         except (ValueError, AttributeError):
             return 0.0
 
-    fac_me_bonus = _parse_pct(facility_me_bonus)
-    rxn_me_bonus_val = _parse_pct(reaction_me_bonus)
+    # facility_me_bonus / reaction_me_bonus z formuláře jsou už jen pro display
+    # (form_facility_me_bonus předáno zpět do šablony). Skutečný ME multiplikátor
+    # se počítá ze station_rigs v get_station_me_multiplier.
 
     try:
         token = get_valid_token()
@@ -631,10 +638,21 @@ async def plan_result(
         me = float(me_override if me_override is not None else (bp.material_efficiency if bp else 0))
         te = int(te_override if te_override is not None else (bp.time_efficiency if bp else 0))
 
-        resolver = BOMResolver(DB_ABS)
+        # ME multiplikátor stanice — per-product (rig se aplikuje jen na produkty
+        # odpovídající jeho kategorii: Ship rig na lodě, Equipment rig na moduly atd.).
+        eff_rxn_station_for_me = reaction_station if reaction_station else station
+        mfg_facility = get_station_facility(conn, station)
+        rxn_facility = get_station_facility(conn, eff_rxn_station_for_me)
+        # Agregované úspory ROOT produktu (pro display)
+        mfg_me_mult = get_station_me_multiplier(conn, station)
+        rxn_me_mult = get_station_me_multiplier(conn, eff_rxn_station_for_me)
+
+        # Resolver dostane všechny blueprinty postavy → per-product ME se lookup-uje
+        # pro každý mezikrok zvlášť (Capital Armor Plates ME může být jiné než root ME).
+        resolver = BOMResolver(DB_ABS, blueprints=blueprints)
         root = resolver.resolve(type_id, qty, me=me,
-                                facility_me_bonus=fac_me_bonus,
-                                rxn_me_bonus=rxn_me_bonus_val)
+                                mfg_facility=mfg_facility,
+                                rxn_facility=rxn_facility)
         resolver.close()
 
         all_ids = list(set(_collect_type_ids(root) + [type_id]))
@@ -649,8 +667,8 @@ async def plan_result(
             db_path=DB_ABS,
             mode=mode,
             prices=prices,
-            facility_me_bonus=fac_me_bonus,
-            rxn_me_bonus=rxn_me_bonus_val,
+            mfg_facility=mfg_facility,
+            rxn_facility=rxn_facility,
         )
         plan_data = _plan_to_dict(plan, prices, type_name)
         # Přepis ME/TE v plan_data pokud bylo zadáno ručně
@@ -702,6 +720,10 @@ async def plan_result(
         mfg_te_mult = get_station_te_multiplier(conn, station)
         rxn_te_mult = get_station_te_multiplier(conn, eff_rxn_station) if sep_rxn_station else mfg_te_mult
 
+        # Cost bonus na SCI (Raitaru −3 %, Azbel −4 %, Sotiyo −5 %)
+        mfg_cost_bonus = get_station_cost_bonus(conn, station)
+        rxn_cost_bonus = get_station_cost_bonus(conn, eff_rxn_station) if sep_rxn_station else mfg_cost_bonus
+
         total_job_fee = 0.0
         total_mfg_time_s = 0   # čas všech výrobních kroků (sekvenčně)
         total_rxn_time_s = 0
@@ -712,6 +734,7 @@ async def plan_result(
                 is_rxn   = job.get("activity") == "reaction"
                 sci      = rxn_sci      if is_rxn else mfg_sci
                 tax_rate = rxn_fac_tax_rate if is_rxn else fac_tax_rate
+                cost_bonus = rxn_cost_bonus if is_rxn else mfg_cost_bonus
 
                 # EIV musí používat BASE množství ze SDE (ne ME-redukovaná)
                 bp_id = job.get("blueprint_type_id")
@@ -727,7 +750,8 @@ async def plan_result(
                     eiv = sum(adj_prices.get(inp["type_id"], 0.0) * inp["quantity"]
                               for inp in job["inputs"])
 
-                job_fee = eiv * (sci + tax_rate + _SCC)
+                # CCP formula: TIF = EIV × ((SCI × (1 - structure_cost_bonus)) + tax + SCC)
+                job_fee = eiv * (sci * (1.0 - cost_bonus) + tax_rate + _SCC)
                 job["eiv"] = eiv
                 job["sci"] = sci
                 job["job_fee"] = job_fee
@@ -744,16 +768,20 @@ async def plan_result(
                         activity_name = job.get("activity", "manufacturing")
                         sci_mult, sci_details = _science_skill_mult(conn, bp_id, activity_name, char_skills)
                         job_te = te if not is_rxn else 0
+                        # Per-product TE multiplier — Equipment TE rig nezrychluje stavbu lodi
+                        prod_facility = rxn_facility if is_rxn else mfg_facility
+                        prod_te_mult = get_product_te_multiplier(conn, prod_facility, job["type_id"])
                         job_secs = calc_job_time(
                             base_time=base_time,
                             runs=runs,
                             te=job_te,
                             industry_level=industry_level,
                             adv_industry_level=adv_industry_level,
-                            facility_te_multiplier=rxn_te_mult if is_rxn else mfg_te_mult,
+                            facility_te_multiplier=prod_te_mult,
                             is_reaction=is_rxn,
                             science_skill_mult=sci_mult,
                         )
+                        job["facility_te_mult"] = prod_te_mult
                         job["job_duration_seconds"] = job_secs
                         job["job_duration"] = format_duration(job_secs)
                         job["science_skills"] = sci_details  # [(name, level, bonus_pct)]
@@ -798,11 +826,15 @@ async def plan_result(
             "rxn_sci":             rxn_sci,
             "facility_tax":        fac_tax_pct,
             "rxn_facility_tax":    rxn_fac_tax_pct,
+            "mfg_cost_bonus_pct":  round(mfg_cost_bonus * 100, 1),
+            "rxn_cost_bonus_pct":  round(rxn_cost_bonus * 100, 1) if sep_rxn_station else None,
             "total_job_fee":       total_job_fee,
             "total_time_s":        total_time_s,
             "total_time":          format_duration(total_time_s) if total_time_s else None,
             "mfg_te_pct":          round((1 - mfg_te_mult) * 100, 1),
             "rxn_te_pct":          round((1 - rxn_te_mult) * 100, 1) if sep_rxn_station else None,
+            "mfg_me_pct":          round((1 - mfg_me_mult) * 100, 2),
+            "rxn_me_pct":          round((1 - rxn_me_mult) * 100, 2) if sep_rxn_station else None,
             "full_mat_cost":       full_mat_cost,
             "profit_market":       profit_market,
             "profit_stock":        profit_stock,
@@ -904,6 +936,7 @@ def _build_manufacturing_steps(root, prices: dict, available: dict) -> list[dict
                 "blueprint_type_id": node.blueprint_type_id,
                 "level":             level,
                 "activity":          node.activity,
+                "me":                node.me,
                 "unit_price":        sell_p,
                 "total_price":       sell_p * node.quantity if sell_p else None,
                 "available":         available.get(tid, 0),
@@ -1579,7 +1612,24 @@ async def blueprints_page(request: Request, search: str = ""):
 async def prices_page(request: Request):
     conn = get_conn()
     stats = get_price_cache_stats(conn)
-    items = get_all_price_items(conn)
+    # Default render jen relevantní podmnožinu (user assets + BPs + custom prices).
+    # Plná cache má ~19k itemů → render celé tabulky = 48 MB HTML. Zbytek se
+    # loaduje přes /api/prices/search na vyžádání.
+    char = get_character()
+    relevant: set[int] = set()
+    if char:
+        relevant |= {a["type_id"] for a in _load_assets_from_cache(conn, char[0])}
+        relevant |= {bp["type_id"] for bp in _load_blueprints_from_cache(conn, char[0])}
+        # Také produkty vyrobitelné z user BPs (pro plánovací revenue)
+        if relevant:
+            ph = ",".join("?" * len(relevant))
+            bp_products = conn.execute(
+                f"SELECT product_type_id FROM sde_blueprint_products"
+                f" WHERE blueprint_type_id IN ({ph})",
+                tuple(relevant),
+            ).fetchall()
+            relevant |= {r[0] for r in bp_products}
+    items = get_all_price_items(conn, relevant_ids=relevant)
     conn.close()
     return _tr("prices.html", request, {
         "stats": stats,
@@ -1592,7 +1642,7 @@ async def prices_page(request: Request):
 @app.get("/api/station-industry-info")
 async def station_industry_info(location_id: int):
     """
-    Vrátí SCI a facility tax pro zadanou stanici/strukturu.
+    Vrátí SCI, facility tax, ME bonus a security multiplier pro zadanou stanici/strukturu.
     Facility tax se odvozuje z nedávných jobů postavy (cost/EIV − SCI).
     """
     conn = get_conn()
@@ -1603,9 +1653,13 @@ async def station_industry_info(location_id: int):
     solar_system_id: int | None = sys_row[0] if sys_row and sys_row[0] else None
 
     mfg_sci = rxn_sci = 0.0
+    security_status: float | None = None
     if solar_system_id:
         mfg_sci = await get_sci_for_system(conn, solar_system_id, "manufacturing")
         rxn_sci = await get_sci_for_system(conn, solar_system_id, "reaction")
+        # Pre-fetch security_status do cache, aby synchronní helper get_station_me_bonus_pct
+        # mohl správně škálovat rig bonusy (×1.0 / ×1.9 / ×2.1).
+        security_status = await get_security_status(conn, solar_system_id)
 
     # Odvoď facility tax z jobů postavy
     facility_tax_pct: float | None = None
@@ -1619,14 +1673,17 @@ async def station_industry_info(location_id: int):
             tax_auto = True
 
     rig_info = get_station_rigs_full(conn, location_id)
+    # ME bonus přepočítaný se security multiplierem (přepisuje stale stored value)
+    me_bonus_live = get_station_me_bonus_pct(conn, location_id)
     conn.close()
     return {
         "solar_system_id":  solar_system_id,
+        "security_status":  security_status,
         "mfg_sci":          mfg_sci,
         "rxn_sci":          rxn_sci,
         "facility_tax_pct": facility_tax_pct,
         "tax_auto":         tax_auto,
-        "me_bonus_pct":     rig_info["me_bonus_pct"],
+        "me_bonus_pct":     me_bonus_live,
         "structure_type":   rig_info["structure_type"],
         "rigs":             rig_info["rigs"],
     }
@@ -1645,7 +1702,9 @@ async def save_station_rigs(request: Request):
         rig2 = int(data["rig2_type_id"]) if data.get("rig2_type_id") else None
         rig3 = int(data["rig3_type_id"]) if data.get("rig3_type_id") else None
         conn = get_conn()
-        me_bonus = save_station_rigs_full(conn, location_id, structure_type, rig1, rig2, rig3)
+        save_station_rigs_full(conn, location_id, structure_type, rig1, rig2, rig3)
+        # Vrátit security-adjusted ME bonus (helper aplikuje sec multiplier na rigy)
+        me_bonus = get_station_me_bonus_pct(conn, location_id)
         conn.close()
         return {"ok": True, "me_bonus_pct": me_bonus}
     except Exception as e:
@@ -2266,16 +2325,29 @@ async def _bg_fetch_prices(type_ids: list[int]) -> None:
 
 
 def _refresh_type_ids(conn) -> list[int]:
-    """Return the full set of type_ids to refresh: assets + blueprints + SDE materials + anything already cached."""
+    """Full set of type_ids to refresh — všechno obchodovatelné v EVE (market_group_id IS NOT NULL)
+    plus user assets/blueprints/materials a aktuálně cachované typy.
+
+    Tradeable filter pokrývá moduly, ammo, lodě, skillbooky, struktury atd. — vše,
+    co lze koupit/prodat na marketu.
+    """
     char = get_character()
     asset_type_ids: set[int] = set()
     bp_type_ids: set[int] = set()
     if char:
         asset_type_ids = {a["type_id"] for a in _load_assets_from_cache(conn, char[0])}
         bp_type_ids = {bp["type_id"] for bp in _load_blueprints_from_cache(conn, char[0])}
-    mat_ids = {r[0] for r in conn.execute("SELECT DISTINCT material_type_id FROM sde_blueprint_materials").fetchall()}
-    cached_ids = {r[0] for r in conn.execute("SELECT type_id FROM market_price_cache").fetchall()}
-    return list(asset_type_ids | bp_type_ids | mat_ids | cached_ids)
+    mat_ids = {r[0] for r in conn.execute(
+        "SELECT DISTINCT material_type_id FROM sde_blueprint_materials"
+    ).fetchall()}
+    cached_ids = {r[0] for r in conn.execute(
+        "SELECT type_id FROM market_price_cache"
+    ).fetchall()}
+    # Všechny published tradeable typy (modules, ammo, ships, skillbooks, ...)
+    tradeable_ids = {r[0] for r in conn.execute(
+        "SELECT type_id FROM sde_types WHERE published=1 AND market_group_id IS NOT NULL"
+    ).fetchall()}
+    return list(asset_type_ids | bp_type_ids | mat_ids | cached_ids | tradeable_ids)
 
 
 @app.post("/prices/refresh", response_class=HTMLResponse)
@@ -2329,17 +2401,14 @@ async def prices_search(q: str = ""):
     from app.market.prices import PRICE_CACHE_TTL
     now = _time.time()
 
-    # Priorita: pokud dotaz odpovídá názvu skupiny, vrátíme itemy z té skupiny
-    # Přesná shoda má prioritu (battleship → "Battleship", ne "Battleship Blueprint")
+    # Priorita: skupinový mód jen při PŘESNÉ shodě s názvem skupiny (např. "battleship"
+    # → group "Battleship"). Pro libovolný podřetězec ("amarr") preferujeme name search,
+    # protože uživatel hledá konkrétní typ podle názvu, ne všechny itemy z jedné z N
+    # skupin obsahujících substring.
     group_rows = conn.execute(
         "SELECT group_id, name FROM sde_groups WHERE LOWER(name) = ? ORDER BY name",
         (q.strip().lower(),),
     ).fetchall()
-    if not group_rows:
-        group_rows = conn.execute(
-            "SELECT group_id, name FROM sde_groups WHERE LOWER(name) LIKE ? ORDER BY name LIMIT 10",
-            (pattern,),
-        ).fetchall()
 
     if group_rows:
         group_ids = [r[0] for r in group_rows]
@@ -2389,18 +2458,33 @@ async def prices_search(q: str = ""):
             ],
         }
 
-    # Fallback: hledání v názvech itemů (jen itemy v price cache)
+    # Fallback: hledání v názvech itemů. LEFT JOIN aby se zobrazily i typy bez ceny
+    # v cache (právě dostáhneme na pozadí). Omezit jen na tradeable (market_group_id),
+    # aby se nevracely BPC/nepublishované/věcí mimo trh.
     rows = conn.execute("""
         SELECT t.type_id, t.name, g.name AS group_name,
                m.sell_price, m.buy_price, m.cached_at,
                m.volume, m.jita_available
         FROM sde_types t
         LEFT JOIN sde_groups g ON g.group_id = t.group_id
-        JOIN market_price_cache m ON m.type_id = t.type_id
-        WHERE t.published = 1 AND LOWER(t.name) LIKE ?
+        LEFT JOIN market_price_cache m ON m.type_id = t.type_id
+        WHERE t.published = 1
+          AND t.market_group_id IS NOT NULL
+          AND LOWER(t.name) LIKE ?
         ORDER BY t.name
         LIMIT 100
     """, (pattern,)).fetchall()
+
+    # Bg-fetch pro typy bez ceny
+    uncached = [r[0] for r in rows if r[5] is None]
+    if uncached:
+        conn.executemany(
+            "INSERT OR IGNORE INTO market_price_cache (type_id, sell_price, buy_price, cached_at) VALUES (?,NULL,NULL,0)",
+            [(tid,) for tid in uncached],
+        )
+        conn.commit()
+        import asyncio as _asyncio
+        _asyncio.create_task(_bg_fetch_prices(uncached))
     conn.close()
     return {
         "mode": "name",
