@@ -425,10 +425,15 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
       {% if m_profit is not none %}
       <div class="mt-2 pt-2" style="border-top:1px solid #21262d">
         <div class="text-muted" style="font-size:.75rem">Profit</div>
-        <div class="fw-bold" style="font-size:1.2rem" class="{% if m_profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
+        <div class="fw-bold" style="font-size:1.2rem">
           <span class="{% if m_profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
             {% if m_profit >= 0 %}+{% endif %}{{ m_profit | isk }}
           </span>
+          {% if result.revenue and result.revenue > 0 %}
+          <span class="fw-normal ms-2" style="font-size:.8rem;color:{% if m_profit >= 0 %}#3fb950{% else %}#f85149{% endif %}">
+            ({% if m_profit >= 0 %}+{% endif %}{{ ((m_profit / result.revenue) * 100) | round(1) }}%)
+          </span>
+          {% endif %}
         </div>
       </div>
       {% endif %}
@@ -468,6 +473,11 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
           <span class="{% if s_profit >= 0 %}text-profit{% else %}text-loss{% endif %}">
             {% if s_profit >= 0 %}+{% endif %}{{ s_profit | isk }}
           </span>
+          {% if result.revenue and result.revenue > 0 %}
+          <span class="fw-normal ms-2" style="font-size:.8rem;color:{% if s_profit >= 0 %}#3fb950{% else %}#f85149{% endif %}">
+            ({% if s_profit >= 0 %}+{% endif %}{{ ((s_profit / result.revenue) * 100) | round(1) }}%)
+          </span>
+          {% endif %}
         </div>
       </div>
       {% endif %}

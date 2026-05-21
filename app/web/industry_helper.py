@@ -185,6 +185,7 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
         cats.add("REACT_ANY")
 
     # === Structures (Upwell + starbase + deployables) ===
+    # group 763 = "Nanofiber Internal Structure" is a ship module, not a structure
     elif (group_id in (365, 397, 404, 413, 438, 444, 471, 815, 838, 839, 1106, 1404,
                        1406, 1657, 1287, 1408, 4744, 4736, 1012, 365, 311, 363,
                        1106, 815, 1322, 1415, 1430, 1321, 1106, 4810)
@@ -192,7 +193,7 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
           or "engineering complex" in n or "upwell" in n or "control tower" in n
           or "sovereignty hub" in n or "infrastructure hub" in n
           or n.startswith("mobile ") or "deployable" in n
-          or "service module" in n or "claim unit" in n):
+          or "service module" in n or "claim unit" in n) and group_id != 763:
         cats.add("STRUCTURE")
         cats.add("STRUCTURE_OR_COMPONENT")
 
@@ -203,6 +204,7 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
           or group_id in (1232, 1233, 1234, 1308)  # More rig groups
           # Drone modules (ship modules that affect drones, not actual drones)
           or group_id in (644, 645, 646, 647, 1292)
+          or group_id == 763                        # Nanofiber Internal Structure (ship module)
           # Empirically verified Equipment groups via EVE Ref API
           or group_id in (
               1154,  # Signature Suppressor
@@ -737,12 +739,12 @@ async def derive_facility_tax(
     kde SCC = 0.04 (State Compensation Commission surcharge, zvýšen 1. 2. 2024).
 
     Spolehlivost:
-    - Používá POUZE joby spuštěné PO posledním downtimeu (SCI epoch shoda → přesné).
-    - Pokud žádný takový job neexistuje, vrátí naposledy uložený výsledek z cache
-      (facility tax se mění zřídka, uložená hodnota je obvykle stále správná).
-    - Pokud cache je prázdná, vrátí None → uživatel zadá ručně.
+    - Preferuje joby ze stejného SCI epochu (spuštěné po posledním downtimeu).
+    - Pokud žádný takový job neexistuje, zkusí joby za posledních 7 dní (SCI
+      aproximováno aktuální hodnotou — drobná nepřesnost, ale lepší než None).
+    - Pokud cache je prázdná a žádné joby nejsou, vrátí None → uživatel zadá ručně.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime, timezone, timedelta
     ensure_industry_tables(conn)
 
     # Čerstvá cache < 6 hodin → rovnou vrátit
@@ -769,21 +771,24 @@ async def derive_facility_tax(
         return cached[0] if cached else None
 
     ACTIVITY_MAP = {1: "manufacturing", 9: "reaction"}
-    last_dt = _last_downtime()
+    last_dt   = _last_downtime()
+    week_ago  = datetime.now(timezone.utc) - timedelta(days=7)
 
-    # Pouze joby ze stejného SCI epochu (spuštěné po posledním downtimeu)
-    epoch_jobs = [
-        j for j in all_jobs
-        if j.get("facility_id") == facility_id
-        and j.get("activity_id") in ACTIVITY_MAP
-        and (j.get("cost") or 0) > 0
-        and datetime.fromisoformat(
-            j["start_date"].replace("Z", "+00:00")
-        ) >= last_dt
-    ]
+    def _filter_jobs(since_dt):
+        return [
+            j for j in all_jobs
+            if j.get("facility_id") == facility_id
+            and j.get("activity_id") in ACTIVITY_MAP
+            and (j.get("cost") or 0) > 0
+            and datetime.fromisoformat(
+                j["start_date"].replace("Z", "+00:00")
+            ) >= since_dt
+        ]
+
+    # Preferuj joby ze stejného SCI epochu; fallback na 7 dní
+    epoch_jobs = _filter_jobs(last_dt) or _filter_jobs(week_ago)
 
     if not epoch_jobs:
-        # Žádný job ze stejného SCI epochu → vrátit stale cache (facility tax se nemění)
         return cached[0] if cached else None
 
     adj_prices = await get_adjusted_prices(conn)
