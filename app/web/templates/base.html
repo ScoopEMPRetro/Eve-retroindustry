@@ -117,19 +117,66 @@
           <a class="nav-link {% if request.url.path == '/about' %}active{% endif %}"
              href="/about" style="font-size:.85rem;opacity:.7">About</a>
         </li>
-        {% if character %}
-        <li class="nav-item d-flex align-items-center gap-2">
-          <img src="https://images.evetech.net/characters/{{ character[0] }}/portrait?size=32"
-               width="24" height="24" class="rounded-circle" style="opacity:.85">
-          <span class="text-muted small">{{ character[1] }}</span>
+
+        {% if all_characters %}
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle d-flex align-items-center gap-2" href="#"
+             data-bs-toggle="dropdown" aria-expanded="false"
+             style="padding:.25rem .5rem;border:1px solid #30363d;border-radius:.375rem">
+            {% if character %}
+            <img src="https://images.evetech.net/characters/{{ character[0] }}/portrait?size=32"
+                 width="24" height="24" class="rounded-circle" style="opacity:.9">
+            <span class="small">{{ character[1] }}</span>
+            {% else %}
+            <i class="bi bi-person-circle"></i>
+            <span class="small text-muted">Select character…</span>
+            {% endif %}
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end shadow"
+              style="background:#161b22;border-color:#30363d;min-width:240px">
+            <li><h6 class="dropdown-header text-muted" style="font-size:.7rem;letter-spacing:.06em">CHARACTERS</h6></li>
+            {% for c in all_characters %}
+            <li>
+              <a href="#" class="dropdown-item d-flex align-items-center gap-2 py-2"
+                 onclick="setActiveChar({{ c[0] }})"
+                 style="color:#e6edf3">
+                <img src="https://images.evetech.net/characters/{{ c[0] }}/portrait?size=32"
+                     width="28" height="28" class="rounded-circle">
+                <span class="flex-grow-1">{{ c[1] }}</span>
+                {% if active_char_id == c[0] %}
+                <i class="bi bi-check-lg text-success"></i>
+                {% endif %}
+                <button class="btn btn-sm btn-link text-danger p-0 ms-1"
+                        onclick="event.stopPropagation();removeChar({{ c[0] }}, '{{ c[1] }}')"
+                        title="Remove character" style="font-size:.85rem">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </a>
+            </li>
+            {% endfor %}
+            <li><hr class="dropdown-divider" style="border-color:#30363d"></li>
+            <li>
+              <a href="/auth/login" class="dropdown-item py-2" style="color:#e3b341">
+                <i class="bi bi-plus-lg me-2"></i>Add Character
+              </a>
+            </li>
+            {% if character %}
+            <li>
+              <a href="/auth/login" class="dropdown-item py-2" style="color:#8b949e"
+                 title="Re-authenticate to refresh scopes/token">
+                <i class="bi bi-arrow-clockwise me-2"></i>Re-authenticate {{ character[1] }}
+              </a>
+            </li>
+            {% endif %}
+          </ul>
         </li>
-        {% endif %}
+        {% else %}
         <li class="nav-item">
-          <a href="/auth/login" class="btn btn-sm btn-eve"
-             title="{% if character %}Re-authenticate (refresh token/scope){% else %}Log In via EVE SSO{% endif %}">
-            <i class="bi bi-person-lock me-1"></i>{% if character %}Re-authenticate{% else %}Log In{% endif %}
+          <a href="/auth/login" class="btn btn-sm btn-eve" title="Log In via EVE SSO">
+            <i class="bi bi-person-lock me-1"></i>Log In
           </a>
         </li>
+        {% endif %}
       </ul>
     </div>
   </div>
@@ -141,6 +188,17 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<script>
+async function setActiveChar(charId) {
+  const r = await fetch(`/api/characters/${charId}/activate`, {method: 'POST'});
+  if (r.ok) location.reload();
+}
+async function removeChar(charId, name) {
+  if (!confirm(`Remove character "${name}"? Cached blueprints/assets/skills will be deleted.`)) return;
+  const r = await fetch(`/api/characters/${charId}`, {method: 'DELETE'});
+  if (r.ok) location.reload();
+}
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -9,9 +9,11 @@ Flow:
   4. Vyměň code + verifier za tokeny
   5. Ulož tokeny
 """
+import os
 import secrets
 import hashlib
 import base64
+import sqlite3
 import webbrowser
 import threading
 import urllib.parse
@@ -21,7 +23,17 @@ import httpx
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from rich.console import Console
 
-from app.auth.token_store import save_tokens, save_client_id, get_client_id
+from app.auth.token_store import (
+    save_tokens, save_client_id, get_client_id, ensure_characters_table,
+)
+
+
+def _open_conn() -> sqlite3.Connection:
+    """Open a fresh SQLite connection to the app DB (used from OAuth callback thread)."""
+    app_dir = os.environ.get("EVE_APP_DIR") or os.path.join(
+        os.path.dirname(__file__), "..", ".."
+    )
+    return sqlite3.connect(os.path.join(app_dir, "eve_cache.db"))
 
 _login_lock = threading.Lock()
 
@@ -198,7 +210,12 @@ def login(client_id: str | None = None) -> bool:
         console.print("[red]Nepodařilo se dekódovat JWT token.[/]")
         return False
 
-    save_tokens(access_token, refresh_token, expires_in, character_id, character_name)
+    conn = _open_conn()
+    try:
+        ensure_characters_table(conn)
+        save_tokens(conn, access_token, refresh_token, expires_in, character_id, character_name)
+    finally:
+        conn.close()
     console.print(f"[bold green]Přihlášen jako: {character_name} (ID: {character_id})[/]")
     return True
 
@@ -258,7 +275,16 @@ def start_web_login() -> str | None:
             sub = payload.get("sub", "")
             character_id   = int(sub.split(":")[-1])
             character_name = payload.get("name", "Unknown")
-            save_tokens(data["access_token"], data["refresh_token"], data.get("expires_in", 1200), character_id, character_name)
+            conn = _open_conn()
+            try:
+                ensure_characters_table(conn)
+                save_tokens(
+                    conn,
+                    data["access_token"], data["refresh_token"],
+                    data.get("expires_in", 1200), character_id, character_name,
+                )
+            finally:
+                conn.close()
         finally:
             _login_lock.release()
 

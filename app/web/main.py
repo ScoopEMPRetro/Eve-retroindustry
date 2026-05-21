@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.2.14"
+APP_VERSION = "0.3.0"
 
 import asyncio
 import datetime
@@ -16,7 +16,16 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from app.auth.token_store import get_valid_token, get_character, is_logged_in
+from app.auth.token_store import (
+    ensure_characters_table,
+    list_characters,
+    has_any_character,
+    get_character_row,
+    get_valid_token as _get_valid_token_for,
+    delete_character,
+    update_corporation_id,
+    update_last_sync,
+)
 from app.auth.esi_oauth import start_web_login
 from app.character.blueprints import fetch_blueprints, ensure_bp_table
 from app.character.assets import (
@@ -156,7 +165,15 @@ templates.env.filters["format_date"] = _format_date
 
 def _tr(name: str, request: Request, context: dict) -> HTMLResponse:
     """Starlette nové API: request jako první argument."""
-    context.setdefault("character", get_character())
+    conn = get_conn()
+    try:
+        active = get_active_character(request, conn)
+        all_chars = list_characters(conn)
+    finally:
+        conn.close()
+    context.setdefault("character", active)
+    context.setdefault("all_characters", all_chars)
+    context.setdefault("active_char_id", active[0] if active else None)
     return templates.TemplateResponse(request, name, context)
 
 
@@ -228,6 +245,7 @@ def get_conn() -> sqlite3.Connection:
     ensure_location_name_table(conn)
     ensure_industry_tables(conn)
     ensure_project_tables(conn)
+    ensure_characters_table(conn)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sde_groups (
             group_id INTEGER PRIMARY KEY,
@@ -236,6 +254,79 @@ def get_conn() -> sqlite3.Connection:
     """)
     conn.commit()
     return conn
+
+
+# ---------------------------------------------------------------------------
+# Active character helpers (cookie-based)
+# ---------------------------------------------------------------------------
+
+ACTIVE_COOKIE = "active_char"
+
+
+def get_active_character_id(request: Request, conn: sqlite3.Connection | None = None) -> int | None:
+    """Return the active character id from cookie, or fall back to first char in DB."""
+    cookie = request.cookies.get(ACTIVE_COOKIE) if request else None
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        if cookie:
+            try:
+                cid = int(cookie)
+            except ValueError:
+                cid = None
+            if cid and get_character_row(conn, cid):
+                return cid
+        chars = list_characters(conn)
+        return chars[0][0] if chars else None
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def get_active_character(request: Request, conn: sqlite3.Connection | None = None) -> tuple[int, str] | None:
+    """Return (char_id, char_name) for the active character, or None."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        cid = get_active_character_id(request, conn)
+        if cid is None:
+            return None
+        row = get_character_row(conn, cid)
+        if row:
+            return (row["character_id"], row["character_name"])
+        return None
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def get_active_token(request: Request, conn: sqlite3.Connection | None = None) -> str | None:
+    """Return a fresh access token for the active character."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        cid = get_active_character_id(request, conn)
+        if cid is None:
+            return None
+        return _get_valid_token_for(conn, cid)
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def get_token_for(character_id: int, conn: sqlite3.Connection | None = None) -> str | None:
+    """Return a fresh access token for a specific character."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        return _get_valid_token_for(conn, character_id)
+    finally:
+        if own_conn:
+            conn.close()
 
 
 def _science_skill_mult(
@@ -403,28 +494,40 @@ async def auth_login():
 
 
 async def _bg_initial_sync():
-    """Fetch blueprints + personal + corp assets from ESI after login."""
+    """Fetch blueprints + personal + corp assets from ESI for every known char."""
     try:
-        token = get_valid_token()
-        char = get_character()
-        if not token or not char:
-            return
-        char_id, _ = char
         conn = get_conn()
-        async with httpx.AsyncClient() as client:
-            await fetch_blueprints(client, char_id, token, conn)
-            all_assets = await fetch_assets(client, char_id, token, conn)
-            await fetch_skills(client, char_id, token, conn)
-            try:
-                _, corp_assets = await fetch_corp_assets(client, char_id, token, conn)
-            except Exception:
-                corp_assets = []
+        chars = list_characters(conn)
+        if not chars:
+            return
 
-        personal_loc_ids = {a.location_id for a in all_assets}
-        corp_loc_ids = {a.location_id for a in corp_assets} - personal_loc_ids
-        all_loc_ids = list(personal_loc_ids | corp_loc_ids)
-        if all_loc_ids:
-            await resolve_station_names_bulk(all_loc_ids, token=token, conn=conn)
+        all_loc_ids: set[int] = set()
+        any_token: str | None = None
+
+        async with httpx.AsyncClient() as client:
+            for char_id, _name in chars:
+                token = _get_valid_token_for(conn, char_id)
+                if not token:
+                    continue
+                any_token = token
+                try:
+                    await fetch_blueprints(client, char_id, token, conn)
+                    personal = await fetch_assets(client, char_id, token, conn)
+                    await fetch_skills(client, char_id, token, conn)
+                    try:
+                        corp_id, corp = await fetch_corp_assets(client, char_id, token, conn)
+                        if corp_id:
+                            update_corporation_id(conn, char_id, corp_id)
+                    except Exception:
+                        corp = []
+                    all_loc_ids |= {a.location_id for a in personal}
+                    all_loc_ids |= {a.location_id for a in corp}
+                    update_last_sync(conn, char_id)
+                except Exception:
+                    continue
+
+        if all_loc_ids and any_token:
+            await resolve_station_names_bulk(list(all_loc_ids), token=any_token, conn=conn)
 
         conn.close()
     finally:
@@ -434,8 +537,12 @@ async def _bg_initial_sync():
 
 @app.get("/auth/sync", response_class=HTMLResponse)
 async def auth_sync(request: Request):
-    if not is_logged_in():
-        return RedirectResponse("/")
+    conn = get_conn()
+    try:
+        if not has_any_character(conn):
+            return RedirectResponse("/")
+    finally:
+        conn.close()
     if not _sync_state["running"] and not _sync_state["done"]:
         _sync_state["running"] = True
         _sync_state["done"] = False
@@ -446,6 +553,51 @@ async def auth_sync(request: Request):
 @app.get("/api/sync-status")
 async def api_sync_status():
     return {"done": _sync_state["done"], "running": _sync_state["running"]}
+
+
+# ---------------------------------------------------------------------------
+# Multi-character management endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/characters/{char_id}/activate")
+async def api_activate_character(char_id: int):
+    """Set active_char cookie."""
+    from fastapi.responses import JSONResponse
+    conn = get_conn()
+    try:
+        if not get_character_row(conn, char_id):
+            return JSONResponse({"ok": False, "error": "Unknown character"}, status_code=404)
+    finally:
+        conn.close()
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(ACTIVE_COOKIE, str(char_id), max_age=60 * 60 * 24 * 365, samesite="lax")
+    return resp
+
+
+@app.delete("/api/characters/{char_id}")
+async def api_delete_character(request: Request, char_id: int):
+    """Remove a character (and its cached data)."""
+    from fastapi.responses import JSONResponse
+    conn = get_conn()
+    try:
+        delete_character(conn, char_id)
+    finally:
+        conn.close()
+    resp = JSONResponse({"ok": True})
+    if request.cookies.get(ACTIVE_COOKIE) == str(char_id):
+        resp.delete_cookie(ACTIVE_COOKIE)
+    return resp
+
+
+@app.post("/api/sync/start")
+async def api_sync_start():
+    """Manually trigger an ESI sync for all characters."""
+    if _sync_state["running"]:
+        return {"ok": False, "error": "Already running"}
+    _sync_state["running"] = True
+    _sync_state["done"] = False
+    asyncio.create_task(_bg_initial_sync())
+    return {"ok": True}
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -475,15 +627,15 @@ async def api_save_client_id(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    logged_in = is_logged_in()
+    conn = get_conn()
+    logged_in = has_any_character(conn)
     char_name = char_id = None
     bp_count = asset_locations = 0
     total_assets_value = None
     price_stats = {}
 
-    conn = get_conn()
     if logged_in:
-        char = get_character()
+        char = get_active_character(request, conn)
         if char:
             char_id, char_name = char
 
@@ -530,20 +682,29 @@ async def dashboard(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/plan", response_class=HTMLResponse)
-async def plan_form(request: Request):
+async def plan_form(request: Request, char: str = ""):
     conn = get_conn()
-    char = get_character()
-    token = get_valid_token()
+    # Determine which character drives the form (URL ?char= overrides active cookie)
+    plan_char_id: int | None = None
+    if char.isdigit():
+        plan_char_id = int(char)
+        if not get_character_row(conn, plan_char_id):
+            plan_char_id = None
+    if plan_char_id is None:
+        plan_char_id = get_active_character_id(request, conn)
+    char_row = get_character_row(conn, plan_char_id) if plan_char_id else None
+    token = _get_valid_token_for(conn, plan_char_id) if plan_char_id else None
+
     location_ids = []
     char_skills: dict[int, int] = {}
-    if char:
-        raw = _load_assets_from_cache(conn, char[0])
+    if char_row:
+        raw = _load_assets_from_cache(conn, char_row["character_id"])
         location_ids = sorted({a["location_id"] for a in raw if not a.get("is_singleton", False)})
         if token:
             async with httpx.AsyncClient() as client:
-                char_skills = await fetch_skills(client, char[0], token, conn)
+                char_skills = await fetch_skills(client, char_row["character_id"], token, conn)
         else:
-            char_skills = get_cached_skills(conn, char[0])
+            char_skills = get_cached_skills(conn, char_row["character_id"])
     product_param = request.query_params.get("product", "")
     if product_param.strip().isdigit():
         row = conn.execute("SELECT name FROM sde_types WHERE type_id=?", (int(product_param),)).fetchone()
@@ -557,6 +718,7 @@ async def plan_form(request: Request):
         "form_product": product_param,
         "form_industry":     str(char_skills.get(3380, 0)),
         "form_adv_industry": str(char_skills.get(3388, 0)),
+        "plan_char_id": plan_char_id,
     })
 
 
@@ -577,10 +739,19 @@ async def plan_result(
     selling_station: int = Form(0),
     form_industry: str = Form("0"),
     form_adv_industry: str = Form("0"),
+    plan_char_id: str = Form(""),
 ):
     conn = get_conn()
     error = None
     plan_data = None
+    # Resolve plan character from form, fall back to active char.
+    plan_char_id_int: int | None = None
+    if plan_char_id.strip().isdigit():
+        candidate = int(plan_char_id.strip())
+        if get_character_row(conn, candidate):
+            plan_char_id_int = candidate
+    if plan_char_id_int is None:
+        plan_char_id_int = get_active_character_id(request, conn)
 
     # Převeď ME/TE na int pokud zadány
     me_override: int | None = int(form_me) if form_me.strip().isdigit() else None
@@ -606,10 +777,13 @@ async def plan_result(
     # se počítá ze station_rigs v get_station_me_multiplier.
 
     try:
-        token = get_valid_token()
-        char = get_character()
-        if not token or not char:
+        if plan_char_id_int is None:
             raise ValueError("Nejsi přihlášen.")
+        token = _get_valid_token_for(conn, plan_char_id_int)
+        row = get_character_row(conn, plan_char_id_int)
+        if not token or not row:
+            raise ValueError("Nejsi přihlášen.")
+        char = (row["character_id"], row["character_name"])
         char_id, _ = char
 
         async with httpx.AsyncClient() as client:
@@ -848,10 +1022,10 @@ async def plan_result(
     except Exception as e:
         error = str(e)
 
-    char2 = get_character()
+    # Use the plan character (not the active cookie) for the location dropdown
     location_ids = []
-    if char2:
-        raw = _load_assets_from_cache(conn, char2[0])
+    if plan_char_id_int:
+        raw = _load_assets_from_cache(conn, plan_char_id_int)
         location_ids = sorted({a["location_id"] for a in raw if not a.get("is_singleton", False)})
 
     # Načti jméno stanice pro zobrazení ve formuláři
@@ -896,6 +1070,7 @@ async def plan_result(
         "form_selling_station_name": selling_station_name if selling_station else "",
         "form_industry":     form_industry,
         "form_adv_industry": form_adv_industry,
+        "plan_char_id":      plan_char_id_int,
     })
 
 
@@ -1052,44 +1227,67 @@ def _plan_to_dict(plan, prices, type_name: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @app.get("/assets", response_class=HTMLResponse)
-async def assets_page(request: Request, search: str = ""):
+async def assets_page(request: Request, search: str = "", view: str = ""):
     conn = get_conn()
-    token = get_valid_token()
-    char = get_character()
+    all_chars = list_characters(conn)
     stations: list[dict] = []
     corp_stations: list[dict] = []
 
-    if char and token:
-        char_id, _ = char
+    # Resolve which characters to load:
+    #   view=all       → every char
+    #   view=<id>      → that char
+    #   view empty     → active char (cookie / first char)
+    selected_chars: list[tuple[int, str]] = []
+    if view == "all":
+        selected_chars = list(all_chars)
+    elif view.isdigit():
+        cid = int(view)
+        match = next((c for c in all_chars if c[0] == cid), None)
+        if match:
+            selected_chars = [match]
+    if not selected_chars:
+        active = get_active_character(request, conn)
+        if active:
+            selected_chars = [active]
+
+    show_char_badge = view == "all" and len(all_chars) > 1
+
+    # Per-char fetch (uses cache; ESI refresh only when stale)
+    char_assets: dict[int, list] = {}            # char_id → personal assets list
+    corp_data: dict[int, tuple[int, list]] = {}  # char_id → (corp_id, assets list)
+    primary_token: str | None = None
+    if selected_chars:
         async with httpx.AsyncClient() as client:
-            all_assets = await fetch_assets(client, char_id, token, conn)
-            try:
-                corp_id, corp_assets_list = await fetch_corp_assets(client, char_id, token, conn)
-            except Exception:
-                corp_id, corp_assets_list = 0, []
-            all_type_ids_for_names = list(
-                {a.type_id for a in all_assets} | {a.type_id for a in corp_assets_list}
-            )
-            names = await resolve_names_bulk(conn, all_type_ids_for_names, client)
+            for cid, _name in selected_chars:
+                tok = _get_valid_token_for(conn, cid)
+                if not tok:
+                    continue
+                primary_token = primary_token or tok
+                try:
+                    char_assets[cid] = await fetch_assets(client, cid, tok, conn)
+                except Exception:
+                    char_assets[cid] = []
+                try:
+                    corp_id, corp_list = await fetch_corp_assets(client, cid, tok, conn)
+                    if corp_id:
+                        update_corporation_id(conn, cid, corp_id)
+                    corp_data[cid] = (corp_id, corp_list)
+                except Exception:
+                    corp_data[cid] = (0, [])
 
-        # ── Personal assets ─────────────────────────────────────────────────
-        parent_map: dict[int, int] = {a.item_id: a.location_id for a in all_assets}
-        asset_item_ids = {a.item_id for a in all_assets}
+            all_type_ids_for_names = set()
+            for assets in char_assets.values():
+                all_type_ids_for_names |= {a.type_id for a in assets}
+            for _, corp_list in corp_data.values():
+                all_type_ids_for_names |= {a.type_id for a in corp_list}
+            names = await resolve_names_bulk(conn, list(all_type_ids_for_names), client)
+    else:
+        names = {}
 
-        def _hierarchy(a) -> tuple[int, int | None]:
-            loc = a.location_id
-            if loc not in asset_item_ids:
-                return loc, None
-            container_id = loc
-            cur = loc
-            seen: set[int] = set()
-            while cur in asset_item_ids and cur not in seen:
-                seen.add(cur)
-                cur = parent_map.get(cur, cur)
-                if cur not in asset_item_ids:
-                    break
-            return cur, container_id
+    if selected_chars:
+        char_name_by_id = {cid: name for cid, name in all_chars}
 
+        # ── Personal assets across all selected characters ────────────────
         station_data: dict[int, dict] = {}
 
         def _get_st(sid: int) -> dict:
@@ -1097,22 +1295,63 @@ async def assets_page(request: Request, search: str = ""):
                 station_data[sid] = {"hangar": {}, "containers": {}}
             return station_data[sid]
 
-        for a in all_assets:
-            item_name = names.get(a.type_id, f"Unknown ({a.type_id})")
-            if search and search.lower() not in item_name.lower():
-                continue
-            sid, cid = _hierarchy(a)
-            st = _get_st(sid)
-            bucket = st["hangar"] if cid is None else st["containers"].setdefault(cid, {})
-            if a.type_id in bucket:
-                bucket[a.type_id]["quantity"] += a.quantity
-            else:
-                bucket[a.type_id] = {
-                    "type_id": a.type_id,
-                    "name": item_name,
-                    "quantity": a.quantity,
-                    "is_blueprint_copy": a.is_blueprint_copy,
-                }
+        # Build a per-char parent_map so container hierarchy resolves correctly
+        for owner_id, assets_list in char_assets.items():
+            parent_map = {a.item_id: a.location_id for a in assets_list}
+            asset_item_ids = {a.item_id for a in assets_list}
+
+            def _hierarchy(a, _items=asset_item_ids, _parents=parent_map) -> tuple[int, int | None]:
+                loc = a.location_id
+                if loc not in _items:
+                    return loc, None
+                container_id = loc
+                cur = loc
+                seen: set[int] = set()
+                while cur in _items and cur not in seen:
+                    seen.add(cur)
+                    cur = _parents.get(cur, cur)
+                    if cur not in _items:
+                        break
+                return cur, container_id
+
+            owner_name = char_name_by_id.get(owner_id, "")
+            for a in assets_list:
+                item_name = names.get(a.type_id, f"Unknown ({a.type_id})")
+                if search and search.lower() not in item_name.lower():
+                    continue
+                sid, cid = _hierarchy(a)
+                st = _get_st(sid)
+                bucket = st["hangar"] if cid is None else st["containers"].setdefault(cid, {})
+                # Key by (type_id, owner) so different chars stay separate
+                key = (a.type_id, owner_id)
+                if key in bucket:
+                    bucket[key]["quantity"] += a.quantity
+                else:
+                    bucket[key] = {
+                        "type_id": a.type_id,
+                        "name": item_name,
+                        "quantity": a.quantity,
+                        "is_blueprint_copy": a.is_blueprint_copy,
+                        "character_id": owner_id,
+                        "character_name": owner_name,
+                    }
+
+        # Pick a primary char_id for legacy container-name lookups
+        char_id = selected_chars[0][0]
+        token = primary_token
+        # corp_id / corp_assets_list — for single-char view, mirror legacy path;
+        # for "all" mode, aggregate distinct corps
+        if len(selected_chars) == 1:
+            corp_id, corp_assets_list = corp_data.get(char_id, (0, []))
+        else:
+            corp_id = 0
+            corp_assets_list = []
+            seen_corp_ids: set[int] = set()
+            for cid_corp, c_list in corp_data.values():
+                if cid_corp and cid_corp not in seen_corp_ids:
+                    seen_corp_ids.add(cid_corp)
+                    corp_assets_list = corp_assets_list + c_list
+            corp_id = next(iter(seen_corp_ids), 0)
 
         # ── Corporate assets ─────────────────────────────────────────────────
         # station_id → {div_flag → {"hangar": {type_id: item}, "containers": {cid: {type_id: item}}}}
@@ -1170,16 +1409,15 @@ async def assets_page(request: Request, search: str = ""):
                     }
 
         # ── Prices (shared for both personal and corp) ───────────────────────
-        all_price_ids = list({
-            tid
-            for sd in station_data.values()
-            for tid in list(sd["hangar"]) + [t for c in sd["containers"].values() for t in c]
-        } | {
-            tid
-            for sid_data in corp_sd.values()
-            for dv in sid_data.values()
-            for tid in list(dv["hangar"]) + [t for c in dv["containers"].values() for t in c]
-        })
+        all_price_ids: set[int] = set()
+        for sd in station_data.values():
+            for bucket in [sd["hangar"], *sd["containers"].values()]:
+                all_price_ids |= {item["type_id"] for item in bucket.values()}
+        for sid_data in corp_sd.values():
+            for dv in sid_data.values():
+                for bucket in [dv["hangar"], *dv["containers"].values()]:
+                    all_price_ids |= {item["type_id"] for item in bucket.values()}
+        all_price_ids = list(all_price_ids)
         prices = await get_prices_for_ids(conn, all_price_ids)
 
         def _add_prices(bucket: dict):
@@ -1214,10 +1452,29 @@ async def assets_page(request: Request, search: str = ""):
 
         # ── Build personal stations ──────────────────────────────────────────
         all_container_ids = [cid for sd in station_data.values() for cid in sd["containers"]]
-        assets_raw = _load_assets_from_cache(conn, char_id)
-        container_info = await _resolve_container_names(char_id, token, all_container_ids, assets_raw) \
-            if all_container_ids else {}
-        container_type_map = {item["item_id"]: item["type_id"] for item in assets_raw}
+
+        # Aggregate assets_raw across all selected chars so container name
+        # resolution works for every owner.
+        assets_raw_by_char: dict[int, list] = {
+            cid: _load_assets_from_cache(conn, cid) for cid, _ in selected_chars
+        }
+        container_info: dict[int, tuple[str, int]] = {}
+        if all_container_ids:
+            for owner_id, _ in selected_chars:
+                tok = _get_valid_token_for(conn, owner_id)
+                if not tok:
+                    continue
+                owner_assets = assets_raw_by_char.get(owner_id, [])
+                owner_info = await _resolve_container_names(
+                    owner_id, tok, all_container_ids, owner_assets,
+                )
+                # First non-empty wins for each container
+                for k, v in owner_info.items():
+                    container_info.setdefault(k, v)
+        container_type_map: dict[int, int] = {}
+        for ar in assets_raw_by_char.values():
+            for item in ar:
+                container_type_map[item["item_id"]] = item["type_id"]
 
         def _sort_items(bucket: dict) -> list:
             return sorted(bucket.values(), key=lambda x: x["name"])
@@ -1337,18 +1594,22 @@ async def assets_page(request: Request, search: str = ""):
         "stations": stations,
         "corp_stations": corp_stations,
         "search": search,
+        "view": view or "",
+        "show_char_badge": show_char_badge,
+        "selected_chars": selected_chars,
     })
 
 
 @app.get("/api/assets/distances")
-async def assets_distances():
+async def assets_distances(request: Request):
     """Vrátí počet jumpů z aktuální pozice postavy ke každé lokaci v assets."""
-    char = get_character()
-    token = get_valid_token()
+    conn = get_conn()
+    char = get_active_character(request, conn)
+    token = get_active_token(request, conn)
     if not char or not token:
+        conn.close()
         return {"ok": False, "error": "Nepřihlášen"}
     char_id, _ = char
-    conn = get_conn()
 
     async with httpx.AsyncClient() as client:
         r = await client.get(
@@ -1503,47 +1764,90 @@ async def _resolve_container_names(
 
 
 @app.get("/blueprints", response_class=HTMLResponse)
-async def blueprints_page(request: Request, search: str = ""):
+async def blueprints_page(request: Request, search: str = "", view: str = ""):
     conn = get_conn()
-    token = get_valid_token()
-    char = get_character()
-    bp_list = []
+    all_chars = list_characters(conn)
 
-    if char and token:
-        char_id, _ = char
+    # Resolve selected character(s) — same toggle pattern as /assets
+    selected_chars: list[tuple[int, str]] = []
+    if view == "all":
+        selected_chars = list(all_chars)
+    elif view.isdigit():
+        cid = int(view)
+        match = next((c for c in all_chars if c[0] == cid), None)
+        if match:
+            selected_chars = [match]
+    if not selected_chars:
+        active = get_active_character(request, conn)
+        if active:
+            selected_chars = [active]
+    show_char_badge = view == "all" and len(all_chars) > 1
+
+    bp_list: list[dict] = []
+    bps_by_char: dict[int, list] = {}
+    primary_token: str | None = None
+    char_name_by_id = {cid: name for cid, name in all_chars}
+
+    if selected_chars:
         async with httpx.AsyncClient() as client:
-            bps = await fetch_blueprints(client, char_id, token, conn)
-            unique_ids = list({bp.type_id for bp in bps})
-            names = await resolve_names_bulk(conn, unique_ids, client)
+            all_unique_type_ids: set[int] = set()
+            for cid_sel, _name in selected_chars:
+                tok = _get_valid_token_for(conn, cid_sel)
+                if not tok:
+                    continue
+                primary_token = primary_token or tok
+                try:
+                    bps_for = await fetch_blueprints(client, cid_sel, tok, conn)
+                except Exception:
+                    bps_for = []
+                bps_by_char[cid_sel] = bps_for
+                all_unique_type_ids |= {bp.type_id for bp in bps_for}
+            names = await resolve_names_bulk(conn, list(all_unique_type_ids), client)
 
-        bp_type_ids_list = list({bp.type_id for bp in bps})
-        ph = ",".join("?" * len(bp_type_ids_list))
-        prod_rows = conn.execute(
-            f"SELECT blueprint_type_id, product_type_id FROM sde_blueprint_products"
-            f" WHERE blueprint_type_id IN ({ph}) AND activity IN ('manufacturing','reaction')",
-            bp_type_ids_list,
-        ).fetchall() if bp_type_ids_list else []
-        product_type_map = {r[0]: r[1] for r in prod_rows}
+        if all_unique_type_ids:
+            ph = ",".join("?" * len(all_unique_type_ids))
+            prod_rows = conn.execute(
+                f"SELECT blueprint_type_id, product_type_id FROM sde_blueprint_products"
+                f" WHERE blueprint_type_id IN ({ph}) AND activity IN ('manufacturing','reaction')",
+                list(all_unique_type_ids),
+            ).fetchall()
+            product_type_map = {r[0]: r[1] for r in prod_rows}
+        else:
+            product_type_map = {}
 
-        for bp in sorted(bps, key=lambda b: names.get(b.type_id, "")):
-            name = names.get(bp.type_id, f"Unknown ({bp.type_id})")
-            if search and search.lower() not in name.lower():
-                continue
-            bp_list.append({
-                "name": name,
-                "type_id": bp.type_id,
-                "product_type_id": product_type_map.get(bp.type_id, bp.type_id),
-                "is_original": bp.is_original,
-                "me": bp.material_efficiency,
-                "te": bp.time_efficiency,
-                "runs": "∞" if bp.runs == -1 else bp.runs,
-                "location_id": bp.location_id,
-            })
+        for owner_id, bps in bps_by_char.items():
+            owner_name = char_name_by_id.get(owner_id, "")
+            for bp in bps:
+                name = names.get(bp.type_id, f"Unknown ({bp.type_id})")
+                if search and search.lower() not in name.lower():
+                    continue
+                bp_list.append({
+                    "name": name,
+                    "type_id": bp.type_id,
+                    "product_type_id": product_type_map.get(bp.type_id, bp.type_id),
+                    "is_original": bp.is_original,
+                    "me": bp.material_efficiency,
+                    "te": bp.time_efficiency,
+                    "runs": "∞" if bp.runs == -1 else bp.runs,
+                    "location_id": bp.location_id,
+                    "character_id": owner_id,
+                    "character_name": owner_name,
+                })
+        bp_list.sort(key=lambda x: x["name"])
+
+    token = primary_token
+    char = selected_chars[0] if selected_chars else None
+    char_id = char[0] if char else 0
 
     from collections import defaultdict
 
-    # Rozliš kontejnery od stanic pomocí assets cache
-    assets = _load_assets_from_cache(conn, char_id if char else 0)
+    # Aggregate assets across selected chars for container detection
+    assets: list[dict] = []
+    assets_by_char: dict[int, list[dict]] = {}
+    for cid_sel, _ in selected_chars:
+        a = _load_assets_from_cache(conn, cid_sel)
+        assets_by_char[cid_sel] = a
+        assets.extend(a)
     asset_item_ids = {item["item_id"] for item in assets}
 
     all_raw_loc_ids = list({bp["location_id"] for bp in bp_list})
@@ -1553,14 +1857,22 @@ async def blueprints_page(request: Request, search: str = ""):
     # Resolvuj jména stanic
     loc_names = await resolve_station_names_bulk(structure_ids, token, conn) if structure_ids else {}
 
-    # Resolvuj jména kontejnerů + jejich parent stanice
+    # Resolvuj jména kontejnerů + jejich parent stanice (per char)
     container_info: dict[int, tuple[str, int]] = {}
-    if container_ids and token and char:
-        char_id, _ = char
-        container_info = await _resolve_container_names(char_id, token, container_ids, assets)
+    if container_ids:
+        for owner_id, _ in selected_chars:
+            tok = _get_valid_token_for(conn, owner_id)
+            if not tok:
+                continue
+            owner_assets = assets_by_char.get(owner_id, [])
+            owner_info = await _resolve_container_names(
+                owner_id, tok, container_ids, owner_assets,
+            )
+            for k, v in owner_info.items():
+                container_info.setdefault(k, v)
         parent_ids_to_resolve = list({info[1] for info in container_info.values()
                                       if info[1] not in loc_names})
-        if parent_ids_to_resolve:
+        if parent_ids_to_resolve and token:
             parent_names = await resolve_station_names_bulk(parent_ids_to_resolve, token, conn)
             loc_names.update(parent_names)
 
@@ -1606,6 +1918,8 @@ async def blueprints_page(request: Request, search: str = ""):
         "stations": stations,
         "search": search,
         "total": len(bp_list),
+        "view": view or "",
+        "show_char_badge": show_char_badge,
     })
 
 
@@ -1620,20 +1934,19 @@ async def prices_page(request: Request):
     # Default render jen relevantní podmnožinu (user assets + BPs + custom prices).
     # Plná cache má ~19k itemů → render celé tabulky = 48 MB HTML. Zbytek se
     # loaduje přes /api/prices/search na vyžádání.
-    char = get_character()
+    # Aggregate user type-IDs across ALL characters so prices page reflects every alt.
     relevant: set[int] = set()
-    if char:
-        relevant |= {a["type_id"] for a in _load_assets_from_cache(conn, char[0])}
-        relevant |= {bp["type_id"] for bp in _load_blueprints_from_cache(conn, char[0])}
-        # Také produkty vyrobitelné z user BPs (pro plánovací revenue)
-        if relevant:
-            ph = ",".join("?" * len(relevant))
-            bp_products = conn.execute(
-                f"SELECT product_type_id FROM sde_blueprint_products"
-                f" WHERE blueprint_type_id IN ({ph})",
-                tuple(relevant),
-            ).fetchall()
-            relevant |= {r[0] for r in bp_products}
+    for char_id, _name in list_characters(conn):
+        relevant |= {a["type_id"] for a in _load_assets_from_cache(conn, char_id)}
+        relevant |= {bp["type_id"] for bp in _load_blueprints_from_cache(conn, char_id)}
+    if relevant:
+        ph = ",".join("?" * len(relevant))
+        bp_products = conn.execute(
+            f"SELECT product_type_id FROM sde_blueprint_products"
+            f" WHERE blueprint_type_id IN ({ph})",
+            tuple(relevant),
+        ).fetchall()
+        relevant |= {r[0] for r in bp_products}
     items = get_all_price_items(conn, relevant_ids=relevant)
     conn.close()
     return _tr("prices.html", request, {
@@ -1645,7 +1958,7 @@ async def prices_page(request: Request):
 
 
 @app.get("/api/station-industry-info")
-async def station_industry_info(location_id: int):
+async def station_industry_info(request: Request, location_id: int):
     """
     Vrátí SCI, facility tax, ME bonus a security multiplier pro zadanou stanici/strukturu.
     Facility tax se odvozuje z nedávných jobů postavy (cost/EIV − SCI).
@@ -1669,8 +1982,8 @@ async def station_industry_info(location_id: int):
     # Odvoď facility tax z jobů postavy
     facility_tax_pct: float | None = None
     tax_auto: bool = False
-    token = get_valid_token()
-    char  = get_character()
+    token = get_active_token(request, conn)
+    char  = get_active_character(request, conn)
     if token and char:
         raw = await derive_facility_tax(conn, location_id, char[0], token)
         if raw is not None:
@@ -1727,14 +2040,14 @@ async def api_rig_types(structure_type: str = ""):
 
 
 @app.get("/api/suggest-station")
-async def suggest_station(q: str = ""):
+async def suggest_station(request: Request, q: str = ""):
     if len(q.strip()) < 2:
         return {"owned": [], "other": []}
 
     conn = get_conn()
     ensure_location_name_table(conn)
-    char = get_character()
-    token = get_valid_token()
+    char = get_active_character(request, conn)
+    token = get_active_token(request, conn)
     pattern = q.strip().lower()
 
     # Lokace kde má postava assety (osobní + korporátní)
@@ -1880,7 +2193,7 @@ async def suggest_station(q: str = ""):
 
 
 @app.post("/api/add-station")
-async def add_station(raw: str = Form(...)):
+async def add_station(request: Request, raw: str = Form(...)):
     """
     Přidá strukturu do cache. Přijímá:
     - ID struktury (číslo)
@@ -1890,7 +2203,7 @@ async def add_station(raw: str = Form(...)):
     import re
     conn = get_conn()
     ensure_location_name_table(conn)
-    token = get_valid_token()
+    token = get_active_token(request, conn)
 
     raw = raw.strip()
     structure_id: int | None = None
@@ -1969,12 +2282,13 @@ async def location_rename(request: Request):
 
 
 @app.get("/api/location/resolve")
-async def location_resolve(location_id: int):
+async def location_resolve(request: Request, location_id: int):
     """Pokusí se dohledat jméno struktury přes ESI s aktuálním tokenem."""
-    token = get_valid_token()
-    if not token:
-        return {"ok": False, "error": "Nepřihlášen"}
     conn = get_conn()
+    token = get_active_token(request, conn)
+    if not token:
+        conn.close()
+        return {"ok": False, "error": "Nepřihlášen"}
     from app.web.location_resolver import resolve_station_name, _cache
     _cache.pop(location_id, None)  # vynutí čerstvé ESI volání
     async with httpx.AsyncClient() as client:
@@ -1992,14 +2306,14 @@ async def location_resolve(location_id: int):
 
 
 @app.get("/api/my-location")
-async def my_location():
+async def my_location(request: Request):
     """Vrátí aktuální lokaci postavy (structure_id pokud je docknutá ve struktuře)."""
-    token = get_valid_token()
-    char = get_character()
-    if not token or not char:
-        return {"error": "Nepřihlášen"}
-
     conn = get_conn()
+    token = get_active_token(request, conn)
+    char = get_active_character(request, conn)
+    if not token or not char:
+        conn.close()
+        return {"error": "Nepřihlášen"}
     ensure_location_name_table(conn)
 
     try:
@@ -2063,10 +2377,10 @@ async def my_location():
 
 
 @app.get("/api/plan/fetch-sell-price")
-async def fetch_plan_sell_price(location_id: int, type_id: int):
+async def fetch_plan_sell_price(request: Request, location_id: int, type_id: int):
     """Načte best sell cenu konkrétního produktu na zadané stanici, uloží do station_volume_cache."""
-    token = get_valid_token()
     conn = get_conn()
+    token = get_active_token(request, conn)
     ensure_price_table(conn)
 
     # Zajisti přítomnost type_id v market_price_cache (fetchery to potřebují pro filtrování)
@@ -2234,12 +2548,12 @@ async def api_project_delete(project_id: int):
 
 
 @app.get("/api/suggest")
-async def suggest(q: str = ""):
+async def suggest(request: Request, q: str = ""):
     if len(q.strip()) < 2:
         return {"owned": [], "other": []}
 
     conn = get_conn()
-    char = get_character()
+    char = get_active_character(request, conn)
     pattern = f"%{q.strip().lower()}%"
     owned: list[dict] = []
     owned_product_ids: set[int] = set()
@@ -2336,12 +2650,12 @@ def _refresh_type_ids(conn) -> list[int]:
     Tradeable filter pokrývá moduly, ammo, lodě, skillbooky, struktury atd. — vše,
     co lze koupit/prodat na marketu.
     """
-    char = get_character()
+    # Aggregate type IDs across ALL characters
     asset_type_ids: set[int] = set()
     bp_type_ids: set[int] = set()
-    if char:
-        asset_type_ids = {a["type_id"] for a in _load_assets_from_cache(conn, char[0])}
-        bp_type_ids = {bp["type_id"] for bp in _load_blueprints_from_cache(conn, char[0])}
+    for char_id, _name in list_characters(conn):
+        asset_type_ids |= {a["type_id"] for a in _load_assets_from_cache(conn, char_id)}
+        bp_type_ids |= {bp["type_id"] for bp in _load_blueprints_from_cache(conn, char_id)}
     mat_ids = {r[0] for r in conn.execute(
         "SELECT DISTINCT material_type_id FROM sde_blueprint_materials"
     ).fetchall()}
@@ -2526,9 +2840,9 @@ async def api_set_custom_price(request: Request):
 async def api_station_volume(request: Request):
     body = await request.json()
     location_id = int(body["location_id"])
-    token = get_valid_token()
 
     conn = get_conn()
+    token = get_active_token(request, conn)
     ensure_price_table(conn)
 
     # Zkus cache

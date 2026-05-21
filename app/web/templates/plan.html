@@ -2,15 +2,33 @@
 {% block title %}Production Plan — EVE Retroindustry{% endblock %}
 {% block content %}
 
-<div class="row mb-4">
+<div class="row mb-4 align-items-center">
   <div class="col">
     <h4 class="mb-0"><i class="bi bi-hammer me-2 text-primary"></i>Production Plan</h4>
   </div>
+  {% if all_characters and all_characters | length > 1 %}
+  <div class="col-auto d-flex align-items-center gap-2">
+    <span class="text-muted small">Character:</span>
+    <div class="btn-group btn-group-sm" role="group">
+      {% for c in all_characters %}
+      {% set is_active = (plan_char_id or active_char_id) == c[0] %}
+      <a href="/plan?char={{ c[0] }}{% if form_product %}&product={{ form_product }}{% endif %}"
+         class="btn d-inline-flex align-items-center gap-2
+                {% if is_active %}btn-eve{% else %}btn-outline-secondary{% endif %}">
+        <img src="https://images.evetech.net/characters/{{ c[0] }}/portrait?size=32"
+             width="18" height="18" class="rounded-circle">
+        {{ c[1] }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 {# Formulář #}
 <div class="card mb-4 p-3">
   <form method="post" action="/plan" id="plan-form">
+    <input type="hidden" name="plan_char_id" value="{{ plan_char_id or active_char_id or '' }}">
 
     {# Řádek 1: Co a kolik vyrábět #}
     <div class="row g-3 align-items-end">

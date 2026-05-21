@@ -3,13 +3,14 @@
 {% block content %}
 
 {# === Makro pro tabulku blueprintů === #}
-{% macro bp_table(bps, table_id) %}
+{% macro bp_table(bps, table_id, show_badge=False) %}
 <div class="table-responsive">
   <table class="table table-hover mb-0 align-middle" id="tbl-{{ table_id }}" style="font-size:.875rem">
     <thead>
       <tr>
         <th style="width:36px"></th>
         <th>Blueprint Name</th>
+        {% if show_badge %}<th style="width:28px"></th>{% endif %}
         <th class="text-center">Type</th>
         <th class="text-center" title="Material Efficiency">ME</th>
         <th class="text-center" title="Time Efficiency">TE</th>
@@ -26,6 +27,15 @@
                onerror="this.onerror=function(){this.style.visibility='hidden'};this.src='https://images.evetech.net/types/{{ bp.type_id }}/icon?size=32'">
         </td>
         <td><span class="fw-medium">{{ bp.name }}</span></td>
+        {% if show_badge %}
+        <td>
+          {% if bp.character_id %}
+          <img src="https://images.evetech.net/characters/{{ bp.character_id }}/portrait?size=32"
+               width="20" height="20" class="rounded-circle" loading="lazy"
+               title="{{ bp.character_name }}">
+          {% endif %}
+        </td>
+        {% endif %}
         <td class="text-center">
           {% if bp.is_original %}
           <span class="badge badge-bpo">BPO</span>
@@ -67,15 +77,36 @@
   </div>
   <div class="col-auto">
     <form method="get" action="/blueprints" class="d-flex gap-2">
+      <input type="hidden" name="view" value="{{ view or '' }}">
       <input type="text" name="search" class="form-control form-control-sm" placeholder="Search…"
              value="{{ search or '' }}" style="width:200px">
       <button type="submit" class="btn btn-eve btn-sm">Filter</button>
       {% if search %}
-      <a href="/blueprints" class="btn btn-outline-secondary btn-sm">Cancel</a>
+      <a href="/blueprints{% if view %}?view={{ view }}{% endif %}" class="btn btn-outline-secondary btn-sm">Cancel</a>
       {% endif %}
     </form>
   </div>
 </div>
+
+{% if all_characters and all_characters | length > 1 %}
+<div class="mb-3 d-flex align-items-center gap-2 flex-wrap">
+  <span class="text-muted small me-1">View:</span>
+  <a href="/blueprints?view=all{% if search %}&search={{ search }}{% endif %}"
+     class="btn btn-sm {% if view == 'all' %}btn-eve{% else %}btn-outline-secondary{% endif %}">
+    <i class="bi bi-people me-1"></i>All ({{ all_characters | length }})
+  </a>
+  {% for c in all_characters %}
+  {% set is_active = view == c[0]|string or (view == '' and active_char_id == c[0]) %}
+  <a href="/blueprints?view={{ c[0] }}{% if search %}&search={{ search }}{% endif %}"
+     class="btn btn-sm d-inline-flex align-items-center gap-2
+            {% if is_active %}btn-eve{% else %}btn-outline-secondary{% endif %}">
+    <img src="https://images.evetech.net/characters/{{ c[0] }}/portrait?size=32"
+         width="18" height="18" class="rounded-circle">
+    {{ c[1] }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 
 {% if not stations %}
 <div class="alert alert-secondary">No blueprints found{% if search %} for "{{ search }}"{% endif %}.</div>
@@ -146,7 +177,7 @@
         </span>
       </div>
       <div class="collapse" id="hng-{{ sid }}">
-        {{ bp_table(station.hangar, "hangar-" ~ sid) }}
+        {{ bp_table(station.hangar, "hangar-" ~ sid, show_char_badge) }}
       </div>
     </div>
     {% endif %}
@@ -170,7 +201,7 @@
         </span>
       </div>
       <div class="collapse" id="cont-{{ ckey }}">
-        {{ bp_table(container.bps, "cont-" ~ ckey) }}
+        {{ bp_table(container.bps, "cont-" ~ ckey, show_char_badge) }}
       </div>
     </div>
     {% endfor %}
