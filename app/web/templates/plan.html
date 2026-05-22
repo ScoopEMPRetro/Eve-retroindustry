@@ -12,13 +12,13 @@
     <div class="btn-group btn-group-sm" role="group">
       {% for c in all_characters %}
       {% set is_active = (plan_char_id or active_char_id) == c[0] %}
-      <a href="/plan?char={{ c[0] }}{% if form_product %}&product={{ form_product }}{% endif %}"
-         class="btn d-inline-flex align-items-center gap-2
-                {% if is_active %}btn-eve{% else %}btn-outline-secondary{% endif %}">
+      <button type="button" onclick="switchPlanChar({{ c[0] }})"
+              class="btn d-inline-flex align-items-center gap-2
+                     {% if is_active %}btn-eve{% else %}btn-outline-secondary{% endif %}">
         <img src="https://images.evetech.net/characters/{{ c[0] }}/portrait?size=32"
              width="18" height="18" class="rounded-circle">
         {{ c[1] }}
-      </a>
+      </button>
       {% endfor %}
     </div>
   </div>
@@ -75,16 +75,16 @@
         </select>
       </div>
       <div class="col-6 col-lg-auto">
-        <label class="form-label" title="Material Efficiency override (0–10); blank = use blueprint cache">ME</label>
+        <label class="form-label" title="Material Efficiency — pre-fills from your blueprint cache when you select a product; you can override here">ME</label>
         <input type="number" name="form_me" id="me-input"
                class="form-control form-control-sm me-te-mini"
-               min="0" max="10" placeholder="auto" value="{{ form_me or '' }}">
+               min="0" max="10" placeholder="—" value="{{ form_me or '' }}">
       </div>
       <div class="col-6 col-lg-auto">
-        <label class="form-label" title="Time Efficiency override (0–20); blank = use blueprint cache">TE</label>
+        <label class="form-label" title="Time Efficiency — pre-fills from your blueprint cache when you select a product; you can override here">TE</label>
         <input type="number" name="form_te" id="te-input"
                class="form-control form-control-sm me-te-mini"
-               min="0" max="20" placeholder="auto" value="{{ form_te or '' }}">
+               min="0" max="20" placeholder="—" value="{{ form_te or '' }}">
       </div>
       <div class="col-12 col-lg-auto ms-lg-auto">
         <button type="submit" class="btn btn-eve px-4 w-100">
@@ -156,10 +156,7 @@
               <i class="bi bi-hammer me-1"></i>Mfg
             </span>
             <div>
-              <label class="form-label d-flex align-items-center gap-1">
-                Tax %
-                <span id="facility-tax-input-badge" class="badge bg-secondary" style="display:none;font-size:.55rem"></span>
-              </label>
+              <label class="form-label">Tax %</label>
               <div class="d-flex align-items-center gap-1">
                 <input type="number" name="facility_tax" id="facility-tax-input"
                        class="form-control form-control-sm" style="width:70px"
@@ -214,10 +211,7 @@
               <i class="bi bi-arrows-angle-contract me-1"></i>Rxn
             </span>
             <div>
-              <label class="form-label d-flex align-items-center gap-1">
-                Tax %
-                <span id="rxn-facility-tax-input-badge" class="badge bg-secondary" style="display:none;font-size:.55rem"></span>
-              </label>
+              <label class="form-label">Tax %</label>
               <div class="d-flex align-items-center gap-1">
                 <input type="number" name="reaction_facility_tax" id="rxn-facility-tax-input"
                        class="form-control form-control-sm" style="width:70px"
@@ -277,6 +271,25 @@ const _PLAN_DATA = {{ result | tojson }};
 const _PLAN_STATION_ID = {{ form_station or 0 }};
 const _PLAN_STATION_NAME = {{ (form_station_name or '') | tojson }};
 const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) or 0 }};
+
+// Switch character: pokud má formulář vyplněný produkt, resubmitni s novým charem
+// (zachová všechna pole). Jinak jen přejdi na čistý /plan?char=X.
+// ME/TE override mažeme — jiný char má jiné blueprinty, ať se dohledají znovu.
+function switchPlanChar(charId) {
+  const form = document.getElementById('plan-form');
+  const product = form && form.querySelector('[name=product]');
+  const charField = form && form.querySelector('[name=plan_char_id]');
+  if (form && product && product.value.trim() && charField) {
+    charField.value = String(charId);
+    const meIn = form.querySelector('#me-input');
+    const teIn = form.querySelector('#te-input');
+    if (meIn) meIn.value = '';
+    if (teIn) teIn.value = '';
+    form.submit();
+  } else {
+    window.location.href = '/plan?char=' + encodeURIComponent(charId);
+  }
+}
 </script>
 {% set full_cost = (result.fees.full_mat_cost if result.fees else result.total_buy) or 0 %}
 {# Záhlaví plánu #}
@@ -312,8 +325,16 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
       <div class="mt-1">
         <span class="badge bg-secondary">{{ result.mode }}</span>
         <span class="text-muted small ms-2">Station ID: {{ result.location_id }}</span>
-        <span class="text-muted small ms-2" title="Skill levels loaded from ESI">
-          <i class="bi bi-person-gear me-1"></i>Industry {{ form_industry or '0' }} &nbsp;·&nbsp; Adv. Industry {{ form_adv_industry or '0' }}{% if result.all_science_skills %}{% for sname, slevel, spct in result.all_science_skills %} &nbsp;·&nbsp; {{ sname }} {{ slevel }}{% endfor %}{% endif %}
+        <span class="text-muted small ms-2" title="Skill levels loaded from ESI — red = missing">
+          <i class="bi bi-person-gear me-1"></i>
+          {% set ind_have = (form_industry or '0') | int %}
+          {% set ind_req = result.industry_required or 0 %}
+          <span {% if ind_have < ind_req %}class="text-danger fw-semibold" title="Required L{{ ind_req }}, you have L{{ ind_have }}"{% endif %}>Industry {{ ind_have }}{% if ind_have < ind_req %}/{{ ind_req }}{% endif %}</span>
+          &nbsp;·&nbsp;
+          {% set aind_have = (form_adv_industry or '0') | int %}
+          {% set aind_req = result.adv_industry_required or 0 %}
+          <span {% if aind_have < aind_req %}class="text-danger fw-semibold" title="Required L{{ aind_req }}, you have L{{ aind_have }}"{% endif %}>Adv. Industry {{ aind_have }}{% if aind_have < aind_req %}/{{ aind_req }}{% endif %}</span>
+          {% if result.all_science_skills %}{% for sname, slevel, spct, sreq in result.all_science_skills %} &nbsp;·&nbsp; <span {% if slevel < sreq %}class="text-danger fw-semibold" title="Required L{{ sreq }}, you have L{{ slevel }}"{% endif %}>{{ sname }} {{ slevel }}{% if slevel < sreq %}/{{ sreq }}{% endif %}</span>{% endfor %}{% endif %}
         </span>
         {% if result.fees and result.fees.total_time %}
         <span class="badge bg-secondary ms-2" style="font-size:.7rem">
@@ -812,8 +833,12 @@ const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) o
                   <span class="text-muted" style="font-size:.7rem">({{ job.runs }} run{{ 's' if job.runs != 1 }})</span>
                   {% if job.science_skills %}
                   <span class="ms-2" style="font-size:.7rem">
-                    {% for sname, slevel, spct in job.science_skills %}
-                    <span class="badge bg-secondary" title="{{ spct }}% per level">{{ sname }} L{{ slevel }}</span>
+                    {% for sname, slevel, spct, sreq in job.science_skills %}
+                    {% if slevel < sreq %}
+                    <span class="badge bg-danger" title="MISSING — required L{{ sreq }}, you have L{{ slevel }}">{{ sname }} L{{ slevel }}/{{ sreq }}</span>
+                    {% else %}
+                    <span class="badge bg-secondary" title="{{ spct }}% per level (required L{{ sreq }})">{{ sname }} L{{ slevel }}</span>
+                    {% endif %}
                     {% endfor %}
                   </span>
                   {% endif %}
@@ -1493,34 +1518,12 @@ function _isValidStructureForPrefix(structureType, prefix) {
   return false;
 }
 
-// Načte SCI + facility tax + rig info pro stanici
+// Načte SCI + rig info pro stanici. Facility tax je vždy ruční vstup
+// (auto-detection z předchozích jobů byla nepřesná → odstraněna).
 async function loadStationInfo(locationId, { taxId, sciDivId, sciMfgId, sciRxnId, rigPrefix }) {
   try {
     const r    = await fetch(`/api/station-industry-info?location_id=${locationId}`);
     const info = await r.json();
-    const ftInput = document.getElementById(taxId);
-    if (ftInput) {
-      if (info.facility_tax_pct != null) {
-        ftInput.value = info.facility_tax_pct.toFixed(1);
-      }
-      const badge = document.getElementById(`${taxId}-badge`);
-      if (badge) {
-        if (info.tax_auto) {
-          badge.textContent = '✓ auto';
-          badge.className = 'badge bg-success';
-          badge.title = 'Derived from recent manufacturing jobs via ESI';
-        } else if (info.facility_tax_pct != null) {
-          badge.textContent = '⏱ cache';
-          badge.className = 'badge bg-secondary';
-          badge.title = 'Loaded from cache — no new jobs since last EVE downtime';
-        } else {
-          badge.textContent = '? manual';
-          badge.className = 'badge bg-warning text-dark';
-          badge.title = 'Could not derive — no jobs at this station. Enter manually.';
-        }
-        badge.style.display = '';
-      }
-    }
     const sciDiv = document.getElementById(sciDivId);
     if (sciDiv) {
       if (sciMfgId) {

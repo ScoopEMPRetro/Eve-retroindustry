@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.3.3"
+APP_VERSION = "0.3.4"
 
 import asyncio
 import datetime
@@ -59,7 +59,6 @@ from app.web.industry_helper import (
     ensure_industry_tables,
     get_adjusted_prices,
     get_sci_for_system,
-    derive_facility_tax,
     get_station_me_bonus,
     save_station_me_bonus,
     get_station_te_multiplier,
@@ -346,29 +345,35 @@ def _science_skill_mult(
     bp_type_id: int,
     activity: str,
     skills: dict[int, int],
-) -> tuple[float, list[tuple[str, int, float]]]:
-    """Vrátí (multiplier, [(skill_name, level, bonus_pct), ...]) pro science skilly blueprintu.
+) -> tuple[float, list[tuple[str, int, float, int]]]:
+    """Vrátí (multiplier, [(skill_name, char_level, bonus_pct, required_level), ...]).
 
     Každý required skill s time bonusem přispívá (1 - level * bonus_pct/100).
     Industry a AdvIndustry jsou zpracovány zvlášť — zde je přeskakujeme.
     """
     try:
         rows = conn.execute(
-            """SELECT bs.skill_type_id, st.skill_name, bs.required_level, st.time_bonus_pct
+            """SELECT bs.skill_type_id,
+                      COALESCE(st.skill_name, t.name) AS skill_name,
+                      bs.required_level,
+                      st.time_bonus_pct
                FROM sde_blueprint_skills bs
-               JOIN sde_skill_time_bonus st ON st.skill_type_id = bs.skill_type_id
-               WHERE bs.blueprint_type_id = ? AND bs.activity = ?""",
+               LEFT JOIN sde_skill_time_bonus st ON st.skill_type_id = bs.skill_type_id
+               LEFT JOIN sde_types t              ON t.type_id       = bs.skill_type_id
+               WHERE bs.blueprint_type_id = ? AND bs.activity = ?
+                 AND bs.skill_type_id NOT IN (3380, 3388)""",
             (bp_type_id, activity),
         ).fetchall()
     except Exception:
         return 1.0, []
 
     mult = 1.0
-    details: list[tuple[str, int, float]] = []
-    for skill_id, skill_name, _req_level, bonus_pct in rows:
+    details: list[tuple[str, int, float, int]] = []
+    for skill_id, skill_name, req_level, bonus_pct in rows:
         level = skills.get(skill_id, 0)
-        mult *= 1.0 - level * bonus_pct / 100
-        details.append((skill_name, level, bonus_pct))
+        if bonus_pct is not None:
+            mult *= 1.0 - level * bonus_pct / 100
+        details.append((skill_name or f"Skill {skill_id}", level, float(bonus_pct or 0), int(req_level)))
     return max(0.01, mult), details
 
 
@@ -711,7 +716,7 @@ async def dashboard(request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/plan", response_class=HTMLResponse)
-async def plan_form(request: Request, char: str = ""):
+async def plan_form(request: Request, char: str = "", station: str = ""):
     conn = get_conn()
     # Determine which character drives the form (URL ?char= overrides active cookie)
     plan_char_id: int | None = None
@@ -739,12 +744,23 @@ async def plan_form(request: Request, char: str = ""):
         row = conn.execute("SELECT name FROM sde_types WHERE type_id=?", (int(product_param),)).fetchone()
         if row:
             product_param = row[0]
+    # Preserve station when switching character
+    prefill_station = station.strip() if station.strip().isdigit() else ""
+    prefill_station_name = ""
+    if prefill_station:
+        row = conn.execute(
+            "SELECT name FROM location_name_cache WHERE location_id=?", (int(prefill_station),)
+        ).fetchone()
+        if row:
+            prefill_station_name = row[0]
     conn.close()
     return _tr("plan.html", request, {
         "locations": location_ids,
         "result": None,
         "error": None,
         "form_product": product_param,
+        "form_station": prefill_station,
+        "form_station_name": prefill_station_name,
         "form_industry":     str(char_skills.get(3380, 0)),
         "form_adv_industry": str(char_skills.get(3388, 0)),
         "plan_char_id": plan_char_id,
@@ -755,7 +771,7 @@ async def plan_form(request: Request, char: str = ""):
 async def plan_result(
     request: Request,
     product: str = Form(...),
-    station: int = Form(...),
+    station: str = Form(""),
     reaction_station: int = Form(0),
     qty: int = Form(1),
     mode: str = Form("full"),
@@ -781,6 +797,12 @@ async def plan_result(
             plan_char_id_int = candidate
     if plan_char_id_int is None:
         plan_char_id_int = get_active_character_id(request, conn)
+
+    # Parse station — friendly error místo 422 (pokud chybí, raise ValueError níže)
+    try:
+        station = int(station.strip()) if isinstance(station, str) and station.strip() else 0
+    except ValueError:
+        station = 0
 
     # Převeď ME/TE na int pokud zadány
     me_override: int | None = int(form_me) if form_me.strip().isdigit() else None
@@ -812,6 +834,8 @@ async def plan_result(
         row = get_character_row(conn, plan_char_id_int)
         if not token or not row:
             raise ValueError("Nejsi přihlášen.")
+        if not station:
+            raise ValueError("Vyber výrobní stanici.")
         char = (row["character_id"], row["character_name"])
         char_id, _ = char
 
@@ -834,6 +858,13 @@ async def plan_result(
                 fetch_assets(client, char_id, token, conn),
                 fetch_skills(client, char_id, token, conn),
             )
+
+        # Industry/AdvIndustry vždy z aktuálních char_skills (form_industry pole
+        # je hidden a může pocházet ze starého characteru při přepnutí).
+        industry_level     = max(0, min(5, int(char_skills.get(3380, 0))))
+        adv_industry_level = max(0, min(5, int(char_skills.get(3388, 0))))
+        form_industry      = str(industry_level)
+        form_adv_industry  = str(adv_industry_level)
 
         available = assets_at_location(all_assets, station)
 
@@ -1001,16 +1032,45 @@ async def plan_result(
             total_mfg_time_s += step_mfg_time
             total_rxn_time_s += step_rxn_time
 
-        # Sbírám unikátní science skilly ze všech jobů pro zobrazení v headeru
-        _seen: dict[str, tuple[int, float]] = {}
+        # Sbírám unikátní science skilly ze všech jobů pro zobrazení v headeru.
+        # Pro stejný skill napříč joby si bereme max required_level.
+        _seen: dict[str, tuple[int, float, int]] = {}
         for step in plan_data.get("manufacturing_steps", []):
             for job in step.get("jobs", []):
-                for sname, slevel, spct in job.get("science_skills", []):
-                    if sname not in _seen:
-                        _seen[sname] = (slevel, spct)
+                for sname, slevel, spct, sreq in job.get("science_skills", []):
+                    prev = _seen.get(sname)
+                    if prev is None:
+                        _seen[sname] = (slevel, spct, sreq)
+                    else:
+                        _seen[sname] = (slevel, spct, max(prev[2], sreq))
         plan_data["all_science_skills"] = [
-            (n, l, p) for n, (l, p) in sorted(_seen.items())
+            (n, l, p, r) for n, (l, p, r) in sorted(_seen.items())
         ]
+
+        # Required Industry / Adv Industry levels — max across all BPs v plánu
+        bp_ids_in_plan: set[int] = set()
+        for step in plan_data.get("manufacturing_steps", []):
+            for job in step.get("jobs", []):
+                bp_id_j = job.get("blueprint_type_id")
+                if bp_id_j:
+                    bp_ids_in_plan.add(int(bp_id_j))
+        industry_required = 0
+        adv_industry_required = 0
+        if bp_ids_in_plan:
+            ph = ",".join("?" * len(bp_ids_in_plan))
+            req_rows = conn.execute(
+                f"SELECT skill_type_id, MAX(required_level) FROM sde_blueprint_skills"
+                f" WHERE blueprint_type_id IN ({ph}) AND skill_type_id IN (3380, 3388)"
+                f" GROUP BY skill_type_id",
+                tuple(bp_ids_in_plan),
+            ).fetchall()
+            for sid, lvl in req_rows:
+                if sid == 3380:
+                    industry_required = int(lvl)
+                elif sid == 3388:
+                    adv_industry_required = int(lvl)
+        plan_data["industry_required"] = industry_required
+        plan_data["adv_industry_required"] = adv_industry_required
 
         # Tržní cena všech surovin (bez ohledu na sklad)
         full_mat_cost = sum(
@@ -1086,8 +1146,10 @@ async def plan_result(
         "form_rxn_station_name": rxn_station_name,
         "form_qty": qty,
         "form_mode": mode,
-        "form_me": str(int(me)) if me_override is not None else "",
-        "form_te": str(te) if te_override is not None else "",
+        # Po výpočtu vždy zobrazit ROOT BP ME/TE (skutečné hodnoty použité v plánu) —
+        # uživatel uvidí konkrétní číslo místo placeholderu.
+        "form_me": str(int(me)),
+        "form_te": str(int(te)),
         "form_facility_tax": facility_tax,
         "form_rxn_facility_tax": reaction_facility_tax if reaction_facility_tax.strip() else facility_tax,
         "form_facility_me_bonus": facility_me_bonus,
@@ -2008,17 +2070,8 @@ async def station_industry_info(request: Request, location_id: int):
         # mohl správně škálovat rig bonusy (×1.0 / ×1.9 / ×2.1).
         security_status = await get_security_status(conn, solar_system_id)
 
-    # Odvoď facility tax z jobů postavy
-    facility_tax_pct: float | None = None
-    tax_auto: bool = False
-    token = get_active_token(request, conn)
-    char  = get_active_character(request, conn)
-    if token and char:
-        raw = await derive_facility_tax(conn, location_id, char[0], token)
-        if raw is not None:
-            facility_tax_pct = round(raw * 100, 2)
-            tax_auto = True
-
+    # Facility tax neumíme načíst přesně z ESI (derive z průměru jobů byl nepřesný).
+    # Uživatel zadává ručně, hodnotu si může uložit jako default (localStorage).
     rig_info = get_station_rigs_full(conn, location_id)
     # ME bonus přepočítaný se security multiplierem (přepisuje stale stored value)
     me_bonus_live = get_station_me_bonus_pct(conn, location_id)
@@ -2028,8 +2081,6 @@ async def station_industry_info(request: Request, location_id: int):
         "security_status":  security_status,
         "mfg_sci":          mfg_sci,
         "rxn_sci":          rxn_sci,
-        "facility_tax_pct": facility_tax_pct,
-        "tax_auto":         tax_auto,
         "me_bonus_pct":     me_bonus_live,
         "structure_type":   rig_info["structure_type"],
         "rigs":             rig_info["rigs"],
