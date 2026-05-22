@@ -971,6 +971,9 @@ async def plan_result(
     # Převeď ME/TE na int pokud zadány
     me_override: int | None = int(form_me) if form_me.strip().isdigit() else None
     te_override: int | None = int(form_te) if form_te.strip().isdigit() else None
+    # Safe defaults — overwritten inside try block once BP is known
+    me: float = float(me_override) if me_override is not None else 0.0
+    te: int   = te_override if te_override is not None else 0
 
     def _clamp_skill(s: str, max_val: int = 5) -> int:
         try:
