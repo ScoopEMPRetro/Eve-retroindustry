@@ -54,6 +54,104 @@
       </div>
     </div>
 
+    {# Update checker #}
+    <h6 class="text-muted text-uppercase mb-2" style="font-size:.75rem;letter-spacing:.06em">
+      <i class="bi bi-cloud-download me-1"></i>Updates
+    </h6>
+    <div class="card mb-4" id="update-card">
+      <div class="card-body">
+        <div id="update-idle" class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <div>
+            <div class="fw-semibold mb-1">Check for new releases</div>
+            <div class="text-muted small">Current version: <span class="text-primary">v{{ version }}</span></div>
+          </div>
+          <button class="btn btn-sm btn-outline-secondary" onclick="checkVersion()">
+            <i class="bi bi-arrow-clockwise me-1"></i>Check
+          </button>
+        </div>
+
+        <div id="update-checking" class="d-none text-muted small">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>Checking GitHub…
+        </div>
+
+        <div id="update-uptodate" class="d-none">
+          <i class="bi bi-check-circle-fill text-success me-2"></i>
+          <span class="text-success fw-semibold">Up to date</span>
+          <span class="text-muted ms-2 small" id="uptodate-ver"></span>
+        </div>
+
+        <div id="update-available" class="d-none">
+          <div class="d-flex align-items-start justify-content-between flex-wrap gap-3">
+            <div>
+              <div class="fw-semibold mb-1" style="color:#e3b341">
+                <i class="bi bi-stars me-1"></i>New version available: <span id="update-latest-ver"></span>
+              </div>
+              <div class="text-muted small mb-2" id="update-release-name"></div>
+              <a id="update-release-url" href="#" target="_blank" rel="noopener noreferrer"
+                 class="text-muted small">
+                <i class="bi bi-box-arrow-up-right me-1"></i>View release notes
+              </a>
+            </div>
+            <div class="d-flex flex-column gap-2 align-items-end">
+              <button class="btn btn-sm btn-eve" id="update-download-btn" onclick="startDownload()">
+                <i class="bi bi-cloud-download me-1"></i>Download &amp; Prepare
+              </button>
+              <div class="text-muted" style="font-size:.72rem" id="update-bundled-note"></div>
+            </div>
+          </div>
+
+          {# Progress #}
+          <div id="update-progress" class="d-none mt-3">
+            <div class="d-flex justify-content-between small text-muted mb-1">
+              <span id="update-progress-label">Downloading…</span>
+              <span id="update-progress-pct">0%</span>
+            </div>
+            <div class="progress" style="height:6px">
+              <div id="update-progress-bar" class="progress-bar bg-warning" style="width:0%"></div>
+            </div>
+          </div>
+
+          {# Apply #}
+          <div id="update-ready" class="d-none mt-3 p-3 rounded" style="background:#1c2128;border:1px solid #3fb950">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+              <div>
+                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                <span class="fw-semibold text-success">Update ready!</span>
+                <div class="text-muted small mt-1">
+                  Files extracted. Click <strong>Apply &amp; Restart</strong> to close the app
+                  and apply the update automatically.
+                </div>
+              </div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" id="open-folder-btn" onclick="openFolder()">
+                  <i class="bi bi-folder2-open me-1"></i>Open folder
+                </button>
+                <button class="btn btn-sm btn-success" onclick="applyUpdate()">
+                  <i class="bi bi-lightning-fill me-1"></i>Apply &amp; Restart
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="update-notbundled" class="d-none mt-3 p-3 rounded" style="background:#1c2128;border:1px solid #30363d">
+            <i class="bi bi-info-circle text-muted me-2"></i>
+            <span class="text-muted small">
+              Running in dev mode — update via <code>git pull</code>.
+            </span>
+          </div>
+
+          <div id="update-error" class="d-none mt-3 text-danger small">
+            <i class="bi bi-exclamation-triangle me-1"></i><span id="update-error-msg"></span>
+          </div>
+        </div>
+
+        <div id="update-error-check" class="d-none text-danger small">
+          <i class="bi bi-exclamation-triangle me-1"></i><span id="update-error-check-msg"></span>
+          <button class="btn btn-sm btn-link text-muted ms-2 p-0" onclick="checkVersion()">Retry</button>
+        </div>
+      </div>
+    </div>
+
     {# Source code #}
     <div class="card mb-3">
       <div class="card-body py-3">
@@ -156,4 +254,104 @@ SOFTWARE.</pre>
   </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _downloadUrl = null;
+
+function _show(id) { document.getElementById(id).classList.remove('d-none'); }
+function _hide(id) { document.getElementById(id).classList.add('d-none'); }
+
+async function checkVersion() {
+  _hide('update-idle'); _hide('update-uptodate'); _hide('update-available');
+  _hide('update-error-check'); _show('update-checking');
+  try {
+    const d = await fetch('/api/version/check').then(r => r.json());
+    _hide('update-checking');
+    if (d.error) {
+      _show('update-error-check');
+      document.getElementById('update-error-check-msg').textContent = d.error;
+      return;
+    }
+    sessionStorage.setItem('versionCheck', JSON.stringify({...d, _ts: Date.now()}));
+    if (!d.has_update) {
+      _show('update-uptodate');
+      document.getElementById('uptodate-ver').textContent = `v${d.latest} is the latest`;
+    } else {
+      _applyUpdateData(d);
+    }
+  } catch(e) {
+    _hide('update-checking');
+    _show('update-error-check');
+    document.getElementById('update-error-check-msg').textContent = e.message;
+  }
+}
+
+function _applyUpdateData(d) {
+  _show('update-available');
+  document.getElementById('update-latest-ver').textContent = `v${d.latest}`;
+  document.getElementById('update-release-name').textContent = d.release_name || '';
+  document.getElementById('update-release-url').href = d.release_url || '#';
+  _downloadUrl = d.download_url;
+  if (!d.bundled) {
+    _show('update-notbundled');
+    document.getElementById('update-download-btn').style.display = 'none';
+  } else if (!d.download_url) {
+    document.getElementById('update-bundled-note').textContent = 'No binary for this platform in release';
+    document.getElementById('update-download-btn').disabled = true;
+  }
+}
+
+function startDownload() {
+  if (!_downloadUrl) return;
+  document.getElementById('update-download-btn').disabled = true;
+  _hide('update-error'); _show('update-progress');
+  const bar = document.getElementById('update-progress-bar');
+  const pct = document.getElementById('update-progress-pct');
+  const lbl = document.getElementById('update-progress-label');
+  const es = new EventSource('/api/version/download?url=' + encodeURIComponent(_downloadUrl));
+  es.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.error) {
+      es.close(); _hide('update-progress'); _show('update-error');
+      document.getElementById('update-error-msg').textContent = d.error;
+      document.getElementById('update-download-btn').disabled = false;
+      return;
+    }
+    if (d.phase === 'download') {
+      lbl.textContent = 'Downloading…';
+      bar.style.width = d.pct + '%'; pct.textContent = d.pct + '%';
+    } else if (d.phase === 'extract') {
+      lbl.textContent = 'Extracting…';
+      bar.style.width = d.pct + '%'; pct.textContent = d.pct + '%';
+    }
+    if (d.done) {
+      es.close(); _hide('update-progress'); _show('update-ready');
+    }
+  };
+  es.onerror = () => {
+    es.close(); _hide('update-progress'); _show('update-error');
+    document.getElementById('update-error-msg').textContent = 'Connection lost during download.';
+    document.getElementById('update-download-btn').disabled = false;
+  };
+}
+
+async function applyUpdate() {
+  const r = await fetch('/api/version/apply', {method: 'POST'});
+  const d = await r.json();
+  if (d.error) { alert('Error: ' + d.error); }
+}
+
+// Auto-restore cached check result (5 min TTL)
+(function() {
+  try {
+    const raw = sessionStorage.getItem('versionCheck');
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (!d._ts || Date.now() - d._ts > 5 * 60 * 1000) return;
+    if (d.has_update) { _hide('update-idle'); _applyUpdateData(d); }
+  } catch(e) {}
+})();
+</script>
 {% endblock %}

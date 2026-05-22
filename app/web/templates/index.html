@@ -2,15 +2,16 @@
 {% block title %}Dashboard — EVE Retroindustry{% endblock %}
 {% block content %}
 
-<div class="row mb-4 align-items-center">
-  <div class="col">
-    <h4 class="mb-0"><i class="bi bi-speedometer2 me-2 text-primary"></i>Dashboard</h4>
-  </div>
-  {% if char_id %}
-  <div class="col-auto d-flex align-items-center gap-2">
-    <img src="https://images.evetech.net/characters/{{ char_id }}/portrait?size=32"
-         class="rounded-circle" width="32" height="32" alt="">
-    <span class="fw-semibold">{{ char_name }}</span>
+<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+  <h4 class="mb-0"><i class="bi bi-speedometer2 me-2 text-primary"></i>Dashboard</h4>
+  {% if logged_in %}
+  <div class="d-flex gap-2">
+    <a href="/auth/login" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-plus-lg me-1"></i>Add Character
+    </a>
+    <button class="btn btn-sm btn-outline-secondary" onclick="syncAll(this)">
+      <i class="bi bi-arrow-clockwise me-1"></i>Sync All
+    </button>
   </div>
   {% endif %}
 </div>
@@ -30,73 +31,185 @@
 </div>
 {% else %}
 
+{# ── Aggregate stat row ── #}
 <div class="row g-3 mb-4 row-cols-2 row-cols-lg-5">
   <div class="col">
     <div class="card stat-card h-100 p-3">
+      <div class="text-muted small mb-1"><i class="bi bi-people me-1"></i>Characters</div>
+      <div class="fs-3 fw-bold">{{ char_cards | length }}</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="card stat-card h-100 p-3">
       <div class="text-muted small mb-1"><i class="bi bi-file-earmark-text me-1"></i>Blueprints</div>
-      <div class="fs-3 fw-bold">{{ bp_count }}</div>
-      <a href="/blueprints" class="small mt-1 d-block">View overview →</a>
+      <div class="fs-3 fw-bold">{{ agg_bps }}</div>
+      <a href="/blueprints" class="small mt-1 d-block">View →</a>
     </div>
   </div>
   <div class="col">
     <div class="card stat-card h-100 p-3">
       <div class="text-muted small mb-1"><i class="bi bi-geo-alt me-1"></i>Asset Locations</div>
-      <div class="fs-3 fw-bold">{{ asset_locations }}</div>
+      <div class="fs-3 fw-bold">{{ agg_locations }}</div>
       <a href="/assets" class="small mt-1 d-block">View assets →</a>
     </div>
   </div>
   <div class="col">
     <div class="card stat-card h-100 p-3" style="border-left-color:#e3b341">
-      <div class="text-muted small mb-1"><i class="bi bi-coin me-1"></i>Asset Value</div>
-      {% if total_assets_value %}
-      <div class="fw-bold text-isk" style="font-size:1.1rem">{{ total_assets_value | isk }}</div>
-      <div class="text-muted" style="font-size:.7rem">ISK</div>
+      <div class="text-muted small mb-1"><i class="bi bi-coin me-1"></i>Total Asset Value</div>
+      {% if agg_value %}
+      <div class="fw-bold text-isk" style="font-size:1.05rem">{{ agg_value | isk }}</div>
+      <div class="text-muted" style="font-size:.7rem">ISK (all chars)</div>
       {% else %}
       <div class="fs-4 fw-bold text-muted">—</div>
       <div class="text-muted" style="font-size:.7rem">load prices first</div>
       {% endif %}
-      <a href="/assets" class="small mt-1 d-block">Details →</a>
-    </div>
-  </div>
-  <div class="col">
-    <div class="card stat-card h-100 p-3">
-      <div class="text-muted small mb-1"><i class="bi bi-currency-exchange me-1"></i>Jita Prices Cached</div>
-      <div class="fs-3 fw-bold">{{ price_stats.get('total', 0) }}</div>
-      <span class="small text-muted">Fresh: {{ price_stats.get('fresh', 0) }}</span>
     </div>
   </div>
   <div class="col">
     <div class="card stat-card h-100 p-3" style="border-left-color:#3fb950">
-      <div class="text-muted small mb-1"><i class="bi bi-clock-history me-1"></i>Prices Last Updated</div>
+      <div class="text-muted small mb-1"><i class="bi bi-clock-history me-1"></i>Prices Updated</div>
       <div class="fw-bold mt-2" style="font-size:.9rem">{{ price_stats.get('last_update_str', 'never') }}</div>
-      <a href="/prices" class="small mt-1 d-block">Refresh prices →</a>
+      <a href="/prices" class="small mt-1 d-block">Refresh →</a>
     </div>
   </div>
 </div>
 
+{# ── Character cards ── #}
+<h6 class="text-muted text-uppercase mb-3" style="font-size:.75rem;letter-spacing:.06em">
+  <i class="bi bi-person me-1"></i>Characters
+</h6>
+<div class="row g-3 mb-4">
+  {% for c in char_cards %}
+  <div class="col-sm-6 col-xl-4">
+    <div class="card h-100" style="{% if c.is_active %}border-color:var(--eve-gold){% endif %}">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <img src="https://images.evetech.net/characters/{{ c.char_id }}/portrait?size=64"
+               width="48" height="48" class="rounded-circle" style="opacity:.9;flex-shrink:0">
+          <div class="min-w-0 flex-grow-1">
+            <div class="fw-semibold d-flex align-items-center gap-1">
+              {{ c.char_name }}
+              {% if c.is_active %}
+              <span class="badge ms-1" style="font-size:.6rem;background:var(--eve-gold);color:#0d1117">Active</span>
+              {% endif %}
+            </div>
+            {% if c.corp_name %}
+            <div class="text-muted small">{{ c.corp_name }}</div>
+            {% elif c.corp_id %}
+            <div class="text-muted small" style="font-size:.75rem">Corp {{ c.corp_id }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="row g-2 text-center mb-3">
+          <div class="col-4">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">BPs</div>
+            <div class="fw-semibold">{{ c.bp_count }}</div>
+          </div>
+          <div class="col-4">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Assets</div>
+            <div class="fw-semibold">{{ c.asset_count }}</div>
+          </div>
+          <div class="col-4">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Locations</div>
+            <div class="fw-semibold">{{ c.asset_locs }}</div>
+          </div>
+        </div>
+
+        {% if c.asset_value is not none %}
+        <div class="mb-3 p-2 rounded" style="background:#1c2128">
+          <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Asset Value</div>
+          <div class="text-isk fw-semibold">{{ c.asset_value | isk }} ISK</div>
+        </div>
+        {% endif %}
+
+        <div class="d-flex align-items-center justify-content-between">
+          {% if c.last_sync_at %}
+          <span class="text-muted" style="font-size:.72rem"
+                title="{{ c.last_sync_at | int | ts_to_str }}">
+            Synced {{ c.last_sync_at | int | ts_ago }}
+          </span>
+          {% else %}
+          <span class="text-muted" style="font-size:.72rem">Never synced</span>
+          {% endif %}
+          <div class="d-flex gap-1">
+            {% if not c.is_active %}
+            <button class="btn btn-sm btn-outline-secondary py-0 px-2"
+                    style="font-size:.75rem"
+                    onclick="setActiveChar({{ c.char_id }})">Set active</button>
+            {% endif %}
+            <a href="/auth/login" class="btn btn-sm btn-outline-secondary py-0 px-2"
+               style="font-size:.75rem" title="Re-authenticate">
+              <i class="bi bi-arrow-clockwise"></i>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── Bottom row: top locations + quick actions ── #}
 <div class="row g-3">
-  <div class="col-lg-4">
+  {% if top_locations %}
+  <div class="col-lg-5">
     <div class="card p-3 h-100">
-      <h6 class="text-muted mb-3"><i class="bi bi-hammer me-2"></i>Quick Plan</h6>
-      <p class="text-muted small">Enter a ship or component name and get an instant overview of materials and prices.</p>
-      <a href="/plan" class="btn btn-eve btn-sm mt-auto">Open Planner</a>
+      <h6 class="text-muted mb-3"><i class="bi bi-trophy me-2"></i>Top Locations by Value</h6>
+      <table class="table table-sm mb-0">
+        <tbody>
+          {% for loc in top_locations %}
+          <tr>
+            <td class="text-truncate" style="max-width:220px">{{ loc.name }}</td>
+            <td class="text-end text-isk fw-semibold text-nowrap">{{ loc.isk | isk }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
-  <div class="col-lg-4">
-    <div class="card p-3 h-100">
-      <h6 class="text-muted mb-3"><i class="bi bi-box-seam me-2"></i>Assets Overview</h6>
-      <p class="text-muted small">Browse all character inventory sorted by location.</p>
-      <a href="/assets" class="btn btn-eve btn-sm mt-auto">View Assets</a>
-    </div>
-  </div>
-  <div class="col-lg-4">
-    <div class="card p-3 h-100">
-      <h6 class="text-muted mb-3"><i class="bi bi-currency-exchange me-2"></i>Price Update</h6>
-      <p class="text-muted small">Fetch fresh Jita prices for all materials and components.</p>
-      <a href="/prices" class="btn btn-eve btn-sm mt-auto">Manage Prices</a>
+  {% endif %}
+  <div class="col-lg-{% if top_locations %}7{% else %}12{% endif %}">
+    <div class="row g-3 h-100">
+      <div class="col-sm-4">
+        <div class="card p-3 h-100">
+          <h6 class="text-muted mb-2"><i class="bi bi-hammer me-2"></i>Production Plan</h6>
+          <p class="text-muted small">Blueprint cost analysis and BOM expansion.</p>
+          <a href="/plan" class="btn btn-eve btn-sm mt-auto">Open Planner</a>
+        </div>
+      </div>
+      <div class="col-sm-4">
+        <div class="card p-3 h-100">
+          <h6 class="text-muted mb-2"><i class="bi bi-box-seam me-2"></i>Assets</h6>
+          <p class="text-muted small">Browse inventory across all characters.</p>
+          <a href="/assets" class="btn btn-eve btn-sm mt-auto">View Assets</a>
+        </div>
+      </div>
+      <div class="col-sm-4">
+        <div class="card p-3 h-100">
+          <h6 class="text-muted mb-2"><i class="bi bi-currency-exchange me-2"></i>Prices</h6>
+          <p class="text-muted small">Fetch fresh Jita market prices.</p>
+          <a href="/prices" class="btn btn-eve btn-sm mt-auto">Manage Prices</a>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function syncAll(btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Syncing…';
+  try {
+    const r = await fetch('/api/sync/start', {method: 'POST'});
+    if (r.ok) { setTimeout(() => location.reload(), 3000); return; }
+  } catch(e) {}
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Sync All';
+}
+</script>
 {% endblock %}

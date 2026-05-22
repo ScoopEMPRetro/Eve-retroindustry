@@ -67,7 +67,7 @@
   </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg navbar-dark" style="background:var(--eve-card,#161b22); border-bottom:1px solid #30363d;">
+<nav class="navbar navbar-expand-lg navbar-dark sticky-top" style="background:var(--eve-card,#161b22); border-bottom:1px solid #30363d;">
   <div class="container-fluid px-4">
     <a class="navbar-brand" href="/">
       {# EVE Retroindustry logo — hexagonal factory icon #}
@@ -115,7 +115,11 @@
       <ul class="navbar-nav ms-auto align-items-center gap-2">
         <li class="nav-item">
           <a class="nav-link {% if request.url.path == '/about' %}active{% endif %}"
-             href="/about" style="font-size:.85rem;opacity:.7">About</a>
+             href="/about" style="font-size:.85rem;opacity:.7">About
+            <span id="nav-update-dot" class="d-none ms-1 badge rounded-pill"
+                  style="font-size:.6rem;vertical-align:middle;background:#e3b341;color:#0d1117"
+                  title="Update available">&#8226;</span>
+          </a>
         </li>
 
         {% if all_characters %}
@@ -198,6 +202,26 @@ async function removeChar(charId, name) {
   const r = await fetch(`/api/characters/${charId}`, {method: 'DELETE'});
   if (r.ok) location.reload();
 }
+
+// Version check — once per session, show dot if update available
+(function() {
+  try {
+    const raw = sessionStorage.getItem('versionCheck');
+    if (raw) {
+      const d = JSON.parse(raw);
+      if (d._ts && Date.now() - d._ts < 60 * 60 * 1000 && d.has_update) {
+        document.getElementById('nav-update-dot').classList.remove('d-none');
+      }
+      if (d._ts && Date.now() - d._ts < 60 * 60 * 1000) return; // cached, skip fetch
+    }
+  } catch(e) {}
+  fetch('/api/version/check').then(r => r.json()).then(d => {
+    if (!d.error) {
+      sessionStorage.setItem('versionCheck', JSON.stringify({...d, _ts: Date.now()}));
+      if (d.has_update) document.getElementById('nav-update-dot').classList.remove('d-none');
+    }
+  }).catch(() => {});
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>

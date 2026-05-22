@@ -1,14 +1,17 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.3.4"
+APP_VERSION = "0.3.5"
 
 import asyncio
 import datetime
 import os
 import json
 import sqlite3
+import sys as _sys
 import threading
+import time as _time
+import zipfile as _zipfile
 from pathlib import Path
 
 import httpx
@@ -169,9 +172,36 @@ def _format_date(v) -> str:
         return str(v)
 
 
+def _ts_ago(ts: float) -> str:
+    """Human-readable relative time from Unix timestamp."""
+    try:
+        delta = int(_time.time() - float(ts))
+    except (TypeError, ValueError):
+        return "?"
+    if delta < 60:
+        return "just now"
+    if delta < 3600:
+        m = delta // 60
+        return f"{m}m ago"
+    if delta < 86400:
+        h = delta // 3600
+        return f"{h}h ago"
+    d = delta // 86400
+    return f"{d}d ago"
+
+
+def _ts_to_str(ts: float) -> str:
+    try:
+        return datetime.datetime.fromtimestamp(float(ts)).strftime('%Y-%m-%d %H:%M')
+    except Exception:
+        return ""
+
+
 templates.env.filters["isk"] = _isk
 templates.env.filters["format_number"] = _format_number
 templates.env.filters["format_date"] = _format_date
+templates.env.filters["ts_ago"] = _ts_ago
+templates.env.filters["ts_to_str"] = _ts_to_str
 
 
 def _tr(name: str, request: Request, context: dict) -> HTMLResponse:
@@ -663,49 +693,120 @@ async def api_save_client_id(request: Request):
 async def dashboard(request: Request):
     conn = get_conn()
     logged_in = has_any_character(conn)
-    char_name = char_id = None
-    bp_count = asset_locations = 0
-    total_assets_value = None
     price_stats = {}
+    char_cards: list[dict] = []
+    corp_names: dict[int, str] = {}
+    agg_bps = agg_assets = agg_locations = 0
+    agg_value: float | None = None
+    top_locations: list[dict] = []
 
     if logged_in:
-        char = get_active_character(request, conn)
-        if char:
-            char_id, char_name = char
+        chars = list_characters(conn)
+        active_char_id = get_active_character_id(request, conn)
 
-        if char_id:
-            row = conn.execute(
+        # Resolve corporation names via ESI bulk
+        corp_ids = list({
+            row["corporation_id"]
+            for row in [get_character_row(conn, cid) for cid, _ in chars]
+            if row and row.get("corporation_id")
+        })
+        if corp_ids:
+            try:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    r = await client.post(
+                        "https://esi.evetech.net/latest/universe/names/",
+                        json=corp_ids,
+                        headers={"Accept": "application/json"},
+                    )
+                    if r.status_code == 200:
+                        for item in r.json():
+                            corp_names[item["id"]] = item["name"]
+            except Exception:
+                pass
+
+        # Collect prices once for all assets
+        all_type_ids_set: set[int] = set()
+        assets_by_char: dict[int, list[dict]] = {}
+        for cid, _ in chars:
+            raw = _load_assets_from_cache(conn, cid)
+            assets_by_char[cid] = [a for a in raw if not a.get("is_singleton", False)]
+            all_type_ids_set.update(a["type_id"] for a in assets_by_char[cid])
+
+        prices: dict[int, tuple] = {}
+        if all_type_ids_set:
+            prices = await get_prices_for_ids(conn, list(all_type_ids_set))
+
+        # Location ISK accumulator for top-stations
+        location_isk: dict[int, float] = {}
+
+        for cid, cname in chars:
+            char_row = get_character_row(conn, cid)
+            bp_row = conn.execute(
                 "SELECT json_array_length(data_json) FROM char_blueprints_cache WHERE character_id=?",
-                (char_id,)
+                (cid,),
             ).fetchone()
-            bp_count = row[0] if row and row[0] else 0
+            bp_count = bp_row[0] if bp_row and bp_row[0] else 0
 
-        total_assets_value = None
-        if char_id:
-            raw = _load_assets_from_cache(conn, char_id)
-            non_singletons = [a for a in raw if not a.get("is_singleton", False)]
-            locs = {a["location_id"] for a in non_singletons}
-            asset_locations = len(locs)
+            assets = assets_by_char.get(cid, [])
+            locs = {a["location_id"] for a in assets}
 
-            all_type_ids = list({a["type_id"] for a in non_singletons})
-            if all_type_ids:
-                prices = await get_prices_for_ids(conn, all_type_ids)
-                total_assets_value = sum(
-                    prices.get(a["type_id"], (None, None))[0] * a.get("quantity", 1)
-                    for a in non_singletons
-                    if prices.get(a["type_id"], (None, None))[0] is not None
-                )
+            char_value: float | None = None
+            priced_assets = [(a, prices.get(a["type_id"], (None, None))[0]) for a in assets]
+            priced_sum = sum(p * a.get("quantity", 1) for a, p in priced_assets if p is not None)
+            if any(p is not None for _, p in priced_assets):
+                char_value = priced_sum
+
+            # Accumulate per-location ISK
+            for a in assets:
+                p = prices.get(a["type_id"], (None, None))[0]
+                if p is not None:
+                    location_isk[a["location_id"]] = location_isk.get(a["location_id"], 0.0) + p * a.get("quantity", 1)
+
+            last_sync_at = char_row.get("last_sync_at") if char_row else None
+            corp_id = char_row.get("corporation_id") if char_row else None
+
+            char_cards.append({
+                "char_id":    cid,
+                "char_name":  cname,
+                "corp_id":    corp_id,
+                "corp_name":  corp_names.get(corp_id, "") if corp_id else "",
+                "bp_count":   bp_count,
+                "asset_count": len(assets),
+                "asset_locs":  len(locs),
+                "asset_value": char_value,
+                "last_sync_at": last_sync_at,
+                "is_active":  cid == active_char_id,
+            })
+
+            agg_bps += bp_count
+            agg_assets += len(assets)
+            agg_locations = len({loc for c in assets_by_char.values() for a in c for loc in [a["location_id"]]})
+            if char_value is not None:
+                agg_value = (agg_value or 0.0) + char_value
+
+        # Top 5 locations by ISK
+        top_loc_ids = sorted(location_isk, key=lambda l: location_isk[l], reverse=True)[:5]
+        for lid in top_loc_ids:
+            name_row = conn.execute(
+                "SELECT name FROM location_name_cache WHERE location_id=?", (lid,)
+            ).fetchone()
+            top_locations.append({
+                "location_id": lid,
+                "name": name_row[0] if name_row else f"Location {lid}",
+                "isk": location_isk[lid],
+            })
 
         price_stats = get_price_cache_stats(conn)
 
     conn.close()
     return _tr("index.html", request, {
         "logged_in": logged_in,
-        "char_name": char_name,
-        "char_id": char_id,
-        "bp_count": bp_count,
-        "asset_locations": asset_locations,
-        "total_assets_value": total_assets_value,
+        "char_cards": char_cards,
+        "agg_bps": agg_bps,
+        "agg_assets": agg_assets,
+        "agg_locations": agg_locations,
+        "agg_value": agg_value,
+        "top_locations": top_locations,
         "price_stats": price_stats,
         "login_busy": request.query_params.get("login_busy") == "1",
     })
@@ -1563,9 +1664,15 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                 for k, v in owner_info.items():
                     container_info.setdefault(k, v)
         container_type_map: dict[int, int] = {}
-        for ar in assets_raw_by_char.values():
+        # container_id → (owner_character_id, owner_character_name)
+        char_name_lookup = {cid: name for cid, name in selected_chars}
+        container_owner_map: dict[int, tuple[int, str]] = {}
+        for owner_id, ar in assets_raw_by_char.items():
             for item in ar:
                 container_type_map[item["item_id"]] = item["type_id"]
+                container_owner_map.setdefault(
+                    item["item_id"], (owner_id, char_name_lookup.get(owner_id, ""))
+                )
 
         def _sort_items(bucket: dict) -> list:
             return sorted(bucket.values(), key=lambda x: x["name"])
@@ -1574,11 +1681,14 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
             containers = []
             for cid, items in sd["containers"].items():
                 cname = container_info.get(cid, (f"Container {cid}", sid))[0]
+                owner = container_owner_map.get(cid)
                 containers.append({
                     "container_id": cid,
                     "name": cname,
                     "type_id": container_type_map.get(cid),
                     "assets": _sort_items(items),
+                    "character_id":   owner[0] if owner else None,
+                    "character_name": owner[1] if owner else "",
                 })
             containers.sort(key=lambda c: c["name"])
             hangar_items = _sort_items(sd["hangar"])
@@ -2972,3 +3082,173 @@ async def api_station_volume(request: Request):
 @app.get("/about", response_class=HTMLResponse)
 async def about_page(request: Request):
     return _tr("about.html", request, {"version": APP_VERSION})
+
+
+# ── Version check / update ───────────────────────────────────────────────────
+
+_GITHUB_REPO = "ScoopEMPRetro/Eve-retroindustry"
+_VERSION_CACHE: dict | None = None
+_VERSION_CACHE_TS: float = 0.0
+_VERSION_CACHE_TTL = 3600.0  # 1 hour
+
+
+def _is_bundled() -> bool:
+    return hasattr(_sys, "_MEIPASS")
+
+
+def _app_dir() -> Path:
+    return Path(os.environ.get("EVE_APP_DIR", "."))
+
+
+@app.get("/api/version/check")
+async def api_version_check():
+    global _VERSION_CACHE, _VERSION_CACHE_TS
+    now = _time.monotonic()
+    if _VERSION_CACHE and (now - _VERSION_CACHE_TS) < _VERSION_CACHE_TTL:
+        return _VERSION_CACHE
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest",
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "EVE-Retroindustry"},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:
+        return {"error": str(exc), "current": APP_VERSION}
+
+    latest_tag = data.get("tag_name", "").lstrip("v")
+    has_update = bool(latest_tag) and latest_tag != APP_VERSION
+
+    plat = "win64" if _sys.platform == "win32" else "linux"
+    asset_name = f"EVE_Retroindustry-v{latest_tag}-{plat}.zip"
+    download_url = next(
+        (a["browser_download_url"] for a in data.get("assets", []) if a["name"] == asset_name),
+        None,
+    )
+
+    result = {
+        "current": APP_VERSION,
+        "latest": latest_tag,
+        "has_update": has_update,
+        "download_url": download_url,
+        "release_url": data.get("html_url", ""),
+        "release_name": data.get("name", f"v{latest_tag}"),
+        "bundled": _is_bundled(),
+    }
+    _VERSION_CACHE = result
+    _VERSION_CACHE_TS = now
+    return result
+
+
+@app.get("/api/version/download")
+async def api_version_download(url: str):
+    """SSE stream: downloads and extracts update zip to update_staging/ next to the exe."""
+    if not (url.startswith("https://github.com/") or url.startswith("https://objects.githubusercontent.com/")):
+        async def _err():
+            yield f"data: {json.dumps({'error': 'Invalid download URL'})}\n\n"
+        return StreamingResponse(_err(), media_type="text/event-stream")
+
+    async def _stream():
+        app_dir = _app_dir()
+        staging = app_dir / "update_staging"
+        tmp_zip = app_dir / "update.zip.tmp"
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=300) as client:
+                async with client.stream("GET", url) as r:
+                    if r.status_code != 200:
+                        yield f"data: {json.dumps({'error': f'HTTP {r.status_code}'})}\n\n"
+                        return
+                    total = int(r.headers.get("content-length", 0))
+                    downloaded = 0
+                    with open(tmp_zip, "wb") as f:
+                        async for chunk in r.aiter_bytes(65536):
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            pct = int(downloaded * 100 / total) if total else 0
+                            yield f"data: {json.dumps({'phase': 'download', 'pct': pct, 'downloaded': downloaded, 'total': total})}\n\n"
+
+            yield f"data: {json.dumps({'phase': 'extract', 'pct': 0})}\n\n"
+
+            import shutil
+            if staging.exists():
+                shutil.rmtree(staging)
+            staging.mkdir(parents=True)
+
+            with _zipfile.ZipFile(tmp_zip) as zf:
+                members = zf.namelist()
+                total_files = len(members)
+                for i, member in enumerate(members):
+                    zf.extract(member, staging)
+                    pct = int((i + 1) * 100 / total_files) if total_files else 100
+                    if i % 50 == 0 or i == total_files - 1:
+                        yield f"data: {json.dumps({'phase': 'extract', 'pct': pct})}\n\n"
+
+            tmp_zip.unlink(missing_ok=True)
+
+            # Detect single root subdirectory (EVE_Retroindustry/) inside the zip
+            roots = {Path(m).parts[0] for m in members if Path(m).parts}
+            inner_dir = staging / roots.pop() if len(roots) == 1 else staging
+
+            # Write helper script
+            if _sys.platform == "win32":
+                script_path = app_dir / "update.bat"
+                script_path.write_text(
+                    f'@echo off\r\n'
+                    f'timeout /t 3 /nobreak >nul\r\n'
+                    f'xcopy /E /Y /I "{inner_dir}\\*" "{app_dir}\\"\r\n'
+                    f'rmdir /S /Q "{staging}"\r\n'
+                    f'del "%~f0"\r\n'
+                    f'start "" "{app_dir}\\EVE_Retroindustry.exe"\r\n',
+                    encoding="utf-8",
+                )
+            else:
+                script_path = app_dir / "update.sh"
+                script_path.write_text(
+                    f'#!/bin/bash\n'
+                    f'sleep 3\n'
+                    f'cp -r "{inner_dir}/." "{app_dir}/"\n'
+                    f'rm -rf "{staging}"\n'
+                    f'chmod +x "{app_dir}/EVE_Retroindustry"\n'
+                    f'"{app_dir}/EVE_Retroindustry" &\n'
+                    f'rm -- "$0"\n',
+                    encoding="utf-8",
+                )
+                import stat
+                script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC)
+
+            yield f"data: {json.dumps({'done': True, 'script': script_path.name})}\n\n"
+
+        except Exception as exc:
+            if tmp_zip.exists():
+                tmp_zip.unlink(missing_ok=True)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/version/apply")
+async def api_version_apply():
+    """Launch helper update script then exit the process."""
+    import subprocess
+    app_dir = _app_dir()
+    if _sys.platform == "win32":
+        script = app_dir / "update.bat"
+    else:
+        script = app_dir / "update.sh"
+    if not script.exists():
+        return {"error": f"{script.name} not found — run download first"}
+    if _sys.platform == "win32":
+        subprocess.Popen(
+            ["cmd", "/c", str(script)],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+        )
+    else:
+        subprocess.Popen(["/bin/bash", str(script)], start_new_session=True, close_fds=True)
+    asyncio.get_event_loop().call_later(0.5, lambda: os._exit(0))
+    return {"ok": True}
