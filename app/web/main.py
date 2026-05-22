@@ -293,8 +293,49 @@ def get_conn() -> sqlite3.Connection:
             name     TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS char_wallet_cache (
+            character_id INTEGER PRIMARY KEY,
+            balance      REAL NOT NULL,
+            cached_at    REAL NOT NULL
+        )
+    """)
     conn.commit()
     return conn
+
+
+_WALLET_CACHE_TTL = 300.0  # 5 minutes
+
+
+async def _fetch_wallet_balance(
+    conn: sqlite3.Connection, char_id: int, token: str | None
+) -> float | None:
+    """Returns ISK wallet balance, using a 5-min SQLite cache."""
+    now = _time.time()
+    row = conn.execute(
+        "SELECT balance, cached_at FROM char_wallet_cache WHERE character_id=?", (char_id,)
+    ).fetchone()
+    if row and (now - row[1]) < _WALLET_CACHE_TTL:
+        return row[0]
+    if not token:
+        return row[0] if row else None
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(
+                f"https://esi.evetech.net/latest/characters/{char_id}/wallet/",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if r.status_code == 200:
+                balance = float(r.json())
+                conn.execute(
+                    "INSERT OR REPLACE INTO char_wallet_cache (character_id, balance, cached_at) VALUES (?,?,?)",
+                    (char_id, balance, now),
+                )
+                conn.commit()
+                return balance
+    except Exception:
+        pass
+    return row[0] if row else None
 
 
 # ---------------------------------------------------------------------------
@@ -698,7 +739,6 @@ async def dashboard(request: Request):
     corp_names: dict[int, str] = {}
     agg_bps = agg_assets = agg_locations = 0
     agg_value: float | None = None
-    top_locations: list[dict] = []
 
     if logged_in:
         chars = list_characters(conn)
@@ -727,20 +767,30 @@ async def dashboard(request: Request):
         # Collect prices once for all assets
         all_type_ids_set: set[int] = set()
         assets_by_char: dict[int, list[dict]] = {}
+        char_rows: dict[int, dict] = {}
         for cid, _ in chars:
             raw = _load_assets_from_cache(conn, cid)
             assets_by_char[cid] = [a for a in raw if not a.get("is_singleton", False)]
             all_type_ids_set.update(a["type_id"] for a in assets_by_char[cid])
+            char_rows[cid] = get_character_row(conn, cid) or {}
 
         prices: dict[int, tuple] = {}
         if all_type_ids_set:
             prices = await get_prices_for_ids(conn, list(all_type_ids_set))
 
-        # Location ISK accumulator for top-stations
-        location_isk: dict[int, float] = {}
+        # Fetch wallet balances concurrently (5-min cache)
+        wallet_balances: dict[int, float | None] = dict(
+            zip(
+                [cid for cid, _ in chars],
+                await asyncio.gather(*[
+                    _fetch_wallet_balance(conn, cid, _get_valid_token_for(conn, cid))
+                    for cid, _ in chars
+                ]),
+            )
+        )
 
         for cid, cname in chars:
-            char_row = get_character_row(conn, cid)
+            char_row = char_rows[cid]
             bp_row = conn.execute(
                 "SELECT json_array_length(data_json) FROM char_blueprints_cache WHERE character_id=?",
                 (cid,),
@@ -756,45 +806,36 @@ async def dashboard(request: Request):
             if any(p is not None for _, p in priced_assets):
                 char_value = priced_sum
 
-            # Accumulate per-location ISK
-            for a in assets:
-                p = prices.get(a["type_id"], (None, None))[0]
-                if p is not None:
-                    location_isk[a["location_id"]] = location_isk.get(a["location_id"], 0.0) + p * a.get("quantity", 1)
+            wallet = wallet_balances.get(cid)
+            net_worth: float | None = None
+            if char_value is not None or wallet is not None:
+                net_worth = (char_value or 0.0) + (wallet or 0.0)
 
-            last_sync_at = char_row.get("last_sync_at") if char_row else None
-            corp_id = char_row.get("corporation_id") if char_row else None
+            last_sync_at = char_row.get("last_sync_at")
+            corp_id = char_row.get("corporation_id")
 
             char_cards.append({
-                "char_id":    cid,
-                "char_name":  cname,
-                "corp_id":    corp_id,
-                "corp_name":  corp_names.get(corp_id, "") if corp_id else "",
-                "bp_count":   bp_count,
+                "char_id":     cid,
+                "char_name":   cname,
+                "corp_id":     corp_id,
+                "corp_name":   corp_names.get(corp_id, "") if corp_id else "",
+                "bp_count":    bp_count,
                 "asset_count": len(assets),
                 "asset_locs":  len(locs),
                 "asset_value": char_value,
+                "wallet":      wallet,
+                "net_worth":   net_worth,
                 "last_sync_at": last_sync_at,
-                "is_active":  cid == active_char_id,
+                "is_active":   cid == active_char_id,
             })
 
             agg_bps += bp_count
             agg_assets += len(assets)
             agg_locations = len({loc for c in assets_by_char.values() for a in c for loc in [a["location_id"]]})
-            if char_value is not None:
+            if net_worth is not None:
+                agg_value = (agg_value or 0.0) + net_worth
+            elif char_value is not None:
                 agg_value = (agg_value or 0.0) + char_value
-
-        # Top 5 locations by ISK
-        top_loc_ids = sorted(location_isk, key=lambda l: location_isk[l], reverse=True)[:5]
-        for lid in top_loc_ids:
-            name_row = conn.execute(
-                "SELECT name FROM location_name_cache WHERE location_id=?", (lid,)
-            ).fetchone()
-            top_locations.append({
-                "location_id": lid,
-                "name": name_row[0] if name_row else f"Location {lid}",
-                "isk": location_isk[lid],
-            })
 
         price_stats = get_price_cache_stats(conn)
 
@@ -806,7 +847,6 @@ async def dashboard(request: Request):
         "agg_assets": agg_assets,
         "agg_locations": agg_locations,
         "agg_value": agg_value,
-        "top_locations": top_locations,
         "price_stats": price_stats,
         "login_busy": request.query_params.get("login_busy") == "1",
     })

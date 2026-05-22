@@ -55,7 +55,7 @@
   </div>
   <div class="col">
     <div class="card stat-card h-100 p-3" style="border-left-color:#e3b341">
-      <div class="text-muted small mb-1"><i class="bi bi-coin me-1"></i>Total Asset Value</div>
+      <div class="text-muted small mb-1"><i class="bi bi-coin me-1"></i>Est. Net Worth</div>
       {% if agg_value %}
       <div class="fw-bold text-isk" style="font-size:1.05rem">{{ agg_value | isk }}</div>
       <div class="text-muted" style="font-size:.7rem">ISK (all chars)</div>
@@ -116,7 +116,22 @@
           </div>
         </div>
 
-        {% if c.asset_value is not none %}
+        {% if c.net_worth is not none %}
+        <div class="mb-3 p-2 rounded" style="background:#1c2128">
+          <div class="d-flex justify-content-between align-items-baseline mb-1">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Est. Net Worth</div>
+          </div>
+          <div class="text-isk fw-semibold" style="font-size:1rem">{{ c.net_worth | isk }} ISK</div>
+          <div class="d-flex gap-3 mt-1" style="font-size:.72rem;color:#8b949e">
+            {% if c.asset_value is not none %}
+            <span title="Asset value"><i class="bi bi-box-seam me-1"></i>{{ c.asset_value | isk }}</span>
+            {% endif %}
+            {% if c.wallet is not none %}
+            <span title="Wallet ISK"><i class="bi bi-wallet2 me-1"></i>{{ c.wallet | isk }}</span>
+            {% endif %}
+          </div>
+        </div>
+        {% elif c.asset_value is not none %}
         <div class="mb-3 p-2 rounded" style="background:#1c2128">
           <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Asset Value</div>
           <div class="text-isk fw-semibold">{{ c.asset_value | isk }} ISK</div>
@@ -150,26 +165,9 @@
   {% endfor %}
 </div>
 
-{# ── Bottom row: top locations + quick actions ── #}
+{# ── Bottom row: quick actions ── #}
 <div class="row g-3">
-  {% if top_locations %}
-  <div class="col-lg-5">
-    <div class="card p-3 h-100">
-      <h6 class="text-muted mb-3"><i class="bi bi-trophy me-2"></i>Top Locations by Value</h6>
-      <table class="table table-sm mb-0">
-        <tbody>
-          {% for loc in top_locations %}
-          <tr>
-            <td class="text-truncate" style="max-width:220px">{{ loc.name }}</td>
-            <td class="text-end text-isk fw-semibold text-nowrap">{{ loc.isk | isk }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% endif %}
-  <div class="col-lg-{% if top_locations %}7{% else %}12{% endif %}">
+  <div class="col-lg-12">
     <div class="row g-3 h-100">
       <div class="col-sm-4">
         <div class="card p-3 h-100">
