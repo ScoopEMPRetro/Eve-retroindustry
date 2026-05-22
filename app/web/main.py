@@ -765,18 +765,35 @@ async def dashboard(request: Request):
                 pass
 
         # Collect prices once for all assets
+        # all_assets_by_char: everything incl. singletons — for value calculation
+        # assets_by_char: non-singletons only — for location/count display stats
         all_type_ids_set: set[int] = set()
         assets_by_char: dict[int, list[dict]] = {}
+        all_assets_by_char: dict[int, list[dict]] = {}
         char_rows: dict[int, dict] = {}
         for cid, _ in chars:
             raw = _load_assets_from_cache(conn, cid)
+            all_assets_by_char[cid] = raw
             assets_by_char[cid] = [a for a in raw if not a.get("is_singleton", False)]
-            all_type_ids_set.update(a["type_id"] for a in assets_by_char[cid])
+            all_type_ids_set.update(a["type_id"] for a in raw)
             char_rows[cid] = get_character_row(conn, cid) or {}
 
         prices: dict[int, tuple] = {}
         if all_type_ids_set:
             prices = await get_prices_for_ids(conn, list(all_type_ids_set))
+
+        # Blueprint group_ids — exclude from net worth (matches in-game behavior)
+        bp_group_ids: set[int] = {
+            r[0] for r in conn.execute(
+                "SELECT group_id FROM sde_groups WHERE name LIKE '%Blueprint%'"
+            ).fetchall()
+        }
+        type_group: dict[int, int] = {
+            r[0]: r[1] for r in conn.execute(
+                f"SELECT type_id, group_id FROM sde_types WHERE type_id IN ({','.join('?' * len(all_type_ids_set))})",
+                list(all_type_ids_set),
+            ).fetchall()
+        } if all_type_ids_set else {}
 
         # Fetch wallet balances concurrently (5-min cache)
         wallet_balances: dict[int, float | None] = dict(
@@ -797,11 +814,17 @@ async def dashboard(request: Request):
             ).fetchone()
             bp_count = bp_row[0] if bp_row and bp_row[0] else 0
 
-            assets = assets_by_char.get(cid, [])
+            assets = assets_by_char.get(cid, [])         # non-singleton, for counts
+            all_assets = all_assets_by_char.get(cid, [])  # all items, for value
             locs = {a["location_id"] for a in assets}
 
             char_value: float | None = None
-            priced_assets = [(a, prices.get(a["type_id"], (None, None))[0]) for a in assets]
+            # Exclude blueprints from value (matches in-game "Total Net Worth" behavior)
+            priced_assets = [
+                (a, prices.get(a["type_id"], (None, None))[0])
+                for a in all_assets
+                if type_group.get(a["type_id"]) not in bp_group_ids
+            ]
             priced_sum = sum(p * a.get("quantity", 1) for a, p in priced_assets if p is not None)
             if any(p is not None for _, p in priced_assets):
                 char_value = priced_sum
