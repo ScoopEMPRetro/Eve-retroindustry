@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.3.6"
+APP_VERSION = "0.3.7"
 
 import asyncio
 import datetime
@@ -1617,11 +1617,18 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
             corp_flag_map = {a.item_id: a.location_flag for a in corp_assets_list}
 
             def _corp_hierarchy(a) -> tuple[int, str, int | None]:
-                """Returns (station_id, division_flag, container_id|None)."""
+                """Returns (station_id, division_flag, container_id|None).
+
+                At NPC stations, items sit inside an office item (flag=OfficeFolder)
+                and carry their own CorpSAG* flag. At citadels, items sit directly at
+                the structure. In both cases we want the CorpSAG* flag as div_flag.
+                """
                 loc = a.location_id
                 if loc not in corp_item_ids:
+                    # Item directly at a station/citadel — its own flag IS the division
                     return loc, a.location_flag, None
-                container_id = loc
+
+                # Walk up the ownership chain to find the station
                 chain: list[int] = []
                 cur = loc
                 seen: set[int] = set()
@@ -1635,9 +1642,21 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                         break
                     cur = nxt
                 station_id = cur
-                root_container = chain[-1] if chain else loc
-                div_flag = corp_flag_map.get(root_container, "Hangar")
-                return station_id, div_flag, container_id
+
+                # Determine the division flag.
+                # If the item itself carries a CorpSAG* flag it is directly in a
+                # division (NPC office case) — use that flag and no container.
+                if a.location_flag in _CORP_DIV_LABEL:
+                    return station_id, a.location_flag, None
+
+                # Item is inside a container — scan ancestors for a CorpSAG* flag
+                div_flag = "Hangar"
+                for ancestor_id in chain:
+                    f = corp_flag_map.get(ancestor_id, "")
+                    if f in _CORP_DIV_LABEL:
+                        div_flag = f
+                        break
+                return station_id, div_flag, loc
 
             def _get_corp_div(sid: int, flag: str) -> dict:
                 if sid not in corp_sd:
@@ -1647,6 +1666,8 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                 return corp_sd[sid][flag]
 
             for a in corp_assets_list:
+                if a.location_flag == "OfficeFolder":
+                    continue  # office container itself — structural, not inventory
                 item_name = names.get(a.type_id, f"Unknown ({a.type_id})")
                 if search and search.lower() not in item_name.lower():
                     continue

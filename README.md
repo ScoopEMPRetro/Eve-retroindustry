@@ -2,20 +2,26 @@
 
 A local industry calculator for EVE Online. Runs as a web app on your machine — blueprint cost analysis, bill of materials expansion, Jita market pricing, asset tracking, and production project management. Multi-character support: load all your alts and switch between them per page.
 
-![Production Plan — Rorqual](docs/screenshots/production-plan-rorqual.png)
+![Dashboard — multi-character overview](docs/screenshots/dashboard.png)
 
 ---
 
 ## Features
 
+- **Multi-character Dashboard** — log in any number of alts via EVE SSO; see all characters at a glance with portrait, corporation, blueprint count, asset count, and estimated net worth (assets + wallet ISK)
 - **Production Planner** — enter any ship or component, pick a station, get a full bill of materials with Jita buy/sell prices, your asset coverage, manufacturing job time and fees (EIV × SCI × facility tax × SCC), profit vs. market and vs. stock, and the cheapest make-vs-buy decomposition
-- **Multi-character** — log in any number of alts via EVE SSO. Switch the active character from the navbar; on Assets and Blueprints pages, toggle between **All** (every alt merged, each row stamped with the owning character's portrait) and per-character views. Production Plan has its own character picker so you can let one alt's skills drive the calc while you stay logged in as another
 - **Blueprint Library** — full character (and alt) blueprint list with ME/TE levels, BPO vs BPC, runs remaining, organised by station and container
-- **Asset Tracking** — character + corporation inventory grouped by location and container, with estimated ISK value per stack and per station
+- **Asset Tracking** — character + corporation inventory grouped by location and container (incl. all corp hangar divisions), with estimated ISK value per stack and per station
+
+![Production Plan — Hyperion](docs/screenshots/production-plan.png)
+
 - **Jita Price Cache** — fetches live market data from ESI, caches locally, refresh on demand; custom price overrides for items missing from Jita
 - **Structure & Rig Modelling** — supports Raitaru / Azbel / Sotiyo / Athanor / Tatara with per-slot rig selection; ME/TE bonuses applied correctly with security multiplier (highsec 1.0× / lowsec 1.9× / null 2.1×)
 - **Production Projects** — save a plan as a project, track which jobs are done, and get a unified shopping list across multi-stage manufacturing
+- **In-app updates** — check for new releases and apply them without leaving the app
 - **System tray** — runs in the system tray; right-click for **Open App** and **Quit**
+
+![Assets — inventory across all characters and corporation hangars](docs/screenshots/assets.png)
 
 ---
 
