@@ -66,6 +66,13 @@ a = Analysis(
         "pystray._gtk",
         "pystray._appindicator",
         "pystray._xorg",
+        # python-xlib needed by pystray._xorg on Linux (KDE/X11)
+        "Xlib",
+        "Xlib.display",
+        "Xlib.ext",
+        "Xlib.ext.shape",
+        "Xlib.protocol",
+        "Xlib.xobject",
         "PIL",
         "PIL.Image",
         "PIL.ImageDraw",

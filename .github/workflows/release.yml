@@ -85,13 +85,23 @@ jobs:
           img.convert('RGBA').save('AppDir/eve-retroindustry.png')
           "
 
-          # ── appimagetool ─────────────────────────────────────────────────
+          # ── appimagetool + FUSE3-compatible runtime ───────────────────────
           wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
                -O appimagetool
           chmod +x appimagetool
-          # GitHub Actions runners don't have FUSE; APPIMAGE_EXTRACT_AND_RUN=1
-          # makes appimagetool self-extract and run without it.
+
+          # Use the type2-runtime which supports both FUSE2 and FUSE3.
+          # Arch-based distros (Garuda, Manjaro) ship fuse3 but not fuse2 by
+          # default — the standard AppImageKit runtime only loads libfuse.so.2
+          # and fails there.
+          wget -q "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64" \
+               -O runtime-x86_64 \
+          || wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/runtime-x86_64" \
+               -O runtime-x86_64
+          chmod +x runtime-x86_64
+
           APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool --no-appstream \
+               --runtime-file runtime-x86_64 \
                AppDir "EVE_Retroindustry-${{ github.ref_name }}-linux.AppImage"
 
       - uses: actions/upload-artifact@v4
