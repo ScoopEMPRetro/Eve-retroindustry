@@ -49,10 +49,56 @@ jobs:
       - name: Create ZIP
         run: cd dist && zip -r ../EVE_Retroindustry-${{ github.ref_name }}-linux.zip EVE_Retroindustry
 
+      - name: Build AppImage
+        run: |
+          # ── AppDir structure ─────────────────────────────────────────────
+          mkdir -p AppDir
+          cp -r dist/EVE_Retroindustry/. AppDir/
+
+          # AppRun — entry point called by the AppImage runtime
+          cat > AppDir/AppRun << 'APPRUN'
+          #!/bin/bash
+          APPDIR="$(dirname "$(readlink -f "$0")")"
+          exec "${APPDIR}/EVE_Retroindustry" "$@"
+          APPRUN
+          chmod +x AppDir/AppRun
+
+          # Desktop file (required by AppImage spec)
+          cat > AppDir/eve-retroindustry.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Name=EVE Retroindustry
+          Comment=EVE Online industry calculator
+          Exec=EVE_Retroindustry
+          Icon=eve-retroindustry
+          Type=Application
+          Categories=Game;Utility;
+          DESKTOP
+
+          # Icon — convert bundled .ico to 256×256 PNG
+          python3 -c "
+          from PIL import Image
+          img = Image.open('assets/icon.ico')
+          # Pick the largest available frame
+          sizes = img.info.get('sizes', set())
+          target = max(sizes, key=lambda s: s[0]) if sizes else (64, 64)
+          img = img.resize((256, 256), Image.LANCZOS)
+          img.convert('RGBA').save('AppDir/eve-retroindustry.png')
+          "
+
+          # ── appimagetool ─────────────────────────────────────────────────
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+               -O appimagetool
+          chmod +x appimagetool
+          # Run without AppStream validation (no network needed in CI)
+          ARCH=x86_64 ./appimagetool --no-appstream \
+               AppDir "EVE_Retroindustry-${{ github.ref_name }}-linux.AppImage"
+
       - uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: EVE_Retroindustry-${{ github.ref_name }}-linux.zip
+          path: |
+            EVE_Retroindustry-${{ github.ref_name }}-linux.zip
+            EVE_Retroindustry-${{ github.ref_name }}-linux.AppImage
 
   release:
     needs: [build-windows, build-linux]
@@ -75,8 +121,10 @@ jobs:
             --title "EVE Retroindustry ${{ github.ref_name }}" \
             --generate-notes \
             artifacts/*.zip \
+            artifacts/*.AppImage \
             sde_base.db \
           || gh release upload ${{ github.ref_name }} \
             artifacts/*.zip \
+            artifacts/*.AppImage \
             sde_base.db \
             --clobber

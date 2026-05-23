@@ -59,10 +59,13 @@ a = Analysis(
         # email (used by httpx internally)
         "email.mime.text",
         "email.mime.multipart",
-        # Tray icon
+        # Tray icon — Windows + Linux backends
         "pystray",
         "pystray._base",
         "pystray._win32",
+        "pystray._gtk",
+        "pystray._appindicator",
+        "pystray._xorg",
         "PIL",
         "PIL.Image",
         "PIL.ImageDraw",

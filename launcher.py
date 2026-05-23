@@ -27,7 +27,11 @@ if sys.platform == "win32":
 
 if getattr(sys, "frozen", False):
     _BUNDLE_DIR: str = sys._MEIPASS          # type: ignore[attr-defined]
-    _APP_DIR: str = os.path.dirname(sys.executable)
+    # When running inside an AppImage, $APPIMAGE points to the .appimage file
+    # itself (read-only). Store user data (eve_cache.db) next to that file so
+    # it survives AppImage remounts across restarts.
+    _appimage = os.environ.get("APPIMAGE")
+    _APP_DIR: str = os.path.dirname(_appimage) if _appimage else os.path.dirname(sys.executable)
     sys.path.insert(0, _BUNDLE_DIR)
 else:
     _BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
