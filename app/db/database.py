@@ -3,7 +3,12 @@ from sqlalchemy.orm import DeclarativeBase, Session
 import json
 import os
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "../../eve_cache.db")
+# launcher.py sets EVE_APP_DIR to a writable location (next to the .exe /
+# .AppImage). Fall back to the project root for dev mode.
+_APP_DIR = os.environ.get("EVE_APP_DIR") or os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..")
+)
+DB_PATH = os.path.join(_APP_DIR, "eve_cache.db")
 
 
 class Base(DeclarativeBase):
