@@ -22,14 +22,24 @@ from app.market.prices import (
 
 
 def get_cached_jita_prices(conn: sqlite3.Connection, type_ids: list[int]) -> dict[int, tuple[float | None, float | None]]:
-    """Vrátí jen ceny které jsou v cache a nejsou stale."""
+    """Vrátí všechny ceny z cache (poslední načtená Jita / The Forge sell).
+
+    Cache se NEexpiruje — vždy se použije poslední fetched hodnota. Reálná
+    cena je často víc reprezentativní než ESI 30-day average, navíc bulk
+    refresh /markets/{region}/orders/ vrací nejnižší sell v celém regionu
+    The Forge (Jita station + okolní systémy), takže pokud zrovna v Jitě
+    neleží žádný sell order, použije se nejbližší v regionu.
+
+    PRICE_CACHE_TTL se používá jen pro UI freshness indicator
+    (`fresh` flag v /prices), ne pro filtrování hodnoty.
+    """
     result = {}
     for tid in type_ids:
         row = conn.execute(
-            "SELECT sell_price, buy_price, cached_at FROM market_price_cache WHERE type_id=?",
+            "SELECT sell_price, buy_price FROM market_price_cache WHERE type_id=?",
             (tid,)
         ).fetchone()
-        if row and (time.time() - (row[2] or 0)) < PRICE_CACHE_TTL:
+        if row and (row[0] is not None or row[1] is not None):
             result[tid] = (row[0], row[1])
     return result
 
@@ -77,7 +87,10 @@ async def get_prices_for_ids(
 ) -> dict[int, tuple[float | None, float | None]]:
     """
     Vrátí ceny pro seznam type_ids.
-    Priorita: custom override > Jita cache > adjusted price.
+
+    Priorita: custom override > Jita / The Forge sell cache (poslední
+    načtená, nikdy neexpiruje) > ESI markets/prices average_price (jen
+    pro typy které ještě nebyly nikdy cachovány).
     """
     ensure_price_table(conn)
     jita = get_cached_jita_prices(conn, type_ids)

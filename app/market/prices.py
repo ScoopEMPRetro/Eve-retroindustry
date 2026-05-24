@@ -13,7 +13,12 @@ import httpx
 ESI_BASE = "https://esi.evetech.net/latest"
 JITA_REGION = 10000002   # The Forge
 JITA_STATION = 60003760  # Jita 4-4 CNAP
-PRICE_CACHE_TTL = 60 * 30  # 30 minut
+PRICE_CACHE_TTL = 60 * 60 * 12  # 12 hodin
+# Používá se POUZE pro UI freshness indikátor (green/red badge na /prices,
+# `fresh` flag v API). Pro výpočty cen (`get_prices_for_ids`) se cache
+# NEexpiruje — vždy se použije poslední načtená Jita / The Forge sell hodnota,
+# bez ohledu na stáří. Plný refresh přes `/markets/{region}/orders/` trvá
+# ~3 s, user obvykle refreshuje 1× denně.
 
 _JITA_SEM = asyncio.Semaphore(10)
 _HIST_SEM = asyncio.Semaphore(10)
