@@ -113,20 +113,34 @@ class BOMResolver:
     def find_blueprint(self, product_type_id: int) -> sqlite3.Row | None:
         """Najde blueprint, který produkuje daný typ (manufacturing nebo reaction).
 
-        Pro produkty s víc recepty (např. Tungsten Carbide má v SDE oba:
-          * 45732 "Test Reaction Blueprint" — yield 20
-          * 46207 "Tungsten Carbide Reaction Formula" — yield 10000
-        ) vybereme recept s nejvyšším výstupem na cyklus. To korektně
-        vyřadí tutoriálové / testovací blueprinty a zachová pravé recepty.
+        Selection rules — vyřeší případy kde SDE nese víc receptů pro stejný produkt:
+
+        1. Vyřadí blueprinty s "TEST" / "Test " / "QA " / "Tournament" v názvu
+           — to jsou tutoriálové / interní CCP blueprinty (např. "Test Reaction
+           Blueprint" vyrábí Tungsten Carbide se 500× nižším yieldem než
+           pravý recept; bug propagoval do 43 dalších T2 produktů).
+        2. Preferuje recept s nejvyšším výstupem na cyklus (`p.quantity DESC`)
+           — pravé recepty mívají větší yield než legacy/test verze.
+        3. Při tie na yield preferuje vyšší `blueprint_type_id` (novější
+           záznam v SDE; CCP občas přejmenuje BP a starý nechá v datech).
         """
+        # GLOB is case-sensitive in SQLite (LIKE is not, so 'Protest' would
+        # match '%TEST%'). Patterns target only the known CCP-internal BP
+        # naming conventions.
         return self.conn.execute("""
             SELECT p.blueprint_type_id, p.quantity AS product_qty, p.activity,
                    b.manufacturing_time, b.reaction_time
             FROM sde_blueprint_products p
             JOIN sde_blueprints b ON b.blueprint_type_id = p.blueprint_type_id
+            JOIN sde_types t ON t.type_id = p.blueprint_type_id
             WHERE p.product_type_id = ?
               AND p.activity IN ('manufacturing', 'reaction')
-            ORDER BY p.quantity DESC
+              AND t.name NOT GLOB 'Test *'
+              AND t.name NOT GLOB '* TEST *'
+              AND t.name NOT GLOB '* TEST Blueprint'
+              AND t.name NOT GLOB 'Tournament *'
+              AND t.name NOT GLOB 'QA *'
+            ORDER BY p.quantity DESC, p.blueprint_type_id DESC
             LIMIT 1
         """, (product_type_id,)).fetchone()
 
