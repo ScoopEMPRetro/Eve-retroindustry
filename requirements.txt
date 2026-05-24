@@ -8,5 +8,10 @@ uvicorn[standard]>=0.29
 jinja2>=3.1
 python-multipart>=0.0.9
 PyJWT>=2.8
-pystray>=0.19
 Pillow>=10.0
+pywebview>=5.0
+# Linux: pywebview Qt backend (self-contained, no system webkit2gtk dependency)
+# Windows: pywebview uses Edge WebView2 (preinstalled on Win10+), no extra deps
+PyQt6>=6.6; sys_platform == "linux"
+PyQt6-WebEngine>=6.6; sys_platform == "linux"
+QtPy>=2.4; sys_platform == "linux"
