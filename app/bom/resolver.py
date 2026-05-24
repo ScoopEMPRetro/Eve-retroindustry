@@ -111,7 +111,14 @@ class BOMResolver:
         return row["name"] if row else f"Unknown ({type_id})"
 
     def find_blueprint(self, product_type_id: int) -> sqlite3.Row | None:
-        """Najde blueprint, který produkuje daný typ (manufacturing nebo reaction)."""
+        """Najde blueprint, který produkuje daný typ (manufacturing nebo reaction).
+
+        Pro produkty s víc recepty (např. Tungsten Carbide má v SDE oba:
+          * 45732 "Test Reaction Blueprint" — yield 20
+          * 46207 "Tungsten Carbide Reaction Formula" — yield 10000
+        ) vybereme recept s nejvyšším výstupem na cyklus. To korektně
+        vyřadí tutoriálové / testovací blueprinty a zachová pravé recepty.
+        """
         return self.conn.execute("""
             SELECT p.blueprint_type_id, p.quantity AS product_qty, p.activity,
                    b.manufacturing_time, b.reaction_time
@@ -119,6 +126,7 @@ class BOMResolver:
             JOIN sde_blueprints b ON b.blueprint_type_id = p.blueprint_type_id
             WHERE p.product_type_id = ?
               AND p.activity IN ('manufacturing', 'reaction')
+            ORDER BY p.quantity DESC
             LIMIT 1
         """, (product_type_id,)).fetchone()
 
