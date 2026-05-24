@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, Column, Integer, String, Text, Float
 from sqlalchemy.orm import DeclarativeBase, Session
+from sqlalchemy.pool import NullPool
 import json
 import os
 
@@ -31,7 +32,15 @@ class BlueprintCache(Base):
     cached_at = Column(Float)  # unix timestamp
 
 
-engine = create_engine(f"sqlite:///{os.path.abspath(DB_PATH)}")
+# NullPool: open a fresh sqlite3 connection per query. Avoids stale FDs after
+# the SDE-download `shutil.move(...)` replaces eve_cache.db, which otherwise
+# leaves pooled connections holding the old inode and raises
+# "(sqlite3.OperationalError) attempt to write a readonly database"
+# (SQLITE_READONLY_DBMOVED) on the next INSERT.
+engine = create_engine(
+    f"sqlite:///{os.path.abspath(DB_PATH)}",
+    poolclass=NullPool,
+)
 Base.metadata.create_all(engine)
 
 

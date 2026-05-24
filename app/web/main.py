@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.4.1"
 
 import asyncio
 import datetime
@@ -249,6 +249,13 @@ async def setup_download():
                             yield f"data: {json.dumps({'downloaded': downloaded, 'total': total, 'pct': pct})}\n\n"
 
             import shutil
+            # Dispose pooled SQLAlchemy connections BEFORE the move — otherwise
+            # they hold an open file descriptor on the empty placeholder DB and
+            # subsequent INSERTs fail with SQLITE_READONLY_DBMOVED ("attempt to
+            # write a readonly database").
+            from app.db.database import engine as _alchemy_engine
+            _alchemy_engine.dispose()
+
             shutil.move(tmp_path, DB_ABS)
 
             # Re-run startup population now that SDE is available
