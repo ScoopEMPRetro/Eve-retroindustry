@@ -106,6 +106,17 @@ def main() -> None:
         print("ERROR: server did not start within 15 s", file=sys.stderr)
         os._exit(1)
 
+    # Pre-import the Qt backend so any missing-Qt issue surfaces here with a
+    # readable traceback instead of cascading through pywebview's silent
+    # backend-fallback logic.
+    try:
+        import PyQt6.QtCore  # noqa: F401
+        import PyQt6.QtWebEngineWidgets  # noqa: F401
+        import webview.platforms.qt  # noqa: F401
+    except Exception as exc:  # pragma: no cover — surfaces at startup only
+        print(f"ERROR: Qt backend failed to load: {exc!r}", file=sys.stderr)
+        raise
+
     import webview
 
     url = f"http://127.0.0.1:{port}"

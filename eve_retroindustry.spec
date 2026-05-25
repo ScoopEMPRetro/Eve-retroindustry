@@ -99,6 +99,21 @@ a = Analysis(
         # pystray (replaced by pywebview)
         "pystray",
         "Xlib",
+        # Block pywebview's Windows fallback chain (winforms / mshtml / edgechromium
+        # all go through pythonnet → .NET, which silently corrupts under
+        # PyInstaller). With these excluded, if Qt fails to load, pywebview
+        # raises a clear "QT cannot be loaded" instead of cascading into a
+        # confusing Python.Runtime.dll traceback.
+        "pythonnet",
+        "clr",
+        "clr_loader",
+        "webview.platforms.winforms",
+        "webview.platforms.mshtml",
+        "webview.platforms.edgechromium",
+        "webview.platforms.cef",
+        "webview.platforms.cocoa",
+        "webview.platforms.gtk",
+        "webview.platforms.android",
         # Qt modules pulled in transitively but unused by our QWebEngineView
         "PyQt6.QtQml",
         "PyQt6.QtQuick",
@@ -149,8 +164,18 @@ _qt_lib_keep = re.compile(
 )
 _qt_other_lib_keep = re.compile(
     r"^(lib)?(icu|avcodec|avformat|avutil|swresample|webp|"
-    r"minizip|xslt|xml2|lcms2|ssl|crypto)"
+    r"minizip|xslt|xml2|lcms2|ssl|crypto|"
+    # Windows-only graphics layer needed by QtWebEngine (ANGLE OpenGL ES
+    # → Direct3D translator + software fallback). Without these the
+    # WebEngine zygote can't initialize GL context and the import fails
+    # at pywebview backend selection time.
+    r"EGL|GLESv2|opengl32sw|D3DCompiler|d3dcompiler|vk_swiftshader|vulkan)"
 )
+# QtWebEngineProcess is the standalone helper executable Chromium spawns
+# for renderers / GPU / utility processes. On Linux it lives in libexec/
+# (outside the lib/-filtered branch), on Windows it sits in bin/ alongside
+# the DLLs — so the Windows filter must allow it explicitly.
+_qt_exec_keep = re.compile(r"QtWebEngineProcess(\.exe)?$")
 # Plugins kept across platforms — superset, harmless extras stay.
 # Linux needs xcb/wayland; Windows needs windowsvistastyle (under styles/).
 _qt_plugin_keep = re.compile(
@@ -170,10 +195,19 @@ def _qt_keep(dest: str) -> bool:
     d = dest.replace("\\", "/")
     if "PyQt6/Qt6/" not in d:
         return True
-    # Library DLLs / shared objects — kept if they match Qt6Core/Gui/... or ICU/etc.
-    if "/lib/" in d or "/bin/" in d:
+    # Only apply the Qt6 lib filter on Linux ("/lib/" path). On Windows the
+    # equivalent DLLs live in "/bin/" alongside critical extras
+    # (QtWebEngineProcess.exe, libEGL.dll, libGLESv2.dll, opengl32sw.dll,
+    # d3dcompiler_47.dll, vk_swiftshader.dll, …). Trying to allowlist all
+    # of them is brittle, and the bin/ tree is only ~80 MB so we leave it
+    # whole — Windows bundle stays under 250 MB which is fine.
+    if "/lib/" in d:
         base = d.rsplit("/", 1)[-1]
-        return bool(_qt_lib_keep.match(base) or _qt_other_lib_keep.match(base))
+        return bool(
+            _qt_lib_keep.match(base)
+            or _qt_other_lib_keep.match(base)
+            or _qt_exec_keep.match(base)
+        )
     if "/plugins/" in d:
         return bool(_qt_plugin_keep.search(dest))
     if "/translations/" in d:
