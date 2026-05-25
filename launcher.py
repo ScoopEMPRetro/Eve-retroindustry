@@ -122,10 +122,13 @@ def main() -> None:
 
     window.events.closed += on_closed
 
-    # gui="qt" on Linux (self-contained via PyQt6-WebEngine),
-    # default (Edge WebView2) on Windows.
-    gui = "qt" if sys.platform.startswith("linux") else None
-    webview.start(gui=gui)
+    # Use PyQt6 + QtWebEngine on both Linux and Windows — self-contained
+    # bundled Chromium, no runtime dependency on system webkit2gtk or
+    # Edge WebView2 / pythonnet. The default Windows backend tries to
+    # load Python.Runtime.dll through pythonnet which silently corrupts
+    # under PyInstaller on some user machines ("Failed to resolve
+    # Python.Runtime.Loader.Initialize").
+    webview.start(gui="qt")
 
     srv.join(timeout=3)
     os._exit(0)

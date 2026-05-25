@@ -19,25 +19,24 @@ from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 
-# pywebview backend differs per platform. On Linux we ship PyQt6-WebEngine
-# (self-contained, no system webkit2gtk dependency); on Windows we use the
-# default Edge WebView2 backend (preinstalled on Win10+).
+# pywebview uses Qt (PyQt6-WebEngine) on both Linux and Windows. Self-contained
+# bundled Chromium — no system webkit2gtk on Linux, no Edge WebView2 / pythonnet
+# on Windows (the default pywebview Windows backend tries to load
+# Python.Runtime.dll through pythonnet and silently corrupts under PyInstaller).
 #
 # We rely on PyInstaller's built-in PyQt6 hook (it sees the imports in
 # webview.platforms.qt and pulls only the Qt modules we actually use:
 # QtCore, QtGui, QtWidgets, QtNetwork, QtWebEngineCore, QtWebEngineWidgets).
 # Collecting all of PyQt6 unconditionally bloats the build by ~400 MB with
 # Qt6Quick/QML/3D/Designer modules that we never touch.
-_qt_hiddenimports = []
-if sys.platform.startswith("linux"):
-    _qt_hiddenimports = [
-        "PyQt6.QtCore",
-        "PyQt6.QtGui",
-        "PyQt6.QtWidgets",
-        "PyQt6.QtNetwork",
-        "PyQt6.QtWebEngineCore",
-        "PyQt6.QtWebEngineWidgets",
-    ]
+_qt_hiddenimports = [
+    "PyQt6.QtCore",
+    "PyQt6.QtGui",
+    "PyQt6.QtWidgets",
+    "PyQt6.QtNetwork",
+    "PyQt6.QtWebEngineCore",
+    "PyQt6.QtWebEngineWidgets",
+]
 
 _wv_datas, _wv_binaries, _wv_hiddenimports = collect_all("webview")
 
@@ -133,52 +132,62 @@ a = Analysis(
 )
 
 # Post-filter Qt6 binaries/datas: the PyQt6 PyInstaller hook bulk-collects
-# the entire Qt6 lib/, plugins/, qml/, translations/ trees. We only need
-# QtCore, QtGui, QtWidgets, QtNetwork, QtWebEngine* and a small set of
-# platform/imageformat/tls plugins. Strip everything else to keep the
-# bundle close to ~250 MB instead of ~700 MB.
-if sys.platform.startswith("linux"):
-    import re
+# the entire Qt6 tree. We only need QtCore, QtGui, QtWidgets, QtNetwork,
+# QtWebEngine* and a small set of platform/imageformat/tls plugins. Strip
+# everything else.
+#
+# Naming differs per platform:
+#   Linux:   libQt6Core.so.6 in PyQt6/Qt6/lib/
+#   Windows: Qt6Core.dll      in PyQt6/Qt6/bin/
+# The regex uses `(lib)?` and the path check covers both `/lib/` and `/bin/`.
+import re
 
-    _qt_lib_keep = re.compile(
-        r"(libQt6(Core|DBus|Gui|Network|OpenGL|Widgets|"
-        r"WebEngineCore|WebEngineWidgets|WebChannel|Positioning|Quick|Qml|QmlMeta|QmlModels|QmlWorkerScript)"
-        r"|libicu|libavcodec|libavformat|libavutil|libswresample|libwebp|"
-        r"libminizip|libxslt|libxml2|liblcms2|libssl|libcrypto)"
-    )
-    _qt_plugin_keep = re.compile(
-        r"PyQt6/Qt6/plugins/(platforms|imageformats|tls|iconengines|"
-        r"xcbglintegrations|egldeviceintegrations|"
-        r"wayland-shell-integration|wayland-decoration-client|"
-        r"wayland-graphics-integration-client|platforminputcontexts|"
-        r"platformthemes|networkinformation)/"
-    )
-    _qt_resources_keep = re.compile(
-        r"PyQt6/Qt6/resources/(qtwebengine_resources|qtwebengine_devtools|"
-        r"icudtl|v8_context_snapshot)"
-    )
+_qt_lib_keep = re.compile(
+    r"(lib)?Qt6(Core|DBus|Gui|Network|OpenGL|Widgets|"
+    r"WebEngineCore|WebEngineWidgets|WebChannel|Positioning|"
+    r"Quick|Qml|QmlMeta|QmlModels|QmlWorkerScript)\."
+)
+_qt_other_lib_keep = re.compile(
+    r"^(lib)?(icu|avcodec|avformat|avutil|swresample|webp|"
+    r"minizip|xslt|xml2|lcms2|ssl|crypto)"
+)
+# Plugins kept across platforms — superset, harmless extras stay.
+# Linux needs xcb/wayland; Windows needs windowsvistastyle (under styles/).
+_qt_plugin_keep = re.compile(
+    r"PyQt6[/\\]Qt6[/\\]plugins[/\\](platforms|imageformats|tls|iconengines|"
+    r"styles|xcbglintegrations|egldeviceintegrations|"
+    r"wayland-shell-integration|wayland-decoration-client|"
+    r"wayland-graphics-integration-client|platforminputcontexts|"
+    r"platformthemes|networkinformation)[/\\]"
+)
+_qt_resources_keep = re.compile(
+    r"PyQt6[/\\]Qt6[/\\]resources[/\\](qtwebengine_resources|qtwebengine_devtools|"
+    r"icudtl|v8_context_snapshot)"
+)
 
-    def _qt_keep(dest: str) -> bool:
-        # Only filter PyQt6/Qt6 paths — leave everything else untouched.
-        if "PyQt6/Qt6/" not in dest:
-            return True
-        if "/lib/" in dest:
-            base = dest.rsplit("/", 1)[-1]
-            return bool(_qt_lib_keep.match(base))
-        if "/plugins/" in dest:
-            return bool(_qt_plugin_keep.search(dest))
-        if "/translations/" in dest:
-            return dest.endswith("/qtwebengine_locales/en-US.pak") or "en-US" in dest
-        if "/resources/" in dest:
-            return bool(_qt_resources_keep.search(dest))
-        if "/qml/" in dest:
-            return False
-        if "/qsci/" in dest:
-            return False
+def _qt_keep(dest: str) -> bool:
+    # Normalize backslashes (Windows) for substring checks.
+    d = dest.replace("\\", "/")
+    if "PyQt6/Qt6/" not in d:
         return True
+    # Library DLLs / shared objects — kept if they match Qt6Core/Gui/... or ICU/etc.
+    if "/lib/" in d or "/bin/" in d:
+        base = d.rsplit("/", 1)[-1]
+        return bool(_qt_lib_keep.match(base) or _qt_other_lib_keep.match(base))
+    if "/plugins/" in d:
+        return bool(_qt_plugin_keep.search(dest))
+    if "/translations/" in d:
+        return d.endswith("/qtwebengine_locales/en-US.pak") or "en-US" in d
+    if "/resources/" in d:
+        return bool(_qt_resources_keep.search(dest))
+    if "/qml/" in d:
+        return False
+    if "/qsci/" in d:
+        return False
+    return True
 
-    a.binaries = [b for b in a.binaries if _qt_keep(b[0])]
-    a.datas    = [d for d in a.datas    if _qt_keep(d[0])]
+a.binaries = [b for b in a.binaries if _qt_keep(b[0])]
+a.datas    = [d for d in a.datas    if _qt_keep(d[0])]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
