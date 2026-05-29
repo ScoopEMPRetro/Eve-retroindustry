@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.4.9"
+APP_VERSION = "0.4.10"
 
 import asyncio
 import datetime
@@ -663,22 +663,76 @@ _CORP_DIV_ORDER = list(_CORP_DIV_LABEL.keys())
 # Auth
 # ---------------------------------------------------------------------------
 
+def _open_in_external_browser(url: str) -> bool:
+    """Otevře URL v systémovém default browseru bez toho aby
+    zdědil AppImage / PyInstaller env (LD_LIBRARY_PATH, QT_*…),
+    který by jinak crashnul Firefox/Chrome (snažili by se loadnout
+    naše bundlované Qt libs). Vrátí True pokud se daný spawn povedl.
+
+    AppImage runtime ukládá originální hodnoty do `APPIMAGE_ORIGINAL_*`
+    a PyInstaller bootloader do `_PYI_*` — vrátíme je tam zpět než
+    voláme xdg-open.
+    """
+    import subprocess
+    if _sys.platform.startswith("win"):
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]
+            return True
+        except Exception as exc:
+            print(f"[browser] os.startfile failed: {exc}", flush=True)
+            return False
+    if _sys.platform == "darwin":
+        try:
+            subprocess.Popen(["open", url], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+            return True
+        except Exception as exc:
+            print(f"[browser] open failed: {exc}", flush=True)
+            return False
+
+    # Linux: restore the env that existed before AppImage / PyInstaller
+    # took over, so the spawned browser doesn't try to load our bundled
+    # libs.
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("LD_LIBRARY_PATH", "QT_", "QML",
+                                "GST_", "GTK_", "PYTHON", "_PYI_"))}
+    for k in list(os.environ.keys()):
+        if k.startswith("APPIMAGE_ORIGINAL_"):
+            env[k[len("APPIMAGE_ORIGINAL_"):]] = os.environ[k]
+            env.pop(k, None)
+    for cmd in (["xdg-open", url], ["x-www-browser", url],
+                ["firefox", url], ["google-chrome", url],
+                ["chromium", url]):
+        try:
+            subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+            print(f"[browser] spawned {cmd[0]} for SSO login", flush=True)
+            return True
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            print(f"[browser] {cmd[0]} failed: {exc}", flush=True)
+            continue
+    return False
+
+
 @app.get("/auth/login")
 async def auth_login(request: Request):
-    """Spustí OAuth flow a otevře potvrzovací stránku, ze které user
-    klikne Continue → webview se navigates na EVE SSO. Cancel button na
-    téhle stránce zastaví flow (zruší lock + shutdown callback server)
-    a vrátí ho na dashboard.
+    """Spustí OAuth flow + pokusí se otevřít EVE SSO v systémovém
+    default browseru. Webview ukáže waiting page s Cancel buttonem.
 
-    Direkt-redirect na SSO (v0.4.7 chování) by mu cestu zpět vůbec
-    neumožnil. webbrowser.open() v PyInstaller bundle / AppImage
-    prostředí tiše selhává, takže external-browser flow taky nejde.
+    Pokud spawn external browseru selže, waiting page má taky
+    "Open in this window" fallback link (webview se naviguje na SSO).
     """
     _sync_state["done"] = False
     url = start_web_login()
     if not url:
         return RedirectResponse("/?login_busy=1")
-    return _tr("auth_waiting.html", request, {"auth_url": url})
+    opened = _open_in_external_browser(url)
+    return _tr("auth_waiting.html", request, {
+        "auth_url": url,
+        "external_opened": opened,
+    })
 
 
 @app.post("/auth/cancel")

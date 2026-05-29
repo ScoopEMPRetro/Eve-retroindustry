@@ -5,16 +5,39 @@
 <div class="row justify-content-center mt-5">
   <div class="col-lg-5 text-center">
     <div class="card p-5">
+
+      {% if external_opened %}
+      <div class="mb-4">
+        <div class="spinner-border text-primary" style="width:3rem;height:3rem" role="status">
+          <span class="visually-hidden">Waiting…</span>
+        </div>
+      </div>
+      <h5 class="mb-2">Waiting for EVE SSO login</h5>
+      <p class="text-muted small mb-4">
+        Your default browser should have opened the EVE Online login page.<br>
+        Sign in there to authorize EVE Retroindustry.
+      </p>
+      <div class="d-flex gap-2 justify-content-center mb-2">
+        <button type="button" onclick="cancelLogin()"
+                id="cancel-btn"
+                class="btn btn-outline-danger">
+          <i class="bi bi-x-circle me-1"></i>Cancel login
+        </button>
+        <a href="{{ auth_url }}" target="_blank" rel="noopener"
+           class="btn btn-outline-secondary">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Re-open in browser
+        </a>
+      </div>
+      {% else %}
+      {# External browser spawn failed — give the user the manual link. #}
       <div class="mb-4">
         <i class="bi bi-shield-lock" style="font-size:3rem;color:#e3b341"></i>
       </div>
       <h5 class="mb-2">EVE SSO authorization</h5>
       <p class="text-muted small mb-4">
-        Click <strong>Continue</strong> to be taken to the official
-        <code>login.eveonline.com</code> page where you can sign in and
-        authorize EVE Retroindustry to read your character data.
+        Couldn't launch your default browser. Click <strong>Open EVE SSO</strong>
+        to sign in inside this window.
       </p>
-
       <div class="d-flex gap-2 justify-content-center mb-2">
         <button type="button" onclick="cancelLogin()"
                 id="cancel-btn"
@@ -22,14 +45,14 @@
           <i class="bi bi-x-circle me-1"></i>Cancel
         </button>
         <a href="{{ auth_url }}" class="btn btn-eve">
-          Continue to EVE SSO
+          Open EVE SSO
           <i class="bi bi-arrow-right ms-1"></i>
         </a>
       </div>
+      {% endif %}
 
       <div id="status-line" class="text-muted small mt-3">
-        Tip: clicking Cancel releases the local OAuth session. After
-        signing in on the EVE page you'll be returned here automatically.
+        After signing in you'll be returned here automatically.
       </div>
     </div>
   </div>
@@ -50,8 +73,6 @@ async function cancelLogin() {
   window.location.href = '/';
 }
 
-// Poll status — if user reached EVE SSO and logged in, callback fires →
-// lock releases → we route to /auth/sync (success) or stay put.
 async function pollStatus() {
   if (cancelled) return;
   try {
