@@ -1,33 +1,36 @@
 {% extends "base.html" %}
-{% block title %}Waiting for EVE SSO — EVE Retroindustry{% endblock %}
+{% block title %}EVE SSO Login — EVE Retroindustry{% endblock %}
 {% block content %}
 
 <div class="row justify-content-center mt-5">
   <div class="col-lg-5 text-center">
     <div class="card p-5">
       <div class="mb-4">
-        <div class="spinner-border text-primary" style="width:3rem;height:3rem" role="status">
-          <span class="visually-hidden">Waiting...</span>
-        </div>
+        <i class="bi bi-shield-lock" style="font-size:3rem;color:#e3b341"></i>
       </div>
-      <h5 class="mb-2">Waiting for EVE SSO login</h5>
+      <h5 class="mb-2">EVE SSO authorization</h5>
       <p class="text-muted small mb-4">
-        Your default browser should have opened the EVE Online login page.<br>
-        Sign in there to authorize this app.
+        Click <strong>Continue</strong> to be taken to the official
+        <code>login.eveonline.com</code> page where you can sign in and
+        authorize EVE Retroindustry to read your character data.
       </p>
 
-      <div class="d-flex gap-2 justify-content-center mb-3">
-        <a href="{{ auth_url }}" target="_blank" rel="noopener"
-           class="btn btn-outline-secondary btn-sm">
-          <i class="bi bi-box-arrow-up-right me-1"></i>Re-open EVE SSO
-        </a>
-        <button id="cancel-btn" type="button" onclick="cancelLogin()"
-                class="btn btn-outline-danger btn-sm">
+      <div class="d-flex gap-2 justify-content-center mb-2">
+        <button type="button" onclick="cancelLogin()"
+                id="cancel-btn"
+                class="btn btn-outline-secondary">
           <i class="bi bi-x-circle me-1"></i>Cancel
         </button>
+        <a href="{{ auth_url }}" class="btn btn-eve">
+          Continue to EVE SSO
+          <i class="bi bi-arrow-right ms-1"></i>
+        </a>
       </div>
 
-      <div id="status-line" class="text-muted small">Waiting for callback…</div>
+      <div id="status-line" class="text-muted small mt-3">
+        Tip: clicking Cancel releases the local OAuth session. After
+        signing in on the EVE page you'll be returned here automatically.
+      </div>
     </div>
   </div>
 </div>
@@ -35,7 +38,6 @@
 {% endblock %}
 {% block scripts %}
 <script>
-let pollDelay = 1500;
 let cancelled = false;
 
 async function cancelLogin() {
@@ -48,21 +50,20 @@ async function cancelLogin() {
   window.location.href = '/';
 }
 
+// Poll status — if user reached EVE SSO and logged in, callback fires →
+// lock releases → we route to /auth/sync (success) or stay put.
 async function pollStatus() {
   if (cancelled) return;
   try {
     const r = await fetch('/api/auth/status');
     const d = await r.json();
-    if (!d.in_progress) {
-      // Login flow ended. If we have a character → success → sync page.
-      // Otherwise it was cancelled or failed → dashboard.
-      window.location.href = d.has_character ? '/auth/sync' : '/';
+    if (!d.in_progress && d.has_character) {
+      window.location.href = '/auth/sync';
       return;
     }
   } catch {}
-  setTimeout(pollStatus, pollDelay);
+  setTimeout(pollStatus, 1500);
 }
-
-setTimeout(pollStatus, pollDelay);
+setTimeout(pollStatus, 1500);
 </script>
 {% endblock %}

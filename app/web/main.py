@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.4.8"
+APP_VERSION = "0.4.9"
 
 import asyncio
 import datetime
@@ -665,15 +665,19 @@ _CORP_DIV_ORDER = list(_CORP_DIV_LABEL.keys())
 
 @app.get("/auth/login")
 async def auth_login(request: Request):
-    """Otevře EVE SSO v default browseru (ne ve webview, aby měl user
-    standardní browser controls) a vrátí waiting stránku s Cancel buttonem.
+    """Spustí OAuth flow a otevře potvrzovací stránku, ze které user
+    klikne Continue → webview se navigates na EVE SSO. Cancel button na
+    téhle stránce zastaví flow (zruší lock + shutdown callback server)
+    a vrátí ho na dashboard.
+
+    Direkt-redirect na SSO (v0.4.7 chování) by mu cestu zpět vůbec
+    neumožnil. webbrowser.open() v PyInstaller bundle / AppImage
+    prostředí tiše selhává, takže external-browser flow taky nejde.
     """
     _sync_state["done"] = False
     url = start_web_login()
     if not url:
         return RedirectResponse("/?login_busy=1")
-    import webbrowser
-    webbrowser.open(url)
     return _tr("auth_waiting.html", request, {"auth_url": url})
 
 
