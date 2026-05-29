@@ -121,6 +121,10 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             f"<script>setTimeout(()=>location.href='{redirect}',1500)</script>"
         )
         self.wfile.write(body.encode())
+        # serve_forever() neukončí thread sám — spustíme shutdown z jiného
+        # threadu, jinak by deadlock (shutdown čeká na ukončení serve_forever
+        # smyčky, která čeká na nás).
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     def log_message(self, *args):
         pass  # potlač HTTP logy
@@ -220,12 +224,36 @@ def login(client_id: str | None = None) -> bool:
     return True
 
 
+# Reference na aktivní callback server (HTTPServer) — None když login není rozjet.
+# Drží se proto, aby ho /auth/cancel mohl shutdown-nout.
+_active_server: HTTPServer | None = None
+_cancelled: bool = False
+
+
+def cancel_web_login() -> bool:
+    """Zruší probíhající login flow. Vrátí True pokud byl něco k rušení.
+
+    Shutdown lokálního callback HTTP serveru → thread v `_run_callback`
+    skončí, lock se uvolní, user může okamžitě zkusit login znovu.
+    """
+    global _active_server, _cancelled
+    if _active_server is None:
+        return False
+    _cancelled = True
+    try:
+        _active_server.shutdown()
+    except Exception:
+        pass
+    return True
+
+
 def start_web_login() -> str | None:
     """
     Spustí OAuth2 PKCE flow pro web UI.
     Vrátí auth URL pro redirect, nebo None pokud chybí client_id.
     Callback server běží na pozadí — po úspěchu uloží tokeny a přesměruje na appku.
     """
+    global _active_server, _cancelled
     if not _login_lock.acquire(blocking=False):
         return None  # login už probíhá
 
@@ -248,14 +276,41 @@ def start_web_login() -> str | None:
     }
     auth_url = f"{AUTH_URL}?{urllib.parse.urlencode(params)}"
 
+    # Reset cancellation flag for this run.
+    _cancelled = False
+    _CallbackHandler.code = None
+    _CallbackHandler.state = None
+
     def _run_callback():
+        global _active_server
         try:
             server = HTTPServer(("localhost", CALLBACK_PORT), _CallbackHandler)
-            server.timeout = 180
-            server.handle_request()
+            # serve_forever() místo handle_request() aby šel přerušit přes shutdown()
+            # z `cancel_web_login()`. Handler nastaví code a po jeho zpracování
+            # shutdown-uje server.
+            _active_server = server
+            # Watchdog — pokud user nepřijde zpět do 15 min, shutdown a uvolni lock.
+            def _watchdog():
+                import time
+                time.sleep(15 * 60)
+                if _active_server is server:
+                    try:
+                        server.shutdown()
+                    except Exception:
+                        pass
+            threading.Thread(target=_watchdog, daemon=True).start()
+            try:
+                server.serve_forever(poll_interval=0.5)
+            finally:
+                try:
+                    server.server_close()
+                except Exception:
+                    pass
+
+            if _cancelled or not _CallbackHandler.code:
+                return  # cancelled or no code received
+
             code = _CallbackHandler.code
-            if not code:
-                return
             r = httpx.post(
                 TOKEN_URL,
                 data={
@@ -286,6 +341,7 @@ def start_web_login() -> str | None:
             finally:
                 conn.close()
         finally:
+            _active_server = None
             _login_lock.release()
 
     threading.Thread(target=_run_callback, daemon=True).start()

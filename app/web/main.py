@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.4.7"
+APP_VERSION = "0.4.8"
 
 import asyncio
 import datetime
@@ -29,7 +29,7 @@ from app.auth.token_store import (
     update_corporation_id,
     update_last_sync,
 )
-from app.auth.esi_oauth import start_web_login
+from app.auth.esi_oauth import start_web_login, cancel_web_login
 from app.character.blueprints import fetch_blueprints, ensure_bp_table
 from app.character.assets import (
     fetch_assets, ensure_assets_table, assets_at_location,
@@ -137,12 +137,96 @@ async def _setup_gate(request: Request, call_next):
     return await call_next(request)
 
 
+_SDE_TABLES_TO_REFRESH = (
+    "sde_types",
+    "sde_groups",
+    "sde_blueprints",
+    "sde_blueprint_materials",
+    "sde_blueprint_products",
+    "sde_blueprint_skills",
+    "sde_skill_time_bonus",
+)
+
+
+def _bundled_sde_path() -> str | None:
+    """Vrátí cestu k sde_base.db bundlované v PyInstaller balíku, nebo None.
+
+    Bundle dir = sys._MEIPASS (frozen) / projekt root (dev). V dev módu
+    sde_base.db leží přímo v rootu projektu.
+    """
+    candidate = os.path.join(_BUNDLE_DIR, "sde_base.db")
+    return candidate if os.path.isfile(candidate) else None
+
+
+def _refresh_sde_from_bundle(conn: sqlite3.Connection) -> int:
+    """Pokud bundlovaná sde_base.db má víc typů než user's eve_cache.db,
+    nahradí SDE tabulky čerstvými daty. Vrátí počet typů PO refreshi
+    (0 = nic se nestalo).
+
+    User data (characters, BP cache, prices, projekty, …) zůstává — měníme
+    jen tabulky z `_SDE_TABLES_TO_REFRESH`.
+    """
+    bundled = _bundled_sde_path()
+    if not bundled:
+        return 0
+
+    user_count = conn.execute("SELECT COUNT(*) FROM sde_types").fetchone()[0]
+    bsrc = sqlite3.connect(bundled)
+    try:
+        bundled_count = bsrc.execute("SELECT COUNT(*) FROM sde_types").fetchone()[0]
+    finally:
+        bsrc.close()
+
+    if bundled_count <= user_count:
+        return user_count  # user už má aspoň tolik typů → ne-merge
+
+    print(f"[sde] refreshing SDE tables: user={user_count}, bundled={bundled_count}",
+          flush=True)
+    # Attach bundlovanou DB jako 'src' a kopíruj tabulky.
+    conn.execute("ATTACH DATABASE ? AS src", (bundled,))
+    try:
+        for table in _SDE_TABLES_TO_REFRESH:
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS {table}")
+                conn.execute(f"CREATE TABLE {table} AS SELECT * FROM src.{table}")
+            except sqlite3.Error as exc:
+                print(f"[sde] table {table}: {exc}", flush=True)
+        conn.commit()
+    finally:
+        conn.execute("DETACH DATABASE src")
+    return bundled_count
+
+
 @app.on_event("startup")
 async def _startup_populate_groups():
-    """Check SDE readiness, load group names and rig bonuses."""
+    """Check SDE readiness, refresh from bundled DB if outdated, then
+    load group names and rig bonuses."""
+    # Fresh install — pokud eve_cache.db neexistuje a máme bundlovaný SDE,
+    # zkopírujeme rovnou (bypassuje stará /setup/download stránka).
+    try:
+        if not os.path.exists(DB_ABS):
+            bundled = _bundled_sde_path()
+            if bundled:
+                import shutil
+                shutil.copy2(bundled, DB_ABS)
+                print(f"[sde] fresh install — copied bundled SDE to {DB_ABS}",
+                      flush=True)
+    except Exception as exc:
+        print(f"[sde] fresh-install copy failed: {exc}", flush=True)
+
     try:
         conn = get_conn()
-        count = conn.execute("SELECT COUNT(*) FROM sde_types").fetchone()[0]
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM sde_types").fetchone()[0]
+        except sqlite3.OperationalError:
+            count = 0
+
+        if count > 0:
+            try:
+                count = _refresh_sde_from_bundle(conn) or count
+            except Exception as exc:
+                print(f"[sde] refresh failed: {exc}", flush=True)
+
         _SDE_READY[0] = count > 0
         if _SDE_READY[0]:
             populate_rig_bonuses(conn)
@@ -580,12 +664,39 @@ _CORP_DIV_ORDER = list(_CORP_DIV_LABEL.keys())
 # ---------------------------------------------------------------------------
 
 @app.get("/auth/login")
-async def auth_login():
+async def auth_login(request: Request):
+    """Otevře EVE SSO v default browseru (ne ve webview, aby měl user
+    standardní browser controls) a vrátí waiting stránku s Cancel buttonem.
+    """
     _sync_state["done"] = False
     url = start_web_login()
     if not url:
         return RedirectResponse("/?login_busy=1")
-    return RedirectResponse(url)
+    import webbrowser
+    webbrowser.open(url)
+    return _tr("auth_waiting.html", request, {"auth_url": url})
+
+
+@app.post("/auth/cancel")
+async def auth_cancel():
+    """Zruší probíhající login. Server shutdown + lock release."""
+    cancelled = cancel_web_login()
+    return {"cancelled": cancelled}
+
+
+@app.get("/api/auth/status")
+async def api_auth_status():
+    """Polling endpoint pro waiting page. Vrací stav login flow."""
+    from app.auth.esi_oauth import _login_lock
+    conn = get_conn()
+    try:
+        has_chars = has_any_character(conn)
+    finally:
+        conn.close()
+    # Pokud lock není acquired → login flow skončil (success nebo cancel).
+    # has_chars rozlišuje úspěch (uloženy tokeny) vs cancel/error.
+    in_progress = _login_lock.locked()
+    return {"in_progress": in_progress, "has_character": has_chars}
 
 
 async def _bg_initial_sync():

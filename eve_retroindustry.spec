@@ -47,6 +47,10 @@ a = Analysis(
     datas=[
         ("app/web/templates", "app/web/templates"),
         ("assets/icon.ico", "assets"),
+        # Bundle SDE base — first run copies it to eve_cache.db; later runs
+        # use it to refresh SDE tables when the bundled DB has newer/more
+        # types than the user's eve_cache.db (e.g. after an in-app update).
+        ("sde_base.db", "."),
     ] + _wv_datas,
     hiddenimports=[
         # JWT / auth

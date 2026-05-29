@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Waiting for EVE SSO — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="row justify-content-center mt-5">
+  <div class="col-lg-5 text-center">
+    <div class="card p-5">
+      <div class="mb-4">
+        <div class="spinner-border text-primary" style="width:3rem;height:3rem" role="status">
+          <span class="visually-hidden">Waiting...</span>
+        </div>
+      </div>
+      <h5 class="mb-2">Waiting for EVE SSO login</h5>
+      <p class="text-muted small mb-4">
+        Your default browser should have opened the EVE Online login page.<br>
+        Sign in there to authorize this app.
+      </p>
+
+      <div class="d-flex gap-2 justify-content-center mb-3">
+        <a href="{{ auth_url }}" target="_blank" rel="noopener"
+           class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Re-open EVE SSO
+        </a>
+        <button id="cancel-btn" type="button" onclick="cancelLogin()"
+                class="btn btn-outline-danger btn-sm">
+          <i class="bi bi-x-circle me-1"></i>Cancel
+        </button>
+      </div>
+
+      <div id="status-line" class="text-muted small">Waiting for callback…</div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let pollDelay = 1500;
+let cancelled = false;
+
+async function cancelLogin() {
+  cancelled = true;
+  document.getElementById('cancel-btn').disabled = true;
+  document.getElementById('status-line').textContent = 'Cancelling…';
+  try {
+    await fetch('/auth/cancel', { method: 'POST' });
+  } catch {}
+  window.location.href = '/';
+}
+
+async function pollStatus() {
+  if (cancelled) return;
+  try {
+    const r = await fetch('/api/auth/status');
+    const d = await r.json();
+    if (!d.in_progress) {
+      // Login flow ended. If we have a character → success → sync page.
+      // Otherwise it was cancelled or failed → dashboard.
+      window.location.href = d.has_character ? '/auth/sync' : '/';
+      return;
+    }
+  } catch {}
+  setTimeout(pollStatus, pollDelay);
+}
+
+setTimeout(pollStatus, pollDelay);
+</script>
+{% endblock %}
