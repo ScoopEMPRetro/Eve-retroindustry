@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.4.11"
+APP_VERSION = "0.4.12"
 
 import asyncio
 import datetime
@@ -1940,6 +1940,52 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
         def _sort_items(bucket: dict) -> list:
             return sorted(bucket.values(), key=lambda x: x["name"])
 
+        def _fold_ships_into_containers(
+            sd: dict,
+            type_map: dict[int, int],
+            owner_map: dict[int, tuple[int, str]],
+        ) -> None:
+            """Pokud je nějaký kontejner ve skutečnosti loď (jeho item_id má
+            v `type_map` ship type, který odpovídá nějaké položce v hangaru),
+            přesune jednu kopii lodi z hangaru DO toho kontejneru — jako jeho
+            "hull" row. Tak se loď zobrazí jen jednou, jako rozklikávací
+            položka, jejíž celková cena zahrnuje fit + cargo + hull.
+            """
+            hangar = sd["hangar"]
+            for cid, items in sd["containers"].items():
+                ship_type = type_map.get(cid)
+                if not ship_type:
+                    continue
+                owner = owner_map.get(cid)
+                if not owner:
+                    continue
+                owner_id = owner[0]
+                hangar_key = (ship_type, owner_id)
+                entry = hangar.get(hangar_key)
+                if not entry or entry.get("quantity", 0) <= 0:
+                    continue
+                entry["quantity"] -= 1
+                unit_p = entry.get("unit_price")
+                # Update hangar entry's total_value after decrement (or
+                # mark for removal if we consumed all of them).
+                if entry["quantity"] > 0 and unit_p is not None:
+                    entry["total_value"] = unit_p * entry["quantity"]
+                items[("_hull", cid)] = {
+                    "type_id": ship_type,
+                    "name": entry["name"],
+                    "quantity": 1,
+                    "is_blueprint_copy": False,
+                    "character_id": owner_id,
+                    "character_name": owner[1],
+                    "unit_price": unit_p,
+                    "total_value": unit_p,  # hull = 1 unit
+                }
+                if entry["quantity"] == 0:
+                    del hangar[hangar_key]
+
+        for sd in station_data.values():
+            _fold_ships_into_containers(sd, container_type_map, container_owner_map)
+
         for sid, sd in station_data.items():
             containers = []
             for cid, items in sd["containers"].items():
@@ -1985,6 +2031,39 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
             corp_container_info = await _resolve_corp_container_names(
                 corp_id, token, all_corp_container_ids, corp_assets_raw
             ) if all_corp_container_ids else {}
+
+            def _fold_ships_into_containers_corp(
+                dv: dict,
+                type_map: dict[int, int],
+            ) -> None:
+                """Stejné jako _fold_ships_into_containers, ale corp buckety
+                jsou klíčované jen type_id (žádný owner)."""
+                hangar = dv["hangar"]
+                for cid, items in dv["containers"].items():
+                    ship_type = type_map.get(cid)
+                    if not ship_type:
+                        continue
+                    entry = hangar.get(ship_type)
+                    if not entry or entry.get("quantity", 0) <= 0:
+                        continue
+                    entry["quantity"] -= 1
+                    unit_p = entry.get("unit_price")
+                    if entry["quantity"] > 0 and unit_p is not None:
+                        entry["total_value"] = unit_p * entry["quantity"]
+                    items[("_hull", cid)] = {
+                        "type_id": ship_type,
+                        "name": entry["name"],
+                        "quantity": 1,
+                        "is_blueprint_copy": False,
+                        "unit_price": unit_p,
+                        "total_value": unit_p,
+                    }
+                    if entry["quantity"] == 0:
+                        del hangar[ship_type]
+
+            for sid_data in corp_sd.values():
+                for dv in sid_data.values():
+                    _fold_ships_into_containers_corp(dv, corp_container_type_map)
 
             for sid, sid_data in corp_sd.items():
                 divisions = []
