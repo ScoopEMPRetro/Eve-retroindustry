@@ -113,12 +113,37 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        redirect = _CallbackHandler.redirect_to
+        # Browser tab zůstane na téhle stránce — žádný redirect na
+        # localhost:8000/auth/sync, který by uživateli otevřel naši appku
+        # v externím browseru místo toho aby zůstal v původním okně.
+        # Webview mezitím polluje /api/auth/status a samo se přesměruje
+        # na /auth/sync, jakmile je character uložen.
         body = (
-            f"<meta charset='utf-8'>"
-            f"<h2>Login úspěšný!</h2>"
-            f"<p>Tokeny byly uloženy. <a href='{redirect}'>Zpět do aplikace →</a></p>"
-            f"<script>setTimeout(()=>location.href='{redirect}',1500)</script>"
+            "<!doctype html>"
+            "<meta charset='utf-8'>"
+            "<title>EVE Retroindustry — login complete</title>"
+            "<style>"
+            "  body { font-family: system-ui, sans-serif; background:#0d1117; "
+            "         color:#c9d1d9; display:flex; align-items:center; "
+            "         justify-content:center; height:100vh; margin:0 }"
+            "  .card { background:#161b22; border:1px solid #30363d; "
+            "          border-radius:8px; padding:2.5rem 3rem; text-align:center; "
+            "          max-width:480px }"
+            "  h2 { color:#e3b341; margin:0 0 .75rem }"
+            "  p  { margin:.4rem 0; line-height:1.5 }"
+            "  .small { color:#8b949e; font-size:.875rem }"
+            "</style>"
+            "<div class='card'>"
+            "<h2>Login complete ✓</h2>"
+            "<p>You can close this tab and return to the EVE Retroindustry window.</p>"
+            "<p class='small'>The app has already received your authorization "
+            "and is loading your character data.</p>"
+            "<script>"
+            "  // try to auto-close the tab (works only if window was opened "
+            "  // by script with window.open) — falls back to staying open."
+            "  setTimeout(() => { try { window.close(); } catch (e) {} }, 1500);"
+            "</script>"
+            "</div>"
         )
         self.wfile.write(body.encode())
         # serve_forever() neukončí thread sám — spustíme shutdown z jiného
