@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.4.12"
+APP_VERSION = "0.4.13"
 
 import asyncio
 import datetime
@@ -1547,6 +1547,7 @@ def _build_manufacturing_steps(root, prices: dict, available: dict) -> list[dict
                 "name":              node.name,
                 "quantity":          node.quantity,
                 "runs":              node.runs,
+                "per_run":           getattr(node, "product_qty_per_run", 1),
                 "blueprint_type_id": node.blueprint_type_id,
                 "level":             level,
                 "activity":          node.activity,
@@ -1558,7 +1559,14 @@ def _build_manufacturing_steps(root, prices: dict, available: dict) -> list[dict
             inputs_agg[tid] = {}
         else:
             aggregated[tid]["quantity"] += node.quantity
-            aggregated[tid]["runs"]     += node.runs
+            # Recompute runs from aggregated quantity instead of summing per-branch
+            # runs. Per-branch ceil() rounds up locally; summed it over-states the
+            # total. Example: Helium Fuel Block (40/run) needed 5 in Carbon Polymers
+            # branch + 5 in Dysporite branch — each rounded to 1 run → sum 2 runs
+            # shown to user, but in reality 10 / 40 = 1 run suffices.
+            from math import ceil
+            per_run = aggregated[tid].get("per_run") or 1
+            aggregated[tid]["runs"] = ceil(aggregated[tid]["quantity"] / per_run)
             if sell_p:
                 aggregated[tid]["total_price"] = sell_p * aggregated[tid]["quantity"]
 

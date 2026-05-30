@@ -43,6 +43,7 @@ class BOMNode:
     activity: str           # "manufacturing" | "reaction" | "raw"
     blueprint_type_id: int | None
     me: int = 0             # efektivní ME použité pro výpočet (0 pokud user BP nemá)
+    product_qty_per_run: int = 1   # yield jednoho cyklu (40 fuel block, 10000 TC, …)
     children: list[BOMNode] = field(default_factory=list)
 
     def aggregate_leaves(self) -> dict[int, tuple[str, int]]:
@@ -230,6 +231,7 @@ class BOMResolver:
             runs=runs, is_leaf=False, activity=activity,
             blueprint_type_id=bp_type_id,
             me=int(effective_me),
+            product_qty_per_run=int(product_qty_per_run),
         )
 
         visited = visited | {type_id}  # immutable kopie pro větve
