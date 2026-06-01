@@ -110,14 +110,14 @@
     {% set job_key = 'step' ~ step.step ~ 'job' ~ loop.index %}
     <div class="accordion-item {% if job.completed %}opacity-50{% endif %}" id="job-row-{{ job.job_ids | join('-') }}"
          style="background:#161b22;border-color:#30363d">
-      <h2 class="accordion-header">
+      <h2 class="accordion-header" style="position:relative">
         {% if job.inputs %}
         <button class="accordion-button collapsed" type="button"
                 data-bs-toggle="collapse" data-bs-target="#{{ job_key }}"
-                style="background:#161b22;color:#e6edf3;border-color:#30363d;font-size:.875rem">
+                style="background:#161b22;color:#e6edf3;border-color:#30363d;font-size:.875rem;padding-right:64px">
         {% else %}
         <div class="accordion-button collapsed pe-none"
-             style="background:#161b22;color:#e6edf3;border-color:#30363d;font-size:.875rem;--bs-accordion-btn-icon:none">
+             style="background:#161b22;color:#e6edf3;border-color:#30363d;font-size:.875rem;--bs-accordion-btn-icon:none;padding-right:64px">
         {% endif %}
           <img src="https://images.evetech.net/types/{{ job.type_id }}/icon?size=32"
                width="28" height="28" class="rounded me-2" style="flex-shrink:0">
@@ -129,18 +129,26 @@
           <span class="fw-semibold me-3" style="flex:0 0 32ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ job.name }}</span>
           <span class="text-muted me-3" style="flex:0 0 10ch;font-variant-numeric:tabular-nums">×{{ job.quantity | int | format_number }}</span>
           <span class="text-muted small me-2" style="flex:0 0 8ch">{{ job.runs }} run{% if job.runs != 1 %}s{% endif %}</span>
-          <span style="flex:1"></span>
-          <div class="form-check mb-0 me-2" onclick="event.stopPropagation()">
-            <input class="form-check-input" type="checkbox" style="cursor:pointer;width:1.2em;height:1.2em"
-                   data-job-ids="{{ job.job_ids | join(',') }}"
-                   {% if job.completed %}checked{% endif %}
-                   onchange="toggleJob(this)">
-          </div>
         {% if job.inputs %}
         </button>
         {% else %}
         </div>
         {% endif %}
+        {# Checkbox sits as a sibling of the accordion button, positioned over
+           the right edge. Putting <input> INSIDE <button> is invalid HTML and
+           lets some browsers route the click through to the button anyway —
+           which expanded the accordion every time the user just wanted to
+           tick the checkbox. #}
+        <div class="form-check mb-0"
+             style="position:absolute;right:1rem;top:50%;transform:translateY(-50%);z-index:2"
+             onclick="event.stopPropagation()">
+          <input class="form-check-input" type="checkbox"
+                 style="cursor:pointer;width:1.2em;height:1.2em"
+                 data-job-ids="{{ job.job_ids | join(',') }}"
+                 {% if job.completed %}checked{% endif %}
+                 onclick="event.stopPropagation()"
+                 onchange="toggleJob(this)">
+        </div>
       </h2>
       {% if job.inputs %}
       <div id="{{ job_key }}" class="accordion-collapse collapse">
