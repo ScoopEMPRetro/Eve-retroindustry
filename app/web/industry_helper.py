@@ -162,10 +162,17 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
         cats.add("EQUIPMENT_OR_AMMO")
 
     # === Components ===
+    # XL-Set Structure and Component Manufacturing rig (group 1869) broadens
+    # the category to cover EVERY kind of component (cap, adv, T1 structure
+    # parts) and tools. Verified against EVE Ref: rig 43704 reduces time
+    # and materials for groups 873/913/716/964/332/334, but NOT for 4096
+    # (Molecular-Forged reaction output) or 954-958 (T3 subsystems).
     elif group_id == 873:
         cats.add("CAP_COMPONENT")
+        cats.add("STRUCTURE_OR_COMPONENT")
     elif group_id in (913, 716, 964):  # Advanced components, data interfaces, hybrid tech
         cats.add("ADV_COMPONENT")
+        cats.add("STRUCTURE_OR_COMPONENT")
     elif group_id == 4096:  # Molecular-Forged Materials — reaction output + used as ADV_COMPONENT
         cats.add("ADV_COMPONENT")
         cats.add("REACT_ANY")
@@ -173,8 +180,9 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
         cats.add("ADV_COMPONENT")
     elif group_id in (334, 536, 1314):  # Construction Components, Structure Components, Unknown Components
         cats.add("STRUCTURE_OR_COMPONENT")
-    elif group_id == 332:  # Tool
+    elif group_id == 332:  # Tool (R.A.M. - …, R.Db - …)
         cats.add("ADV_COMPONENT")  # Tools are advanced components per rig description
+        cats.add("STRUCTURE_OR_COMPONENT")
     elif group_id == 1136:  # Fuel Block
         cats.add("STRUCTURE")
         cats.add("STRUCTURE_OR_COMPONENT")
