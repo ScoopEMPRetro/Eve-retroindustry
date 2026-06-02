@@ -141,6 +141,12 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
     # Exclude drone MODULES (ship fittings that affect drones) — handled as EQUIPMENT below
     elif ("drone" in n or "fighter" in n) and group_id not in (644, 645, 646, 647, 1292):
         cats.add("DRONE")
+        # XL-Set Equipment and Consumable Manufacturing rig (group 1867) broadens
+        # the "Equipment" category to include drones/fighters — verified against
+        # EVE Ref API: Wasp II + rig 37178 reduces time/materials, Wasp II + M-Set
+        # Equipment rig 43920 does not. M/L-Set "Equipment" rigs (1816/1850) stay
+        # drone-exclusive (Drone & Fighter rig is its own group 1822/1852).
+        cats.add("EQUIPMENT_OR_AMMO")
 
     # === Ammunition ===
     elif (any(k in n for k in ("ammo", "missile", "charge", "crystal", "frequency",
