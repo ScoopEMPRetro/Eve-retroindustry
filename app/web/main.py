@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.4.17"
+APP_VERSION = "0.4.18"
 
 import asyncio
 import datetime
@@ -203,13 +203,35 @@ async def _startup_populate_groups():
     load group names and rig bonuses."""
     # Fresh install — pokud eve_cache.db neexistuje a máme bundlovaný SDE,
     # zkopírujeme rovnou (bypassuje stará /setup/download stránka).
+    # POZOR: app.db.database už při importu (před spuštěním tohoto handleru)
+    # zavolal create_all, který vytvořil eve_cache.db jen s user tabulkami.
+    # Když tedy DB existuje, ale je prakticky prázdná (žádné SDE tabulky),
+    # nahradíme ji bundlem také. Po nahrazení musíme znovu vytvořit user
+    # tabulky, jinak SQLAlchemy "no such table: type_cache".
     try:
-        if not os.path.exists(DB_ABS):
-            bundled = _bundled_sde_path()
-            if bundled:
+        bundled = _bundled_sde_path()
+        if bundled:
+            need_copy = False
+            if not os.path.exists(DB_ABS):
+                need_copy = True
+            else:
+                # Existuje, ale možná je to jen prázdný shell od SQLAlchemy
+                try:
+                    probe = sqlite3.connect(DB_ABS)
+                    has_sde = probe.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='sde_types'"
+                    ).fetchone() is not None
+                    probe.close()
+                    need_copy = not has_sde
+                except Exception:
+                    pass
+            if need_copy:
                 import shutil
+                from app.db.database import engine as _alchemy_engine, ensure_user_tables
+                _alchemy_engine.dispose()
                 shutil.copy2(bundled, DB_ABS)
-                print(f"[sde] fresh install — copied bundled SDE to {DB_ABS}",
+                ensure_user_tables()
+                print(f"[sde] copied bundled SDE to {DB_ABS} + recreated user tables",
                       flush=True)
     except Exception as exc:
         print(f"[sde] fresh-install copy failed: {exc}", flush=True)
@@ -337,10 +359,14 @@ async def setup_download():
             # they hold an open file descriptor on the empty placeholder DB and
             # subsequent INSERTs fail with SQLITE_READONLY_DBMOVED ("attempt to
             # write a readonly database").
-            from app.db.database import engine as _alchemy_engine
+            from app.db.database import engine as _alchemy_engine, ensure_user_tables
             _alchemy_engine.dispose()
 
             shutil.move(tmp_path, DB_ABS)
+            # The downloaded file is sde_base.db — has SDE tables only, no
+            # SQLAlchemy user tables. Recreate them now or the next /plan
+            # crashes with "no such table: type_cache".
+            ensure_user_tables()
 
             # Re-run startup population now that SDE is available
             _SDE_READY[0] = True

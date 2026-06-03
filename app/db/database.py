@@ -46,3 +46,14 @@ Base.metadata.create_all(engine)
 
 def get_session() -> Session:
     return Session(engine)
+
+
+def ensure_user_tables() -> None:
+    """Re-runs Base.metadata.create_all on the live engine.
+
+    Necessary whenever eve_cache.db is replaced from outside (fresh-install
+    copy of bundled sde_base.db, /setup SDE download, …) — the bundled file
+    only has SDE tables, so the SQLAlchemy-managed user tables
+    (type_cache, blueprint_cache) must be recreated.
+    """
+    Base.metadata.create_all(engine)
