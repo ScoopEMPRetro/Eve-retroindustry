@@ -550,24 +550,28 @@ function switchPlanChar(charId) {
     <span class="text-muted small">Prices: Jita from cache / adjusted</span>
   </div>
   <div class="table-responsive">
-    <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
+    <table id="materials-table" class="table table-hover mb-0 align-middle" style="font-size:.875rem">
       <thead>
         <tr>
           <th style="width:36px"></th>
-          <th>Material</th>
-          <th class="text-end">Required</th>
-          <th class="text-end">Price/unit (ISK)</th>
-          <th class="text-end">Total (ISK)</th>
-          <th class="text-end">At station</th>
-          <th class="text-end">Missing</th>
-          <th class="text-end">Buy (ISK)</th>
-          <th class="text-end" style="width:80px">Coverage</th>
+          <th class="sortable" data-sort="name" data-sort-type="text" style="cursor:pointer;user-select:none">Material <span class="sort-indicator"></span></th>
+          <th class="sortable" data-sort="group" data-sort-type="text" style="cursor:pointer;user-select:none">Type <span class="sort-indicator"></span></th>
+          <th class="sortable text-end" data-sort="required" data-sort-type="num" style="cursor:pointer;user-select:none">Required <span class="sort-indicator"></span></th>
+          <th class="sortable text-end" data-sort="unit-price" data-sort-type="num" style="cursor:pointer;user-select:none">Price/unit (ISK) <span class="sort-indicator"></span></th>
+          <th class="sortable text-end" data-sort="total-price" data-sort-type="num" style="cursor:pointer;user-select:none">Total (ISK) <span class="sort-indicator"></span></th>
+          <th class="sortable text-end" data-sort="avail" data-sort-type="num" style="cursor:pointer;user-select:none">At station <span class="sort-indicator"></span></th>
+          <th class="sortable text-end" data-sort="missing" data-sort-type="num" style="cursor:pointer;user-select:none">Missing <span class="sort-indicator"></span></th>
+          <th class="sortable text-end" data-sort="buy-price" data-sort-type="num" style="cursor:pointer;user-select:none">Buy (ISK) <span class="sort-indicator"></span></th>
+          <th class="sortable text-end" data-sort="coverage" data-sort-type="num" style="cursor:pointer;user-select:none;width:90px">Coverage <span class="sort-indicator"></span></th>
         </tr>
       </thead>
       <tbody>
         {% for m in result.materials %}
         <tr class="{% if m.ok %}material-ok{% elif m.coverage_pct >= 50 %}material-partial{% else %}material-missing{% endif %}"
+            data-name="{{ m.name }}"
+            data-group="{{ m.group_name }}"
             data-required="{{ m.required | int }}"
+            data-unit-price="{{ m.unit_price or 0 }}"
             data-avail="{{ m.available | int }}"
             data-missing="{{ m.missing | int }}"
             data-total-price="{{ m.total_price or 0 }}"
@@ -581,6 +585,7 @@ function switchPlanChar(charId) {
           <td>
             <span>{{ m.name }}</span>
           </td>
+          <td class="text-muted small">{{ m.group_name }}</td>
           <td class="text-end">{{ m.required | int | format_number }}</td>
           <td class="text-end">
             {% if m.unit_price %}
@@ -1784,6 +1789,46 @@ async function deleteProjectFromModal(projectId, projectName) {
 document.getElementById('save-new-project-name')?.addEventListener('keydown', e => {
   if (e.key === 'Enter') saveToNewProject();
 });
+
+// ── Materials table — click-to-sort on any column header ────────────────────
+(function initMaterialsSort() {
+  const table = document.getElementById('materials-table');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  let activeKey = null, activeDir = 1;  // 1 asc, -1 desc
+
+  function setIndicator(th, dir) {
+    table.querySelectorAll('th.sortable .sort-indicator').forEach(s => s.textContent = '');
+    if (th) th.querySelector('.sort-indicator').textContent = dir > 0 ? ' ▲' : ' ▼';
+  }
+
+  function sortBy(key, type, dir) {
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const get = (row) => {
+      const v = row.getAttribute('data-' + key);
+      if (type === 'num') return parseFloat(v) || 0;
+      return (v || '').toLowerCase();
+    };
+    rows.sort((a, b) => {
+      const va = get(a), vb = get(b);
+      if (va < vb) return -1 * dir;
+      if (va > vb) return  1 * dir;
+      return 0;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+  }
+
+  table.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      const type = th.dataset.sortType || 'text';
+      activeDir = (activeKey === key) ? -activeDir : (type === 'num' ? -1 : 1);
+      activeKey = key;
+      sortBy(key, type, activeDir);
+      setIndicator(th, activeDir);
+    });
+  });
+})();
 </script>
 {% endif %}
 {% endblock %}

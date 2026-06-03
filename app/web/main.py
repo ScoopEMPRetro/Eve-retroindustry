@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.4.16"
+APP_VERSION = "0.4.17"
 
 import asyncio
 import datetime
@@ -1247,7 +1247,7 @@ async def plan_result(
             mfg_facility=mfg_facility,
             rxn_facility=rxn_facility,
         )
-        plan_data = _plan_to_dict(plan, prices, type_name)
+        plan_data = _plan_to_dict(plan, prices, type_name, conn=conn)
         # Přepis ME/TE v plan_data pokud bylo zadáno ručně
         if plan_data.get("blueprint"):
             plan_data["blueprint"]["me"] = int(me)
@@ -1613,7 +1613,7 @@ def _build_manufacturing_steps(root, prices: dict, available: dict) -> list[dict
     return steps
 
 
-def _plan_to_dict(plan, prices, type_name: str) -> dict:
+def _plan_to_dict(plan, prices, type_name: str, conn: sqlite3.Connection | None = None) -> dict:
     bp = plan.blueprint
     bp_info = None
     if bp:
@@ -1624,12 +1624,28 @@ def _plan_to_dict(plan, prices, type_name: str) -> dict:
             "runs": "∞" if bp.runs == -1 else bp.runs,
         }
 
+    # Bulk-fetch group names for the "Type" column so the materials table
+    # can be sorted by category.
+    group_names: dict[int, str] = {}
+    if conn is not None and plan.materials:
+        ids = list({m.type_id for m in plan.materials})
+        if ids:
+            ph = ",".join("?" * len(ids))
+            rows = conn.execute(
+                f"""SELECT t.type_id, g.name
+                    FROM sde_types t LEFT JOIN sde_groups g ON g.group_id = t.group_id
+                    WHERE t.type_id IN ({ph})""",
+                ids,
+            ).fetchall()
+            group_names = {r[0]: (r[1] or "—") for r in rows}
+
     materials = []
     for m in sorted(plan.materials, key=lambda x: (x.ok, x.coverage_pct)):
         sell_p, _ = prices.get(m.type_id, (None, None))
         materials.append({
             "type_id": m.type_id,
             "name": m.name,
+            "group_name": group_names.get(m.type_id, "—"),
             "required": m.required,
             "available": m.available,
             "missing": m.missing,
