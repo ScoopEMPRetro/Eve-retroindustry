@@ -296,7 +296,7 @@ function switchPlanChar(charId) {
 <div class="card mb-3 p-3">
   <div class="row g-3 align-items-center">
     <div class="col-auto">
-      <img src="https://images.evetech.net/types/{{ result.product_type_id }}/icon?size=64"
+      <img loading="lazy" src="https://images.evetech.net/types/{{ result.product_type_id }}/icon?size=64"
            class="rounded" width="64" height="64" alt="{{ result.product_name }}">
     </div>
     <div class="col">
@@ -579,7 +579,7 @@ function switchPlanChar(charId) {
             data-coverage="{{ m.coverage_pct | int }}"
             data-ok="{{ 'true' if m.ok else 'false' }}">
           <td>
-            <img src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32"
+            <img loading="lazy" src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32"
                  width="32" height="32" class="rounded" alt="">
           </td>
           <td>
@@ -680,7 +680,7 @@ function switchPlanChar(charId) {
             data-buy-price="{{ m.buy_price or 0 }}"
             data-total-price="{{ m.total_price or 0 }}"
             data-stocked="{{ 'true' if m.missing == 0 else 'false' }}">
-          <td><img src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32" width="32" height="32" class="rounded" alt=""></td>
+          <td><img loading="lazy" src="https://images.evetech.net/types/{{ m.type_id }}/icon?size=32" width="32" height="32" class="rounded" alt=""></td>
           <td>{{ m.name }}</td>
           <td class="text-end fw-semibold text-danger shop-qty">{{ m.missing | int | format_number }}</td>
           <td class="text-end text-isk">{% if m.unit_price %}{{ m.unit_price | isk }}{% else %}<span class="text-muted">N/A</span>{% endif %}</td>
@@ -736,7 +736,7 @@ function switchPlanChar(charId) {
         <button class="accordion-button {% if not loop.first or not step.is_final %}collapsed{% endif %}"
                 type="button" data-bs-toggle="collapse" data-bs-target="#{{ job_id }}"
                 style="background:#161b22;color:#e6edf3;border-color:#30363d;font-size:.875rem">
-          <img src="https://images.evetech.net/types/{{ job.type_id }}/icon?size=32"
+          <img loading="lazy" src="https://images.evetech.net/types/{{ job.type_id }}/icon?size=32"
                width="28" height="28" class="rounded me-2" style="flex-shrink:0">
           {% if job.activity == 'reaction' %}
           <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REACTION</span>
@@ -794,7 +794,7 @@ function switchPlanChar(charId) {
               {% set missing_qty = [inp.quantity - inp.available, 0] | max %}
               <tr {% if missing_qty > 0 %}style="border-left:2px solid #f85149"{% else %}style="border-left:2px solid #3fb950"{% endif %}>
                 <td>
-                  <img src="https://images.evetech.net/types/{{ inp.type_id }}/icon?size=32"
+                  <img loading="lazy" src="https://images.evetech.net/types/{{ inp.type_id }}/icon?size=32"
                        width="24" height="24" class="rounded">
                 </td>
                 <td>
@@ -1081,7 +1081,7 @@ function saveRecentStation(item) {
     recent.forEach(item => {
       html += `
         <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer">
-          <img src="https://images.evetech.net/types/${item.type_id}/icon?size=32" width="28" height="28" class="rounded" style="flex-shrink:0">
+          <img loading="lazy" src="https://images.evetech.net/types/${item.type_id}/icon?size=32" width="28" height="28" class="rounded" style="flex-shrink:0">
           <div style="flex:1;min-width:0">
             <div class="fw-semibold text-truncate">${item.name}</div>
             <div class="d-flex align-items-center gap-1 mt-1">
@@ -1125,7 +1125,7 @@ function saveRecentStation(item) {
         const runs = item.is_original ? '' : `<span style="color:#8b949e;font-size:.75rem"> · ${item.runs} run${item.runs !== 1 ? 's' : ''}</span>`;
         html += `
           <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer" data-idx="${items.indexOf(item)}">
-            <img src="https://images.evetech.net/types/${item.type_id}/icon?size=32" width="28" height="28" class="rounded" style="flex-shrink:0">
+            <img loading="lazy" src="https://images.evetech.net/types/${item.type_id}/icon?size=32" width="28" height="28" class="rounded" style="flex-shrink:0">
             <div style="flex:1;min-width:0">
               <div class="fw-semibold text-truncate">${item.name}</div>
               <div class="d-flex align-items-center gap-1 mt-1">
@@ -1145,7 +1145,7 @@ function saveRecentStation(item) {
       data.other.forEach(item => {
         html += `
           <div class="suggest-item d-flex align-items-center gap-2 px-3 py-2" style="cursor:pointer" data-idx="${items.indexOf(item)}">
-            <img src="https://images.evetech.net/types/${item.type_id}/icon?size=32" width="28" height="28" class="rounded" style="flex-shrink:0">
+            <img loading="lazy" src="https://images.evetech.net/types/${item.type_id}/icon?size=32" width="28" height="28" class="rounded" style="flex-shrink:0">
             <span class="text-truncate">${item.name}</span>
           </div>`;
       });

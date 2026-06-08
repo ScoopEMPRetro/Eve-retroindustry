@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.4.18"
+APP_VERSION = "0.4.19"
 
 import asyncio
 import datetime
@@ -231,6 +231,7 @@ async def _startup_populate_groups():
                 _alchemy_engine.dispose()
                 shutil.copy2(bundled, DB_ABS)
                 ensure_user_tables()
+                _SCHEMA_ENSURED[0] = False
                 print(f"[sde] copied bundled SDE to {DB_ABS} + recreated user tables",
                       flush=True)
     except Exception as exc:
@@ -367,6 +368,7 @@ async def setup_download():
             # SQLAlchemy user tables. Recreate them now or the next /plan
             # crashes with "no such table: type_cache".
             ensure_user_tables()
+            _SCHEMA_ENSURED[0] = False  # force ensure_schema on next get_conn()
 
             # Re-run startup population now that SDE is available
             _SDE_READY[0] = True
@@ -393,8 +395,18 @@ async def setup_download():
     )
 
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_ABS)
+# `get_conn()` is on the hot path — runs on every request. The 11
+# CREATE TABLE IF NOT EXISTS calls below used to fire on each connection
+# (~10 ms wasted before any real work). Move them to one-shot startup
+# via `ensure_schema()`; later `get_conn()` calls just open the DB.
+_SCHEMA_ENSURED: list[bool] = [False]
+
+
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    """One-time table-bootstrap. Idempotent; safe to call multiple times,
+    but the _SCHEMA_ENSURED flag prevents repeat work after first call."""
+    if _SCHEMA_ENSURED[0]:
+        return
     ensure_bp_table(conn)
     ensure_assets_table(conn)
     ensure_corp_assets_table(conn)
@@ -418,6 +430,14 @@ def get_conn() -> sqlite3.Connection:
         )
     """)
     conn.commit()
+    _SCHEMA_ENSURED[0] = True
+
+
+def get_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_ABS)
+    if not _SCHEMA_ENSURED[0]:
+        # First-ever connection in this process: bootstrap once.
+        ensure_schema(conn)
     return conn
 
 
@@ -533,12 +553,54 @@ def _science_skill_mult(
     bp_type_id: int,
     activity: str,
     skills: dict[int, int],
+    preloaded: list[tuple[int, int]] | None = None,
 ) -> tuple[float, list[tuple[str, int, float, int]]]:
     """Vrátí (multiplier, [(skill_name, char_level, bonus_pct, required_level), ...]).
 
     Každý required skill s time bonusem přispívá (1 - level * bonus_pct/100).
     Industry a AdvIndustry jsou zpracovány zvlášť — zde je přeskakujeme.
+
+    `preloaded`: [(skill_id, required_level), …] z bulk fetch v plan_result.
+    Pokud je předán, vyhneme se per-bp DB queries — jen dohledáme názvy
+    a bonus_pct ze (cached na úrovni procesu) lookup tabulek.
     """
+    if preloaded is not None:
+        # Fast path: bulk-prefetched in caller. Resolve names + bonus_pct
+        # from small joined tables; cache them on the function for the rest
+        # of the process — sde_skill_time_bonus has only ~27 rows.
+        if not hasattr(_science_skill_mult, "_bonus_cache"):
+            _science_skill_mult._bonus_cache = {  # type: ignore[attr-defined]
+                r[0]: r[1] for r in conn.execute(
+                    "SELECT skill_type_id, time_bonus_pct FROM sde_skill_time_bonus"
+                ).fetchall()
+            }
+        if not hasattr(_science_skill_mult, "_name_cache"):
+            _science_skill_mult._name_cache = {}  # type: ignore[attr-defined]
+        bonus_cache = _science_skill_mult._bonus_cache  # type: ignore[attr-defined]
+        name_cache: dict[int, str] = _science_skill_mult._name_cache  # type: ignore[attr-defined]
+        # Lazily resolve names for skill_ids we haven't seen yet.
+        missing = [sid for sid, _ in preloaded if sid not in name_cache]
+        if missing:
+            ph = ",".join("?" * len(missing))
+            for sid, name in conn.execute(
+                f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})",
+                missing,
+            ).fetchall():
+                name_cache[sid] = name
+        mult = 1.0
+        details: list[tuple[str, int, float, int]] = []
+        for sid, req_level in preloaded:
+            level = skills.get(sid, 0)
+            bonus_pct = bonus_cache.get(sid)
+            if bonus_pct is not None:
+                mult *= 1.0 - level * bonus_pct / 100
+            details.append(
+                (name_cache.get(sid, f"Skill {sid}"), level,
+                 float(bonus_pct or 0), int(req_level))
+            )
+        return max(0.01, mult), details
+
+    # Slow path — preloaded not available (single-blueprint callers).
     try:
         rows = conn.execute(
             """SELECT bs.skill_type_id,
@@ -1330,6 +1392,56 @@ async def plan_result(
         total_job_fee = 0.0
         total_mfg_time_s = 0   # čas všech výrobních kroků (sekvenčně)
         total_rxn_time_s = 0
+
+        # Bulk-fetch all blueprint data referenced by the manufacturing steps,
+        # so each job doesn't hit DB 3× for its bp_id (materials, time, skills).
+        all_bp_ids: set[int] = set()
+        for step in plan_data["manufacturing_steps"]:
+            for job in step["jobs"]:
+                bp = job.get("blueprint_type_id")
+                if bp:
+                    all_bp_ids.add(bp)
+
+        bp_materials_idx: dict[tuple[int, str], list] = {}
+        bp_time_idx: dict[int, tuple[int, int]] = {}
+        bp_skills_idx: dict[tuple[int, str], list] = {}
+        if all_bp_ids:
+            ph = ",".join("?" * len(all_bp_ids))
+            ids_list = list(all_bp_ids)
+            for mid, q, act, bp in conn.execute(
+                f"SELECT material_type_id, quantity, activity, blueprint_type_id"
+                f"  FROM sde_blueprint_materials WHERE blueprint_type_id IN ({ph})",
+                ids_list,
+            ).fetchall():
+                bp_materials_idx.setdefault((bp, act), []).append((mid, q))
+            for bp, mtime, rtime in conn.execute(
+                f"SELECT blueprint_type_id, manufacturing_time, reaction_time"
+                f"  FROM sde_blueprints WHERE blueprint_type_id IN ({ph})",
+                ids_list,
+            ).fetchall():
+                bp_time_idx[bp] = (mtime, rtime)
+            for bp, act, sk_id, req_lvl in conn.execute(
+                f"SELECT blueprint_type_id, activity, skill_type_id, required_level"
+                f"  FROM sde_blueprint_skills WHERE blueprint_type_id IN ({ph})"
+                f"    AND skill_type_id NOT IN (3380, 3388)",
+                ids_list,
+            ).fetchall():
+                bp_skills_idx.setdefault((bp, act), []).append((sk_id, req_lvl))
+
+        # Memoize get_product_te_multiplier per (facility-id, type_id).
+        # Same product appears across multiple steps when the resolver
+        # aggregates duplicates — without the cache we re-classify it each
+        # time and pay the rig_applies_to_product cost again.
+        te_mult_cache: dict[tuple[int, int], float] = {}
+        def _te_mult_for(prod_facility, type_id: int) -> float:
+            key = (id(prod_facility), type_id)
+            cached = te_mult_cache.get(key)
+            if cached is not None:
+                return cached
+            val = get_product_te_multiplier(conn, prod_facility, type_id)
+            te_mult_cache[key] = val
+            return val
+
         for step in plan_data["manufacturing_steps"]:
             step_mfg_time = 0
             step_rxn_time = 0
@@ -1346,11 +1458,9 @@ async def plan_result(
                 bp_id = job.get("blueprint_type_id")
                 runs  = job.get("runs", 1) or 1
                 if bp_id:
-                    base_mats = conn.execute(
-                        "SELECT material_type_id, quantity FROM sde_blueprint_materials"
-                        " WHERE blueprint_type_id=? AND activity=?",
-                        (bp_id, job.get("activity", "manufacturing")),
-                    ).fetchall()
+                    base_mats = bp_materials_idx.get(
+                        (bp_id, job.get("activity", "manufacturing")), []
+                    )
                     eiv = sum(adj_prices.get(m[0], 0.0) * m[1] * runs for m in base_mats)
                 else:
                     eiv = sum(adj_prices.get(inp["type_id"], 0.0) * inp["quantity"]
@@ -1367,18 +1477,18 @@ async def plan_result(
 
                 # Doba jobu
                 if bp_id:
-                    bp_time_row = conn.execute(
-                        "SELECT manufacturing_time, reaction_time FROM sde_blueprints"
-                        " WHERE blueprint_type_id=?", (bp_id,)
-                    ).fetchone()
+                    bp_time_row = bp_time_idx.get(bp_id)
                     base_time = (bp_time_row[1] if is_rxn else bp_time_row[0]) if bp_time_row else None
                     if base_time:
                         activity_name = job.get("activity", "manufacturing")
-                        sci_mult, sci_details = _science_skill_mult(conn, bp_id, activity_name, char_skills)
+                        sci_mult, sci_details = _science_skill_mult(
+                            conn, bp_id, activity_name, char_skills,
+                            preloaded=bp_skills_idx.get((bp_id, activity_name)),
+                        )
                         job_te = te if not is_rxn else 0
                         # Per-product TE multiplier — Equipment TE rig nezrychluje stavbu lodi
                         prod_facility = rxn_facility if is_rxn else mfg_facility
-                        prod_te_mult = get_product_te_multiplier(conn, prod_facility, job["type_id"])
+                        prod_te_mult = _te_mult_for(prod_facility, job["type_id"])
                         job_secs = calc_job_time(
                             base_time=base_time,
                             runs=runs,
@@ -2041,28 +2151,34 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
             for cid, items in sd["containers"].items():
                 cname = container_info.get(cid, (f"Container {cid}", sid))[0]
                 owner = container_owner_map.get(cid)
+                container_assets = _sort_items(items)
+                c_value = sum(i.get("total_value") or 0 for i in container_assets)
                 containers.append({
                     "container_id": cid,
                     "name": cname,
                     "type_id": container_type_map.get(cid),
-                    "assets": _sort_items(items),
+                    "assets": container_assets,
+                    "total_value": c_value,
                     "character_id":   owner[0] if owner else None,
                     "character_name": owner[1] if owner else "",
                 })
             containers.sort(key=lambda c: c["name"])
             hangar_items = _sort_items(sd["hangar"])
+            hangar_value = sum(i.get("total_value") or 0 for i in hangar_items)
+            containers_value = sum(c["total_value"] for c in containers)
             total_items = len(hangar_items) + sum(len(c["assets"]) for c in containers)
-            total_value = (
-                sum(i.get("total_value") or 0 for i in hangar_items)
-                + sum(i.get("total_value") or 0 for c in containers for i in c["assets"])
-            )
+            # Pre-compute aggregates so the template doesn't re-run
+            # `selectattr | map | sum` over the same lists multiple times
+            # per station (was firing 4–6× in assets.html for big inventories).
             stations.append({
                 "loc_id": sid,
                 "name": loc_names.get(sid, str(sid)),
                 "hangar": hangar_items,
+                "hangar_value": hangar_value,
                 "containers": containers,
+                "containers_value": containers_value,
                 "total_items": total_items,
-                "total_value": total_value,
+                "total_value": hangar_value + containers_value,
                 "solar_system_id": sys_map.get(sid),
             })
 
@@ -2115,62 +2231,70 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                 for dv in sid_data.values():
                     _fold_ships_into_containers_corp(dv, corp_container_type_map)
 
+            def _build_corp_container(cid, items, sid):
+                container_assets = _sort_items(items)
+                c_value = sum(i.get("total_value") or 0 for i in container_assets)
+                return {
+                    "container_id": cid,
+                    "name": corp_container_info.get(cid, (f"Container {cid}", sid))[0],
+                    "type_id": corp_container_type_map.get(cid),
+                    "assets": container_assets,
+                    "total_value": c_value,
+                }
+
             for sid, sid_data in corp_sd.items():
                 divisions = []
                 for flag in _CORP_DIV_ORDER:
                     if flag not in sid_data:
                         continue
                     dv = sid_data[flag]
-                    containers = []
-                    for cid, items in dv["containers"].items():
-                        cname = corp_container_info.get(cid, (f"Container {cid}", sid))[0]
-                        containers.append({
-                            "container_id": cid,
-                            "name": cname,
-                            "type_id": corp_container_type_map.get(cid),
-                            "assets": _sort_items(items),
-                        })
+                    containers = [
+                        _build_corp_container(cid, items, sid)
+                        for cid, items in dv["containers"].items()
+                    ]
                     containers.sort(key=lambda c: c["name"])
                     hangar_items = _sort_items(dv["hangar"])
                     if not hangar_items and not containers:
                         continue
+                    hangar_value = sum(i.get("total_value") or 0 for i in hangar_items)
+                    containers_value = sum(c["total_value"] for c in containers)
                     divisions.append({
                         "flag": flag,
                         "label": _CORP_DIV_LABEL.get(flag, flag),
                         "hangar": hangar_items,
+                        "hangar_value": hangar_value,
                         "containers": containers,
+                        "containers_value": containers_value,
+                        "total_value": hangar_value + containers_value,
                     })
                 # Also include any flags not in _CORP_DIV_ORDER
                 for flag, dv in sid_data.items():
                     if flag in _CORP_DIV_ORDER:
                         continue
                     hangar_items = _sort_items(dv["hangar"])
-                    containers = [
-                        {
-                            "container_id": cid,
-                            "name": corp_container_info.get(cid, (f"Container {cid}", sid))[0],
-                            "type_id": corp_container_type_map.get(cid),
-                            "assets": _sort_items(items),
-                        }
-                        for cid, items in dv["containers"].items()
-                    ]
+                    containers = sorted(
+                        [_build_corp_container(cid, items, sid)
+                         for cid, items in dv["containers"].items()],
+                        key=lambda c: c["name"],
+                    )
                     if hangar_items or containers:
+                        hangar_value = sum(i.get("total_value") or 0 for i in hangar_items)
+                        containers_value = sum(c["total_value"] for c in containers)
                         divisions.append({
                             "flag": flag,
                             "label": flag,
                             "hangar": hangar_items,
-                            "containers": sorted(containers, key=lambda c: c["name"]),
+                            "hangar_value": hangar_value,
+                            "containers": containers,
+                            "containers_value": containers_value,
+                            "total_value": hangar_value + containers_value,
                         })
 
                 total_items = sum(
                     len(d["hangar"]) + sum(len(c["assets"]) for c in d["containers"])
                     for d in divisions
                 )
-                total_value = sum(
-                    sum(i.get("total_value") or 0 for i in d["hangar"])
-                    + sum(i.get("total_value") or 0 for c in d["containers"] for i in c["assets"])
-                    for d in divisions
-                )
+                total_value = sum(d["total_value"] for d in divisions)
                 corp_stations.append({
                     "loc_id": sid,
                     "name": loc_names.get(sid, str(sid)),

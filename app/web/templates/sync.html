@@ -75,9 +75,9 @@ async function pollSync() {
     const msgs = ['Fetching blueprints...', 'Loading assets...', 'Almost done...'];
     document.getElementById('status-line').textContent =
       msgs[Math.min(Math.floor(syncAttempts / 3), msgs.length - 1)];
-    setTimeout(pollSync, 1500);
+    setTimeout(pollSync, 2500);
   } catch {
-    setTimeout(pollSync, 2000);
+    setTimeout(pollSync, 3000);
   }
 }
 

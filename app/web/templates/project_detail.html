@@ -65,7 +65,7 @@
         {% for plan in project.plans %}
         <tr id="plan-row-{{ plan.id }}" class="{% if plan.status == 'completed' %}opacity-50{% endif %}">
           <td>
-            <img src="https://images.evetech.net/types/{{ plan.product_type_id }}/icon?size=32"
+            <img loading="lazy" src="https://images.evetech.net/types/{{ plan.product_type_id }}/icon?size=32"
                  width="32" height="32" class="rounded" alt="">
           </td>
           <td class="fw-semibold">{{ plan.product_name }}</td>
@@ -119,7 +119,7 @@
         <div class="accordion-button collapsed pe-none"
              style="background:#161b22;color:#e6edf3;border-color:#30363d;font-size:.875rem;--bs-accordion-btn-icon:none;padding-right:64px">
         {% endif %}
-          <img src="https://images.evetech.net/types/{{ job.type_id }}/icon?size=32"
+          <img loading="lazy" src="https://images.evetech.net/types/{{ job.type_id }}/icon?size=32"
                width="28" height="28" class="rounded me-2" style="flex-shrink:0">
           {% if job.activity == 'reaction' %}
           <span class="badge me-2 px-2" style="background:#6f42c1;font-size:.65rem;flex-shrink:0">REACTION</span>
@@ -166,7 +166,7 @@
               {% for inp in job.inputs %}
               <tr style="border-color:#21262d">
                 <td>
-                  <img src="https://images.evetech.net/types/{{ inp.type_id }}/icon?size=32"
+                  <img loading="lazy" src="https://images.evetech.net/types/{{ inp.type_id }}/icon?size=32"
                        width="20" height="20" class="rounded" alt="">
                 </td>
                 <td>{{ inp.name }}</td>
@@ -223,7 +223,7 @@
         {% set done = item.purchased >= item.needed %}
         <tr id="shop-row-{{ item.type_id }}" class="{% if done %}opacity-50{% endif %}">
           <td>
-            <img src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=32"
+            <img loading="lazy" src="https://images.evetech.net/types/{{ item.type_id }}/icon?size=32"
                  width="28" height="28" class="rounded" alt="">
           </td>
           <td>{{ item.name }}</td>

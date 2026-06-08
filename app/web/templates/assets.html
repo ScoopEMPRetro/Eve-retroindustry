@@ -183,7 +183,6 @@
   <div class="collapse" id="st-{{ sid }}">
 
     {% if station.hangar %}
-    {% set hangar_val = station.hangar | selectattr('total_value') | map(attribute='total_value') | sum %}
     <div {% if station.containers %}class="border-bottom" style="border-color:#30363d !important"{% endif %}>
       <div class="d-flex justify-content-between align-items-center px-3 py-2"
            data-bs-toggle="collapse" data-bs-target="#hng-{{ sid }}" style="cursor:pointer">
@@ -192,7 +191,7 @@
           <span class="fw-medium">Hangar</span>
         </span>
         <span class="d-flex align-items-center gap-2">
-          {% if hangar_val > 0 %}<span class="text-isk">{{ hangar_val | isk }} ISK</span>{% endif %}
+          {% if station.hangar_value and station.hangar_value > 0 %}<span class="text-isk">{{ station.hangar_value | isk }} ISK</span>{% endif %}
           <span class="badge bg-secondary">{{ station.hangar | length }} types</span>
         </span>
       </div>
@@ -223,8 +222,7 @@
           {% endif %}
         </span>
         <span class="d-flex align-items-center gap-2">
-          {% set c_val = container.assets | selectattr('total_value') | map(attribute='total_value') | sum %}
-          {% if c_val > 0 %}<span class="text-isk">{{ c_val | isk }} ISK</span>{% endif %}
+          {% if container.total_value and container.total_value > 0 %}<span class="text-isk">{{ container.total_value | isk }} ISK</span>{% endif %}
           <span class="badge bg-secondary">{{ container.assets | length }} types</span>
         </span>
       </div>
@@ -270,9 +268,6 @@
   <div class="collapse" id="st-{{ csid }}">
     {% for div in station.divisions %}
     {% set dkey = csid ~ "-" ~ loop.index %}
-    {% set div_val = (div.hangar | selectattr('total_value') | map(attribute='total_value') | sum)
-                   + (div.containers | map(attribute='assets') | sum(start=[])
-                      | selectattr('total_value') | map(attribute='total_value') | sum) %}
     <div class="border-top" style="border-color:#30363d !important">
       <div class="d-flex justify-content-between align-items-center px-3 py-2"
            data-bs-toggle="collapse" data-bs-target="#div-{{ dkey }}" style="cursor:pointer">
@@ -281,8 +276,8 @@
           <span class="fw-medium">{{ div.label }}</span>
         </span>
         <span class="d-flex align-items-center gap-2">
-          {% if div_val > 0 %}<span class="text-isk">{{ div_val | isk }} ISK</span>{% endif %}
-          {% set div_item_count = div.hangar | length + div.containers | map(attribute='assets') | sum(start=[]) | length %}
+          {% if div.total_value and div.total_value > 0 %}<span class="text-isk">{{ div.total_value | isk }} ISK</span>{% endif %}
+          {% set div_item_count = div.hangar | length + (div.containers | sum(attribute='assets', start=[]) | length) %}
           <span class="badge bg-secondary">{{ div_item_count }} types</span>
         </span>
       </div>
@@ -312,8 +307,7 @@
               <span class="fw-medium">{{ container.name }}</span>
             </span>
             <span class="d-flex align-items-center gap-2">
-              {% set cc_val = container.assets | selectattr('total_value') | map(attribute='total_value') | sum %}
-              {% if cc_val > 0 %}<span class="text-isk">{{ cc_val | isk }} ISK</span>{% endif %}
+              {% if container.total_value and container.total_value > 0 %}<span class="text-isk">{{ container.total_value | isk }} ISK</span>{% endif %}
               <span class="badge bg-secondary">{{ container.assets | length }} types</span>
             </span>
           </div>
