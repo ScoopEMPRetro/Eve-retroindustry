@@ -134,7 +134,9 @@ def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
         cats.add("SHIP_M_ADV"); cats.add("ANY_SHIP")
     elif group_id in (900, 898, 902):
         cats.add("SHIP_L_ADV"); cats.add("ANY_SHIP")
-    elif group_id in (547, 485, 1538, 659, 30, 883, 4594):
+    elif group_id in (547, 485, 1538, 659, 30, 883, 4594, 5120):
+        # 5120 = Command Carrier (Cradle of War expansion, June 2026 —
+        # Simurgh / Salvation / Gaia / Ymir)
         cats.add("SHIP_CAPITAL"); cats.add("ANY_SHIP")
 
     # === Drones / Fighters ===
