@@ -26,6 +26,7 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "eve_cache.db")
 
 BLUEPRINTS_YAML = os.path.join(SDE_DIR, "blueprints.yaml")
 TYPES_YAML = os.path.join(SDE_DIR, "types.yaml")
+GROUPS_YAML = os.path.join(SDE_DIR, "groups.yaml")
 
 
 def init_db(conn: sqlite3.Connection):
@@ -121,6 +122,38 @@ def import_types(conn: sqlite3.Connection) -> dict:
 
 _SKILL_EXCLUDE = {3380, 3388}  # Handled separately in calc_job_time
 _IMPLANT_GROUP  = 743           # Zainou/manufacturing implants — not fetchable via ESI skills
+
+
+def import_groups(conn: sqlite3.Connection):
+    """Importuje groups.yaml → sde_groups (group_id, name en).
+
+    Dřív se sde_groups plnila jednorázově přes ESI (_ensure_groups_populated),
+    což znamenalo že nové groups (např. 5120 Command Carrier z Cradle of War)
+    se existujícím uživatelům nikdy nedoplnily — rig_applies_to_product přes
+    INNER JOIN pak vracel False a žádný rig se na produkty z těchto group
+    neaplikoval.
+    """
+    if not os.path.exists(GROUPS_YAML):
+        console.print(f"[yellow]groups.yaml nenalezen ({GROUPS_YAML}) — přeskakuji[/]")
+        return
+    console.print("Načítám groups.yaml…")
+    with open(GROUPS_YAML, "r", encoding="utf-8") as f:
+        groups = yaml.safe_load(f)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS sde_groups (
+            group_id INTEGER PRIMARY KEY,
+            name     TEXT NOT NULL
+        );
+    """)
+    rows = []
+    for gid, g in groups.items():
+        name = (g.get("name") or {}).get("en") or f"Group {gid}"
+        rows.append((int(gid), name))
+    conn.executemany(
+        "INSERT OR REPLACE INTO sde_groups (group_id, name) VALUES (?,?)", rows
+    )
+    conn.commit()
+    console.print(f"  sde_groups: {len(rows)} groups")
 
 
 def import_skill_time_bonuses(conn: sqlite3.Connection, types_data: dict):
@@ -246,6 +279,7 @@ def main():
     types_data = import_types(conn)
     import_skill_time_bonuses(conn, types_data)
     import_blueprints(conn)
+    import_groups(conn)
     conn.close()
 
     console.print(f"\n[bold green]Hotovo za {time.time()-t_start:.1f}s[/]")

@@ -331,6 +331,11 @@ STRUCTURE_TYPE_MAP: dict[str, tuple[str, str]] = {
     "tatara":  ("L",  "reaction"),
 }
 
+# Refineries run reactions — their rig bonuses scale with a DIFFERENT
+# security table (lowsec ×1.0, null/WH ×1.1) than manufacturing rigs
+# (lowsec ×1.9, null/WH ×2.1). Verified against EVE Ref API.
+_RXN_STRUCTURE_TYPES = frozenset({"athanor", "tatara"})
+
 # Structure type → TE bonus (% reduction of job time)
 STRUCTURE_TE_BONUS: dict[str, float] = {
     "raitaru": 15.0,
@@ -498,7 +503,9 @@ def get_station_te_multiplier(conn: sqlite3.Connection, location_id: int) -> flo
 
     rig_ids = [r for r in [row[1], row[2], row[3]] if r]
     if rig_ids:
-        sec_mult = get_station_security_multiplier(conn, location_id)
+        sec_mult = get_station_security_multiplier(
+            conn, location_id, structure_type in _RXN_STRUCTURE_TYPES
+        )
         unique_ids = list(set(rig_ids))
         ph = ",".join("?" * len(unique_ids))
         rig_te_map = {r[0]: r[1] for r in conn.execute(
@@ -560,7 +567,9 @@ def get_station_facility(conn: sqlite3.Connection, location_id: int):
             me_b, te_b = rig_map.get(rid, (0.0, 0.0))
             rigs.append((rid, me_b, te_b))
 
-    sec_mult = get_station_security_multiplier(conn, location_id)
+    sec_mult = get_station_security_multiplier(
+        conn, location_id, structure_type in _RXN_STRUCTURE_TYPES
+    )
     return StationFacility(
         structure_pct=structure_pct,
         structure_te_pct=structure_te_pct,
@@ -594,7 +603,9 @@ def get_station_me_multiplier(conn: sqlite3.Connection, location_id: int) -> flo
 
     rig_ids = [r for r in [row[1], row[2], row[3]] if r]
     if rig_ids:
-        sec_mult = get_station_security_multiplier(conn, location_id)
+        sec_mult = get_station_security_multiplier(
+            conn, location_id, structure_type in _RXN_STRUCTURE_TYPES
+        )
         unique_ids = list(set(rig_ids))
         ph = ",".join("?" * len(unique_ids))
         rig_me_map = {r[0]: r[1] for r in conn.execute(

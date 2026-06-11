@@ -77,8 +77,15 @@ def get_cached_security(conn: sqlite3.Connection, system_id: int) -> float | Non
     return row[0] if row and row[0] is not None else None
 
 
-def security_multiplier(sec_status: float | None) -> float:
-    """Per CCP: rig bonusy v lowsec ×1.9, v null/WH ×2.1, jinak ×1.0.
+def security_multiplier(sec_status: float | None, is_reaction: bool = False) -> float:
+    """Per CCP: rig bonusy škálují podle security, ale JINAK pro výrobu
+    a pro reakce:
+
+      manufacturing: highsec ×1.0, lowsec ×1.9, null/WH ×2.1
+      reaction:      lowsec ×1.0, null/WH ×1.1  (v highsec reakce neběží)
+
+    Ověřeno proti EVE Ref API: Titanium Carbide v null Tatara s T2 ME
+    rigem → 2.4 % × 1.1 = 2.64 % (ne ×2.1), v lowsec ×1.0.
 
     None → highsec fallback (1.0), aby se sběr ESI dat neblokoval výpočet.
     """
@@ -87,15 +94,16 @@ def security_multiplier(sec_status: float | None) -> float:
     if sec_status >= 0.5:
         return 1.0
     if sec_status > 0.0:
-        return 1.9
-    return 2.1
+        return 1.0 if is_reaction else 1.9
+    return 1.1 if is_reaction else 2.1
 
 
 def get_station_security_multiplier(
     conn: sqlite3.Connection,
     location_id: int,
+    is_reaction: bool = False,
 ) -> float:
-    """Synchronně vrátí rig security multiplier pro stanici (1.0/1.9/2.1).
+    """Synchronně vrátí rig security multiplier pro stanici.
 
     Předpokládá, že solar_system_cache byla naplněna z /api/station-industry-info.
     """
@@ -105,7 +113,7 @@ def get_station_security_multiplier(
     ).fetchone()
     if not row or not row[0]:
         return 1.0
-    return security_multiplier(get_cached_security(conn, row[0]))
+    return security_multiplier(get_cached_security(conn, row[0]), is_reaction)
 
 
 async def get_region_for_location(conn: sqlite3.Connection, location_id: int, token: str | None = None) -> int | None:

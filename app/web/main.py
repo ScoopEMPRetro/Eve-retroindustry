@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.5.2"
+APP_VERSION = "0.5.3"
 
 import asyncio
 import datetime
@@ -159,9 +159,13 @@ def _bundled_sde_path() -> str | None:
 
 
 def _refresh_sde_from_bundle(conn: sqlite3.Connection) -> int:
-    """Pokud bundlovaná sde_base.db má víc typů než user's eve_cache.db,
-    nahradí SDE tabulky čerstvými daty. Vrátí počet typů PO refreshi
-    (0 = nic se nestalo).
+    """Pokud bundlovaná sde_base.db má víc typů NEBO víc groups než user's
+    eve_cache.db, nahradí SDE tabulky čerstvými daty. Vrátí počet typů PO
+    refreshi (0 = nic se nestalo).
+
+    Groups check: v0.5.3 přidal import groups.yaml ze SDE (1605 groups
+    místo ~857 z ESI); bez group řádku rig_applies_to_product přes INNER
+    JOIN tiše vyřadí všechny rig bonusy daného produktu.
 
     User data (characters, BP cache, prices, projekty, …) zůstává — měníme
     jen tabulky z `_SDE_TABLES_TO_REFRESH`.
@@ -170,15 +174,23 @@ def _refresh_sde_from_bundle(conn: sqlite3.Connection) -> int:
     if not bundled:
         return 0
 
-    user_count = conn.execute("SELECT COUNT(*) FROM sde_types").fetchone()[0]
+    def _counts(c) -> tuple[int, int]:
+        types = c.execute("SELECT COUNT(*) FROM sde_types").fetchone()[0]
+        try:
+            groups = c.execute("SELECT COUNT(*) FROM sde_groups").fetchone()[0]
+        except sqlite3.OperationalError:
+            groups = 0
+        return types, groups
+
+    user_count, user_groups = _counts(conn)
     bsrc = sqlite3.connect(bundled)
     try:
-        bundled_count = bsrc.execute("SELECT COUNT(*) FROM sde_types").fetchone()[0]
+        bundled_count, bundled_groups = _counts(bsrc)
     finally:
         bsrc.close()
 
-    if bundled_count <= user_count:
-        return user_count  # user už má aspoň tolik typů → ne-merge
+    if bundled_count <= user_count and bundled_groups <= user_groups:
+        return user_count  # user má stejně/víc typů i groups → ne-merge
 
     print(f"[sde] refreshing SDE tables: user={user_count}, bundled={bundled_count}",
           flush=True)
@@ -628,11 +640,18 @@ def _science_skill_mult(
 
 
 async def _ensure_groups_populated(conn: sqlite3.Connection) -> None:
-    """Populate sde_groups via ESI /universe/groups/{id}/ with concurrency limit."""
-    if conn.execute("SELECT COUNT(*) FROM sde_groups").fetchone()[0] > 0:
-        return
+    """Populate sde_groups via ESI /universe/groups/{id}/ with concurrency limit.
+
+    Top-up semantics: fetches only groups referenced by sde_types that are
+    MISSING from sde_groups. The previous all-or-nothing early return meant
+    a new expansion's groups (e.g. 5120 Command Carrier) never got added for
+    existing users — and rig_applies_to_product's INNER JOIN on sde_groups
+    then silently disabled all rig bonuses for those products.
+    """
     group_ids = [r[0] for r in conn.execute(
-        "SELECT DISTINCT group_id FROM sde_types WHERE group_id > 0 AND published = 1"
+        """SELECT DISTINCT t.group_id FROM sde_types t
+           LEFT JOIN sde_groups g ON g.group_id = t.group_id
+           WHERE t.group_id > 0 AND t.published = 1 AND g.group_id IS NULL"""
     ).fetchall()]
     if not group_ids:
         return
