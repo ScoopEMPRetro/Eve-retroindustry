@@ -186,15 +186,16 @@ def _persist_bulk_orders(
     conn: sqlite3.Connection,
     bulk: dict[int, dict],
     wanted: set[int],
-) -> int:
+) -> tuple[int, list[int]]:
     """Zapíše agregovaná data z bulk fetch do market_price_cache.
     Pro type_ids ze `wanted` které nemají žádný order (chybí v `bulk`) zapíše None
     (žádná aktivní objednávka v regionu = explicitně bez ceny).
-    Vrátí počet zapsaných záznamů s aspoň jednou cenou (sell nebo buy).
+    Vrátí (počet refreshnutých záznamů, seznam type_ids s aspoň jedním orderem).
     """
     now = time.time()
     rows: list[tuple] = []
     refreshed = 0
+    traded: list[int] = []
     for tid in wanted:
         d = bulk.get(tid)
         if d is None:
@@ -206,6 +207,7 @@ def _persist_bulk_orders(
         jita_avail = d.get("jita_available")
         if sell is not None or buy is not None:
             refreshed += 1
+            traded.append(tid)
         # Volume (7-day history) v tomto refresh nepřepisujeme — zachová stará hodnota
         rows.append((tid, sell, buy, jita_avail, now))
     # Použijeme COALESCE pro volume — INSERT OR REPLACE smaže existující volume,
@@ -221,19 +223,75 @@ def _persist_bulk_orders(
         rows,
     )
     conn.commit()
-    return refreshed
+    return refreshed, traded
+
+
+async def _fill_volumes(
+    conn: sqlite3.Connection,
+    type_ids: list[int],
+    progress_cb=None,
+) -> int:
+    """Pro každý type_id stáhne 7-day Jita history a uloží volume.
+    Paralelně přes _fetch_region_volume (semaphore 10 v market/prices.py).
+    Vrátí počet úspěšně aktualizovaných řádků.
+
+    progress_cb(done, total) volaný v rámci komítů.
+    """
+    from app.market.prices import _fetch_region_volume, JITA_REGION  # type: ignore
+
+    if not type_ids:
+        return 0
+
+    done_holder = [0]
+    total = len(type_ids)
+    BATCH = 200       # commit po 200 výsledcích — drží otevřený DB write krátký
+
+    async def _one(client: httpx.AsyncClient, tid: int) -> tuple[int, int | None]:
+        vol = await _fetch_region_volume(client, JITA_REGION, tid)
+        return tid, vol
+
+    updated = 0
+    async with httpx.AsyncClient() as client:
+        # Zpracovávej v dávkách aby šel průběh hlásit a commitnout postupně.
+        for start in range(0, total, BATCH):
+            batch = type_ids[start:start + BATCH]
+            results = await asyncio.gather(
+                *[_one(client, tid) for tid in batch], return_exceptions=True
+            )
+            rows = [(vol, tid) for r in results if not isinstance(r, Exception)
+                    for tid, vol in [r] if vol is not None]
+            if rows:
+                conn.executemany(
+                    "UPDATE market_price_cache SET volume=? WHERE type_id=?", rows
+                )
+                conn.commit()
+                updated += len(rows)
+            done_holder[0] = start + len(batch)
+            if progress_cb:
+                await _maybe_call(progress_cb, done_holder[0], total)
+    return updated
+
+
+async def _maybe_call(cb, *args):
+    if asyncio.iscoroutinefunction(cb):
+        await cb(*args)
+    else:
+        cb(*args)
 
 
 async def refresh_jita_prices_all(conn: sqlite3.Connection, type_ids: list[int]) -> int:
     """Stáhne čerstvé Jita ceny pro všechny předané type_ids — bulk paginated region orders.
-    Volume (7-day history) v tomto refresh nepřepisujeme; běží jen jednotlivě přes
-    `fetch_jita_price` (per-item endpoint). Vrátí počet typů s aspoň jednou cenou.
+    Pak pro typy s aspoň jedním orderem dotáhne i 7-day volume z history endpointu.
+    Vrátí počet typů s aspoň jednou cenou.
     """
     ensure_price_table(conn)
     wanted = set(type_ids)
     async with httpx.AsyncClient() as client:
         bulk = await fetch_region_orders_bulk(client, JITA_REGION)
-    return _persist_bulk_orders(conn, bulk, wanted)
+    refreshed, traded = _persist_bulk_orders(conn, bulk, wanted)
+    if traded:
+        await _fill_volumes(conn, traded)
+    return refreshed
 
 
 async def stream_jita_refresh(conn: sqlite3.Connection, type_ids: list[int]):
@@ -261,13 +319,32 @@ async def stream_jita_refresh(conn: sqlite3.Connection, type_ids: list[int]):
     while not task.done():
         total = total_pages_holder[0]
         done = completed_holder[0]
-        pct = int(done * 100 / total) if total else 0
-        yield f"data: {_json.dumps({'current': done, 'total': total, 'pct': pct})}\n\n"
+        # Phase 1 = order fetch — display 0–80 % so phase 2 (volumes)
+        # has the last 20 %.
+        pct = int(done * 80 / total) if total else 0
+        yield f"data: {_json.dumps({'current': done, 'total': total, 'pct': pct, 'phase': 'orders'})}\n\n"
         await asyncio.sleep(0.5)
     await task
 
-    refreshed = _persist_bulk_orders(conn, bulk_holder, wanted)
-    yield f"data: {_json.dumps({'pct': 100, 'done': True, 'refreshed': refreshed, 'total': len(wanted)})}\n\n"
+    refreshed, traded = _persist_bulk_orders(conn, bulk_holder, wanted)
+
+    # Phase 2 — 7-day Jita volumes for everything that actually trades.
+    vol_done_holder = [0]
+    vol_total = len(traded)
+    yield f"data: {_json.dumps({'pct': 80, 'phase': 'volumes', 'vol_done': 0, 'vol_total': vol_total})}\n\n"
+
+    async def _vol_progress(done: int, total: int):
+        vol_done_holder[0] = done
+
+    vol_task = asyncio.create_task(_fill_volumes(conn, traded, progress_cb=_vol_progress))
+    while not vol_task.done():
+        d = vol_done_holder[0]
+        pct = 80 + int(d * 20 / vol_total) if vol_total else 100
+        yield f"data: {_json.dumps({'phase': 'volumes', 'vol_done': d, 'vol_total': vol_total, 'pct': pct})}\n\n"
+        await asyncio.sleep(0.5)
+    updated_vol = await vol_task
+
+    yield f"data: {_json.dumps({'pct': 100, 'done': True, 'refreshed': refreshed, 'total': len(wanted), 'volume_updated': updated_vol})}\n\n"
 
 
 def _fmt_ts(ts: float | None) -> str:

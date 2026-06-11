@@ -98,8 +98,10 @@ function startPrices() {
         bar.style.width = '100%';
         statusEl.textContent = 'Done! Redirecting...';
         setTimeout(() => window.location.href = '/', 800);
+      } else if (d.phase === 'volumes') {
+        statusEl.textContent = `Volumes: ${d.vol_done} / ${d.vol_total}…`;
       } else {
-        statusEl.textContent = `${d.current} / ${d.total} prices loaded`;
+        statusEl.textContent = `Orders: ${d.current} / ${d.total} pages…`;
       }
     } catch {}
   };

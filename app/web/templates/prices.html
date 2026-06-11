@@ -492,12 +492,15 @@
       refreshPct.textContent = pct + '%';
       if (d.done) {
         es.close();
-        refreshText.textContent = `Done! Fetched ${d.refreshed} of ${d.total} prices.`;
+        const volMsg = d.volume_updated ? `, ${d.volume_updated} volumes` : '';
+        refreshText.textContent = `Done! Fetched ${d.refreshed} prices${volMsg}.`;
         refreshBar.className = 'progress-bar bg-success';
         refreshBar.style.width = '100%';
         setTimeout(() => window.location.reload(), 1500);
+      } else if (d.phase === 'volumes') {
+        refreshText.textContent = `Volumes: ${d.vol_done} / ${d.vol_total}…`;
       } else {
-        refreshText.textContent = `${d.current} / ${d.total} types…`;
+        refreshText.textContent = `Orders: ${d.current} / ${d.total} pages…`;
       }
     };
     es.onerror = () => {
