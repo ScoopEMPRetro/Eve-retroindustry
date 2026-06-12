@@ -155,6 +155,7 @@ def build_plan(
     prices: dict[int, tuple[float | None, float | None]] | None = None,
     mfg_facility: StationFacility | None = None,
     rxn_facility: StationFacility | None = None,
+    parallel_runs: bool = True,
 ) -> ManufacturingPlan:
     db_conn = sqlite3.connect(db_path)
 
@@ -162,7 +163,7 @@ def build_plan(
     me = bp.material_efficiency if bp else 0
     te = bp.time_efficiency     if bp else 0
 
-    resolver = BOMResolver(db_path, blueprints=blueprints)
+    resolver = BOMResolver(db_path, blueprints=blueprints, parallel_runs=parallel_runs)
     root = resolver.resolve(
         product_type_id, quantity, me=float(me),
         mfg_facility=mfg_facility, rxn_facility=rxn_facility,

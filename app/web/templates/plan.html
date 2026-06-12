@@ -66,12 +66,19 @@
         <label class="form-label">Qty</label>
         <input type="number" name="qty" class="form-control form-control-sm" min="1" value="{{ form_qty or 1 }}">
       </div>
-      <div class="col-9 col-lg-3">
+      <div class="col-9 col-lg-2">
         <label class="form-label">Mode</label>
         <select name="mode" class="form-select form-select-sm">
           <option value="full"       {% if form_mode == 'full'       %}selected{% endif %}>Full</option>
           <option value="components" {% if form_mode == 'components' %}selected{% endif %}>Components</option>
           <option value="optimal"    {% if form_mode == 'optimal'    %}selected{% endif %}>Optimal</option>
+        </select>
+      </div>
+      <div class="col-9 col-lg-2">
+        <label class="form-label" title="Parallel: N jobs of 1 run each (ME rounded per run — matches submitting BPC copies into multiple slots, never short on materials). Batched: one job with N runs (ME rounded once over the batch — matches the in-game industry window for a multi-run job).">Jobs</label>
+        <select name="batching" class="form-select form-select-sm">
+          <option value="parallel" {% if form_batching != 'batch' %}selected{% endif %}>Parallel 1-run</option>
+          <option value="batch"    {% if form_batching == 'batch' %}selected{% endif %}>Batched (1×N runs)</option>
         </select>
       </div>
       <div class="col-6 col-lg-auto">

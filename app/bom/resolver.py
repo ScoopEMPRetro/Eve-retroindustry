@@ -67,9 +67,17 @@ class BOMNode:
 
 
 class BOMResolver:
-    def __init__(self, db_path: str, blueprints: list[CharBlueprint] | None = None):
+    def __init__(
+        self,
+        db_path: str,
+        blueprints: list[CharBlueprint] | None = None,
+        parallel_runs: bool = True,
+    ):
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
+        # True (default) = N paralelních 1-run jobů (per-run ME rounding);
+        # False = jeden batched job s N runy (rounding přes celou dávku).
+        self.parallel_runs = parallel_runs
         # product_type_id → ME postavy (best dostupný blueprint pro daný produkt)
         self._bp_me_by_product: dict[int, int] = {}
         # Hot-path caches — resolver is reused for the entire BOM walk, so
@@ -339,12 +347,26 @@ class BOMResolver:
 
         return node
 
-    @staticmethod
-    def _apply_me(base_qty: int, runs: int, me: float, facility_multiplier: float = 1.0) -> int:
+    def _apply_me(self, base_qty: int, runs: int, me: float, facility_multiplier: float = 1.0) -> int:
         """
         EVE formula (per CCP): max(runs, ceil(round(base * runs * (1-ME/100) * fac_mult, 2)))
         kde fac_mult je už multiplikativně sloučený multiplikátor struktury a rigů
         (např. 0.87 = úspora 13 %). round(..., 2) před ceil zabrání floating-point driftu.
+
+        Dva režimy podle self.parallel_runs:
+
+        * parallel (default) — N paralelních 1-run jobů: ME zaokrouhlení per
+          run, výsledek × N. Konzervativní — odpovídá zadávání výroby do více
+          slotů najednou (1-run BPC kopie kapitálek apod.). Batched výpočet
+          by tu PODHODNOTIL materiál (2× Thanatos batched = 19 Meta-Operant,
+          ale 2 paralelní joby reálně spotřebují 2×10 = 20).
+
+        * batch — jeden job s N runy: zaokrouhlení jednou přes celou dávku
+          (přesně odpovídá in-game industry oknu pro multi-run job).
         """
-        raw = base_qty * runs * (1 - me / 100) * facility_multiplier
+        per_run_mult = (1 - me / 100) * facility_multiplier
+        if self.parallel_runs:
+            per_run = max(1, ceil(round(base_qty * per_run_mult, 2)))
+            return per_run * runs
+        raw = base_qty * runs * per_run_mult
         return max(runs, ceil(round(raw, 2)))

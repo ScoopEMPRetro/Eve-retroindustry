@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.5.5"
+APP_VERSION = "0.5.6"
 
 import asyncio
 import datetime
@@ -1232,10 +1232,14 @@ async def plan_result(
     form_industry: str = Form("0"),
     form_adv_industry: str = Form("0"),
     plan_char_id: str = Form(""),
+    batching: str = Form("parallel"),
 ):
     conn = get_conn()
     error = None
     plan_data = None
+    # parallel (default) = N×1-run jobs (per-run ME rounding, konzervativní);
+    # batch = jeden N-run job (rounding přes dávku, odpovídá industry oknu).
+    parallel_runs = batching != "batch"
     # Resolve plan character from form, fall back to active char.
     plan_char_id_int: int | None = None
     if plan_char_id.strip().isdigit():
@@ -1333,7 +1337,7 @@ async def plan_result(
 
         # Resolver dostane všechny blueprinty postavy → per-product ME se lookup-uje
         # pro každý mezikrok zvlášť (Capital Armor Plates ME může být jiné než root ME).
-        resolver = BOMResolver(DB_ABS, blueprints=blueprints)
+        resolver = BOMResolver(DB_ABS, blueprints=blueprints, parallel_runs=parallel_runs)
         root = resolver.resolve(type_id, qty, me=me,
                                 mfg_facility=mfg_facility,
                                 rxn_facility=rxn_facility)
@@ -1353,6 +1357,7 @@ async def plan_result(
             prices=prices,
             mfg_facility=mfg_facility,
             rxn_facility=rxn_facility,
+            parallel_runs=parallel_runs,
         )
         plan_data = _plan_to_dict(plan, prices, type_name, conn=conn)
         # Přepis ME/TE v plan_data pokud bylo zadáno ručně
@@ -1682,6 +1687,7 @@ async def plan_result(
         "form_rxn_station_name": rxn_station_name,
         "form_qty": qty,
         "form_mode": mode,
+        "form_batching": batching,
         # Po výpočtu vždy zobrazit ROOT BP ME/TE (skutečné hodnoty použité v plánu) —
         # uživatel uvidí konkrétní číslo místo placeholderu.
         "form_me": str(int(me)),
