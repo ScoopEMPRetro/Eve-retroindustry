@@ -539,6 +539,17 @@ function switchPlanChar(charId) {
       {% endif %}
     </button>
   </li>
+  {% if result.opt_decisions %}
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-makebuy" type="button">
+      <i class="bi bi-arrow-left-right me-1"></i>Make vs Buy
+      {% set buy_count = result.opt_decisions | selectattr('action', 'equalto', 'buy') | list | length %}
+      {% if buy_count %}
+      <span class="badge bg-warning text-dark ms-1">{{ buy_count }} buy</span>
+      {% endif %}
+    </button>
+  </li>
+  {% endif %}
 </ul>
 <div class="tab-content mb-3">
 
@@ -874,6 +885,80 @@ function switchPlanChar(charId) {
 <div class="text-muted p-3">Manufacturing steps not available.</div>
 {% endif %}
 </div>{# end tab-pane process #}
+
+{# === TAB: Make vs Buy (jen optimal mode) === #}
+{% if result.opt_decisions %}
+<div class="tab-pane fade" id="tab-makebuy" style="padding-top:1rem">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span class="fw-semibold"><i class="bi bi-arrow-left-right me-2"></i>Make vs Buy decisions</span>
+    <span class="text-muted small">
+      Components marked <span class="badge bg-warning text-dark">BUY</span> are cheaper on market —
+      they're in your Materials shopping list and their sub-jobs are excluded from Manufacturing Steps.
+    </span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
+      <thead>
+        <tr>
+          <th style="width:36px"></th>
+          <th>Component</th>
+          <th class="text-end">Qty</th>
+          <th class="text-end">Make cost (ISK)</th>
+          <th class="text-end">Buy cost (ISK)</th>
+          <th class="text-center">Decision</th>
+          <th class="text-end">You save (ISK)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in result.opt_decisions %}
+        <tr {% if d.action == 'buy' %}style="background:rgba(227,179,65,.04)"{% endif %}>
+          <td>
+            <img loading="lazy" src="https://images.evetech.net/types/{{ d.type_id }}/icon?size=32"
+                 width="28" height="28" class="rounded" alt="">
+          </td>
+          <td>{{ d.name }}</td>
+          <td class="text-end">{{ d.quantity | int | format_number }}</td>
+          <td class="text-end {% if d.action == 'make' %}fw-semibold text-success{% else %}text-muted{% endif %}">
+            {% if d.make_cost is not none %}{{ d.make_cost | isk }}{% else %}—{% endif %}
+          </td>
+          <td class="text-end {% if d.action == 'buy' %}fw-semibold text-warning{% else %}text-muted{% endif %}">
+            {% if d.buy_cost is not none %}{{ d.buy_cost | isk }}{% else %}—{% endif %}
+          </td>
+          <td class="text-center">
+            {% if d.action == 'buy' %}
+            <span class="badge bg-warning text-dark">BUY</span>
+            {% elif d.action == 'make' %}
+            <span class="badge bg-success">MAKE</span>
+            {% else %}
+            <span class="badge bg-secondary">?</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            {% if d.savings is not none and d.savings != 0 %}
+            <span class="{% if d.action == 'buy' %}text-warning{% else %}text-success{% endif %}">
+              {{ d.savings | abs | isk }}
+            </span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if result.opt_total_cost is not none and result.opt_naive_cost is not none %}
+      <tfoot>
+        <tr style="border-top:2px solid #30363d">
+          <td colspan="6" class="text-end text-muted">Total saved vs making everything yourself</td>
+          <td class="text-end fw-bold text-success">{{ (result.opt_naive_cost - result.opt_total_cost) | isk }}</td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+</div>{# end tab-pane makebuy #}
+{% endif %}
 
 </div>{# end tab-content #}
 

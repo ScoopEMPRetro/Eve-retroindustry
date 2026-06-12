@@ -105,6 +105,9 @@ class ManufacturingPlan:
     # Pro optimal mód — pro zobrazení make vs buy rozhodnutí
     opt_total_cost:    float | None = None
     opt_naive_cost:    float | None = None
+    # [Decision, …] z optimizeru (jen optimal mode) — UI z nich renderuje
+    # Make vs Buy tabulku a steps vynechávají "buy" komponenty.
+    opt_decisions:     list | None = None
 
 
 def find_blueprint_for_product(
@@ -180,7 +183,8 @@ def build_plan(
             prev = items.get(child.type_id, (child.name, 0))[1]
             items[child.type_id] = (child.name, prev + child.quantity)
 
-    elif mode == "optimal":
+    opt_decisions = None
+    if mode == "optimal":
         if not prices:
             # Bez cen fallback na full
             items = root.aggregate_leaves()
@@ -188,10 +192,11 @@ def build_plan(
             opt_result = optimize(root, prices)
             opt_total  = opt_result.total_cost
             opt_naive  = opt_result.naive_cost
+            opt_decisions = opt_result.decisions
             # Nákupní seznam: mix buy komponentů + raw surovin pro make větve
             decisions_map = {d.type_id: d for d in opt_result.decisions}
             items = get_shopping_list(root, decisions_map)
-    else:
+    elif mode not in ("full", "components"):
         items = root.aggregate_leaves()
 
     materials      = _make_status(items, available_assets)
@@ -210,4 +215,5 @@ def build_plan(
         total_missing_types = missing_types,
         opt_total_cost   = opt_total,
         opt_naive_cost   = opt_naive,
+        opt_decisions    = opt_decisions,
     )
