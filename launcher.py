@@ -139,7 +139,22 @@ def main() -> None:
     # load Python.Runtime.dll through pythonnet which silently corrupts
     # under PyInstaller on some user machines ("Failed to resolve
     # Python.Runtime.Loader.Initialize").
-    webview.start(gui="qt")
+    #
+    # private_mode=False + storage_path: pywebview defaults to an
+    # off-the-record browser profile, which wipes localStorage on every
+    # exit — the plan page's "recently used stations/blueprints" and saved
+    # form state silently vanished between sessions. Persist the profile
+    # next to eve_cache.db (writable app dir).
+    storage_dir = os.path.join(_APP_DIR, "webview_data")
+    try:
+        os.makedirs(storage_dir, exist_ok=True)
+    except Exception:
+        storage_dir = None
+    webview.start(
+        gui="qt",
+        private_mode=False,
+        storage_path=storage_dir,
+    )
 
     srv.join(timeout=3)
     os._exit(0)
