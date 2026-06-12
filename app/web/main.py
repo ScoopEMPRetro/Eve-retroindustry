@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.5.4"
+APP_VERSION = "0.5.5"
 
 import asyncio
 import datetime
@@ -1362,23 +1362,26 @@ async def plan_result(
         elif me_override is not None:
             plan_data["blueprint"] = {"kind": "—", "me": int(me), "te": te, "runs": "—", "manual": True}
 
-        # Optimal mode: serialize make-vs-buy decisions for the UI and prune
-        # bought components out of the manufacturing-steps tree — you don't
-        # run (or pay job fees for) jobs whose output you buy off market.
-        buy_type_ids: set[int] = set()
-        if mode == "optimal" and plan.opt_decisions:
+        # Make-vs-buy decisions go to the UI in every mode (informational
+        # tab). Only optimal mode acts on them: bought components are pruned
+        # out of the manufacturing-steps tree — you don't run (or pay job
+        # fees for) jobs whose output you buy off market.
+        if plan.opt_decisions:
             plan_data["opt_decisions"] = [
                 {
-                    "type_id":   d.type_id,
-                    "name":      d.name,
-                    "quantity":  d.quantity,
-                    "make_cost": d.make_cost,
-                    "buy_cost":  d.buy_cost,
-                    "action":    d.action,
-                    "savings":   d.savings,
+                    "type_id":    d.type_id,
+                    "name":       d.name,
+                    "quantity":   d.quantity,
+                    "unit_price": (d.buy_cost / d.quantity)
+                                  if (d.buy_cost is not None and d.quantity) else None,
+                    "make_cost":  d.make_cost,
+                    "buy_cost":   d.buy_cost,
+                    "action":     d.action,
+                    "savings":    d.savings,
                 }
                 for d in plan.opt_decisions
             ]
+        if mode == "optimal" and plan.opt_decisions:
             buy_type_ids = {d.type_id for d in plan.opt_decisions if d.action == "buy"}
             if buy_type_ids:
                 def _prune_bought(node):

@@ -183,18 +183,23 @@ def build_plan(
             prev = items.get(child.type_id, (child.name, 0))[1]
             items[child.type_id] = (child.name, prev + child.quantity)
 
+    # Make-vs-buy analýza běží i mimo optimal mód — ve full/components je
+    # čistě informativní (tab "Make vs Buy"), shopping list ani manufacturing
+    # steps neovlivňuje.
     opt_decisions = None
+    if prices:
+        opt_result = optimize(root, prices)
+        opt_total  = opt_result.total_cost
+        opt_naive  = opt_result.naive_cost
+        opt_decisions = opt_result.decisions
+
     if mode == "optimal":
         if not prices:
             # Bez cen fallback na full
             items = root.aggregate_leaves()
         else:
-            opt_result = optimize(root, prices)
-            opt_total  = opt_result.total_cost
-            opt_naive  = opt_result.naive_cost
-            opt_decisions = opt_result.decisions
             # Nákupní seznam: mix buy komponentů + raw surovin pro make větve
-            decisions_map = {d.type_id: d for d in opt_result.decisions}
+            decisions_map = {d.type_id: d for d in opt_decisions}
             items = get_shopping_list(root, decisions_map)
     elif mode not in ("full", "components"):
         items = root.aggregate_leaves()

@@ -893,8 +893,14 @@ function switchPlanChar(charId) {
   <div class="card-header d-flex justify-content-between align-items-center py-2">
     <span class="fw-semibold"><i class="bi bi-arrow-left-right me-2"></i>Make vs Buy decisions</span>
     <span class="text-muted small">
+      {% if form_mode == 'optimal' %}
       Components marked <span class="badge bg-warning text-dark">BUY</span> are cheaper on market —
       they're in your Materials shopping list and their sub-jobs are excluded from Manufacturing Steps.
+      {% else %}
+      Informational — components marked <span class="badge bg-warning text-dark">BUY</span> would be
+      cheaper to buy than to build. Switch Mode to <strong>Optimal</strong> to apply these decisions
+      to the shopping list and Manufacturing Steps.
+      {% endif %}
     </span>
   </div>
   <div class="table-responsive">
@@ -904,6 +910,7 @@ function switchPlanChar(charId) {
           <th style="width:36px"></th>
           <th>Component</th>
           <th class="text-end">Qty</th>
+          <th class="text-end">Price/unit (ISK)</th>
           <th class="text-end">Make cost (ISK)</th>
           <th class="text-end">Buy cost (ISK)</th>
           <th class="text-center">Decision</th>
@@ -919,6 +926,13 @@ function switchPlanChar(charId) {
           </td>
           <td>{{ d.name }}</td>
           <td class="text-end">{{ d.quantity | int | format_number }}</td>
+          <td class="text-end">
+            {% if d.unit_price is not none %}
+            <span class="text-isk">{{ d.unit_price | isk }}</span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
           <td class="text-end {% if d.action == 'make' %}fw-semibold text-success{% else %}text-muted{% endif %}">
             {% if d.make_cost is not none %}{{ d.make_cost | isk }}{% else %}—{% endif %}
           </td>
@@ -949,7 +963,7 @@ function switchPlanChar(charId) {
       {% if result.opt_total_cost is not none and result.opt_naive_cost is not none %}
       <tfoot>
         <tr style="border-top:2px solid #30363d">
-          <td colspan="6" class="text-end text-muted">Total saved vs making everything yourself</td>
+          <td colspan="7" class="text-end text-muted">Total saved vs making everything yourself</td>
           <td class="text-end fw-bold text-success">{{ (result.opt_naive_cost - result.opt_total_cost) | isk }}</td>
         </tr>
       </tfoot>
