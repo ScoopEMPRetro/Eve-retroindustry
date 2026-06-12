@@ -1139,7 +1139,10 @@ function saveRecentStation(item) {
   });
 
   input.addEventListener('focus', () => {
-    if (!input.value.trim()) showRecentBPs();
+    // Recents se ukážou i nad před-vyplněným polem — uživatel tak může
+    // rychle přepnout na jiný nedávný blueprint bez mazání textu.
+    // Psaní (input event, ≥2 znaky) dropdown přepne na vyhledávání.
+    showRecentBPs();
   });
 
   input.addEventListener('keydown', e => {
@@ -1296,7 +1299,9 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
   });
 
   display.addEventListener('focus', () => {
-    if (!display.value.trim()) showRecentStations();
+    // Recents i nad před-vyplněným polem — rychlé přepnutí stanice bez
+    // mazání. Psaní (≥2 znaky) přepne dropdown na vyhledávání.
+    showRecentStations();
   });
 
   display.addEventListener('keydown', e => {
