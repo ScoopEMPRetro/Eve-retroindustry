@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.5.6"
+APP_VERSION = "0.5.7"
 
 import asyncio
 import datetime
@@ -1232,14 +1232,17 @@ async def plan_result(
     form_industry: str = Form("0"),
     form_adv_industry: str = Form("0"),
     plan_char_id: str = Form(""),
-    batching: str = Form("parallel"),
+    runs_per_job: str = Form("1"),
 ):
     conn = get_conn()
     error = None
     plan_data = None
-    # parallel (default) = N×1-run jobs (per-run ME rounding, konzervativní);
-    # batch = jeden N-run job (rounding přes dávku, odpovídá industry oknu).
-    parallel_runs = batching != "batch"
+    # Kolik runů má jedna BPC kopie — ME se zaokrouhluje per job.
+    # 1 (default) = paralelní 1-run kopie; K = kopie po K runech;
+    # prázdné/0 = jeden batched job (in-game multi-run okno).
+    rpj_int: int | None = None
+    if runs_per_job.strip().isdigit() and int(runs_per_job.strip()) > 0:
+        rpj_int = int(runs_per_job.strip())
     # Resolve plan character from form, fall back to active char.
     plan_char_id_int: int | None = None
     if plan_char_id.strip().isdigit():
@@ -1337,7 +1340,7 @@ async def plan_result(
 
         # Resolver dostane všechny blueprinty postavy → per-product ME se lookup-uje
         # pro každý mezikrok zvlášť (Capital Armor Plates ME může být jiné než root ME).
-        resolver = BOMResolver(DB_ABS, blueprints=blueprints, parallel_runs=parallel_runs)
+        resolver = BOMResolver(DB_ABS, blueprints=blueprints, runs_per_job=rpj_int)
         root = resolver.resolve(type_id, qty, me=me,
                                 mfg_facility=mfg_facility,
                                 rxn_facility=rxn_facility)
@@ -1357,7 +1360,7 @@ async def plan_result(
             prices=prices,
             mfg_facility=mfg_facility,
             rxn_facility=rxn_facility,
-            parallel_runs=parallel_runs,
+            runs_per_job=rpj_int,
         )
         plan_data = _plan_to_dict(plan, prices, type_name, conn=conn)
         # Přepis ME/TE v plan_data pokud bylo zadáno ručně
@@ -1687,7 +1690,7 @@ async def plan_result(
         "form_rxn_station_name": rxn_station_name,
         "form_qty": qty,
         "form_mode": mode,
-        "form_batching": batching,
+        "form_runs_per_job": runs_per_job,
         # Po výpočtu vždy zobrazit ROOT BP ME/TE (skutečné hodnoty použité v plánu) —
         # uživatel uvidí konkrétní číslo místo placeholderu.
         "form_me": str(int(me)),
