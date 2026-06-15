@@ -9,6 +9,27 @@ _cache: dict[int, str] = {}
 _sys_cache: dict[int, int] = {}   # location_id → solar_system_id
 _SEM = asyncio.Semaphore(10)
 
+# location_id → True pokud ESI vrátilo 403 (no docking access). Drží se v
+# paměti po dobu běhu procesu, aby se tatáž nepřístupná struktura neresolvovala
+# znovu a znovu — flood 403 odpovědí jinak vyčerpá ESI error-limit (HTTP 420).
+_forbidden: set[int] = set()
+
+# Když ESI vrátí 420 ("error limited"), zastavíme VŠECHNY další pokusy o
+# resolvování jmen do tohoto času (monotonic seconds). Chrání before
+# kaskádovým banem ostatních endpointů (např. /universe/ids/).
+_error_limited_until: float = 0.0
+
+
+def _is_error_limited() -> bool:
+    import time
+    return time.monotonic() < _error_limited_until
+
+
+def _set_error_limited(seconds: float = 60.0) -> None:
+    global _error_limited_until
+    import time
+    _error_limited_until = max(_error_limited_until, time.monotonic() + seconds)
+
 
 def ensure_location_name_table(conn: sqlite3.Connection):
     conn.execute("""
@@ -217,6 +238,14 @@ async def resolve_station_name(
     name = str(location_id)
     sys_id: int | None = None
     forbidden = False
+
+    # Struktura už dříve vrátila 403 → nepokoušej se znovu (šetří error-limit).
+    if location_id in _forbidden:
+        return f"[Privátní struktura {location_id}]", None
+    # ESI nás dočasně error-limitnul (420) → vrať placeholder bez requestu.
+    if _is_error_limited():
+        return name, None
+
     async with _SEM:
         try:
             if location_id < 1_000_000_000_000:
@@ -229,6 +258,8 @@ async def resolve_station_name(
                     data = r.json()
                     name = data.get("name", name)
                     sys_id = data.get("system_id")
+                elif r.status_code == 420:
+                    _set_error_limited()
             else:
                 if token:
                     r = await client.get(
@@ -244,6 +275,9 @@ async def resolve_station_name(
                     elif r.status_code == 403:
                         name = f"[Privátní struktura {location_id}]"
                         forbidden = True
+                        _forbidden.add(location_id)
+                    elif r.status_code == 420:
+                        _set_error_limited()
         except Exception:
             pass
 

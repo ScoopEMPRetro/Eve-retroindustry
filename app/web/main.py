@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.6.2"
+APP_VERSION = "0.6.3"
 
 import asyncio
 import datetime
@@ -1316,11 +1316,21 @@ async def plan_result(
                 type_id = int(product.strip())
                 type_name = await resolve_type(client, session, type_id)
             else:
-                results = await search_type_by_name(client, product.strip())
-                if not results:
-                    raise ValueError(f"Produkt '{product}' nenalezen.")
-                type_id = results[0]
-                type_name = await resolve_type(client, session, type_id)
+                # Nejdřív lokální SDE (přesná shoda jména) — ušetří ESI
+                # /universe/ids/ volání, které navíc může spadnout na 420
+                # error-limit. ESI search jen jako fallback pro neznámé.
+                local = conn.execute(
+                    "SELECT type_id, name FROM sde_types WHERE name = ? COLLATE NOCASE LIMIT 1",
+                    (product.strip(),),
+                ).fetchone()
+                if local:
+                    type_id, type_name = local[0], local[1]
+                else:
+                    results = await search_type_by_name(client, product.strip())
+                    if not results:
+                        raise ValueError(f"Produkt '{product}' nenalezen.")
+                    type_id = results[0]
+                    type_name = await resolve_type(client, session, type_id)
             session.close()
 
         async with httpx.AsyncClient() as client:
@@ -1761,41 +1771,30 @@ async def _build_stock_station_options(
     def _is_real(n: str | None, lid: int) -> bool:
         return bool(n) and not n.startswith("[") and n != str(lid)
 
-    # Best-effort live resolve. Player struktury vyžadují docking access +
-    # esi-universe.read_structures.v1 — struktura nepřístupná plánovací
-    # postavě může být přístupná JINÉ postavě uživatele (přesně jako to dělá
-    # Assets, který resolvuje per-owner tokenem). Projdeme tedy tokeny všech
-    # postav, dokud se jméno nepodaří získat. resolve_station_names_bulk
-    # ukládá reálná jména do location_name_cache, takže příště je to instant.
+    # DB cache drží reálná jména naakumulovaná z dřívějška (Assets resolvuje
+    # per-owner tokenem a ukládá je sem) — placeholdery se do DB nikdy
+    # neukládají. Použijeme ji jako primární zdroj BEZ ESI volání.
+    db_names = load_location_names_from_db(conn)
+
+    # ESI dořeš jen pro stanice, které ještě reálné jméno nemají — a jen
+    # tokenem plánovací postavy. Resolvovat všech ~79 struktur tokeny VŠECH
+    # postav (jak to dělala v0.6.1/0.6.2) generuje záplavu 403 odpovědí a ESI
+    # nás error-limitne (HTTP 420), což pak rozbije i resolvování produktu.
+    # resolve_station_name si navíc 403 a 420 pamatuje, takže se neopakují.
     resolved: dict[int, str] = {}
-    tokens: list[str | None] = []
-    if token:
-        tokens.append(token)
-    for cid, _ in list_characters(conn):
-        t = _get_valid_token_for(conn, cid)
-        if t and t not in tokens:
-            tokens.append(t)
-
-    pending = list(loc_ids)
-    for tok in tokens:
-        if not pending:
-            break
+    unresolved = [lid for lid in loc_ids if not _is_real(db_names.get(lid), lid)]
+    if unresolved:
         try:
-            r = await resolve_station_names_bulk(pending, token=tok, conn=conn)
+            r = await resolve_station_names_bulk(unresolved, token=token, conn=conn)
+            resolved = {lid: n for lid, n in r.items() if _is_real(n, lid)}
         except Exception:
-            continue
-        for lid, name in r.items():
-            if _is_real(name, lid):
-                resolved[lid] = name
-        pending = [lid for lid in pending if lid not in resolved]
-
-    db_names = load_location_names_from_db(conn)   # jen reálná jména
+            pass
 
     def _best_name(lid: int) -> str:
-        if _is_real(resolved.get(lid), lid):
-            return resolved[lid]
         if _is_real(db_names.get(lid), lid):
             return db_names[lid]
+        if _is_real(resolved.get(lid), lid):
+            return resolved[lid]
         return f"Private structure · {lid}"
 
     options = [
