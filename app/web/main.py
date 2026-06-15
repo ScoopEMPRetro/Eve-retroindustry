@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.6.3"
+APP_VERSION = "0.6.4"
 
 import asyncio
 import datetime
@@ -32,7 +32,7 @@ from app.auth.token_store import (
 from app.auth.esi_oauth import start_web_login, cancel_web_login
 from app.character.blueprints import fetch_blueprints, ensure_bp_table
 from app.character.assets import (
-    fetch_assets, ensure_assets_table, assets_at_location, assets_at_locations,
+    fetch_assets, ensure_assets_table, assets_at_location,
     fetch_corp_assets, ensure_corp_assets_table,
 )
 from app.db.type_resolver import resolve_names_bulk
@@ -1348,9 +1348,15 @@ async def plan_result(
         form_adv_industry  = str(adv_industry_level)
 
         # Stock zdroje: pokud uživatel vybral stanice, použij je; jinak default
-        # na výrobní stanici (původní chování).
+        # na výrobní stanici. Roll up kontejnerů na stanici + vyloučení ship
+        # cargo/fittings přes _rollup_stock (selecting a station tak započítá
+        # i obsah kontejnerů, ne ale fit/cargo lodí).
         effective_stock_ids = stock_station_ids if stock_explicit else {station}
-        available = assets_at_locations(all_assets, effective_stock_ids)
+        _station_types = _rollup_stock_from_charassets(all_assets)
+        available = {}
+        for sid in effective_stock_ids:
+            for tid, q in _station_types.get(sid, {}).items():
+                available[tid] = available.get(tid, 0) + q
 
         bp = find_blueprint_for_product(blueprints, type_id, conn)
         me = float(me_override if me_override is not None else (bp.material_efficiency if bp else 0))
@@ -1742,6 +1748,81 @@ async def plan_result(
     })
 
 
+# location_flag hodnoty, které znamenají "uvnitř lodi" (fitnuté moduly, cargo,
+# drone/fighter bay, specializované bay). Takové zboží se NEpočítá jako výrobní
+# zásoba — nedává smysl rozebírat fit/cargo jednotlivých lodí. Naopak Hangar,
+# AutoFit/Unlocked/Locked (obsah kontejnerů v hangaru) ano.
+_SHIP_INTERNAL_FLAGS: frozenset[str] = frozenset({
+    "Cargo", "DroneBay", "FleetHangar", "ShipHangar", "FighterBay",
+    "FighterTube0", "FighterTube1", "FighterTube2", "FighterTube3", "FighterTube4",
+    "HiddenModifiers",
+    *(f"HiSlot{i}" for i in range(8)),
+    *(f"MedSlot{i}" for i in range(8)),
+    *(f"LoSlot{i}" for i in range(8)),
+    *(f"RigSlot{i}" for i in range(8)),
+    *(f"SubSystemSlot{i}" for i in range(8)),
+})
+
+
+def _is_ship_internal_flag(flag: str) -> bool:
+    return flag in _SHIP_INTERNAL_FLAGS or flag.startswith("Specialized")
+
+
+def _rollup_stock(rows: list[tuple]) -> dict[int, dict[int, int]]:
+    """rows: (item_id, location_id, location_flag, type_id, quantity, is_singleton).
+
+    Vrátí {station_id: {type_id: total_qty}} — zboží rolnuté na reálnou
+    stanici/strukturu (obsah kontejnerů se sčítá k jejich stanici), s
+    VYNECHÁNÍM singletonů (lodě, unikáty) a všeho uvnitř lodí (ship cargo /
+    fittings / bays). station_id = první předek v řetězci, který už není
+    vlastněný item (= skutečná stanice nebo struktura).
+    """
+    by_id = {r[0]: r for r in rows}
+    result: dict[int, dict[int, int]] = {}
+    for r in rows:
+        item_id, loc_id, flag, type_id, qty, singleton = r
+        if singleton:
+            continue
+        # Projdi řetězec nahoru; pokud kdekoliv narazíš na ship-internal flag,
+        # je to obsah lodi → vynech.
+        node = r
+        seen: set[int] = set()
+        station = loc_id
+        excluded = False
+        for _ in range(32):
+            if _is_ship_internal_flag(node[2]):
+                excluded = True
+                break
+            parent_id = node[1]
+            parent = by_id.get(parent_id)
+            if parent is None:
+                station = parent_id   # reálná stanice/struktura
+                break
+            if parent_id in seen:
+                station = parent_id
+                break
+            seen.add(parent_id)
+            node = parent
+        if excluded:
+            continue
+        d = result.setdefault(station, {})
+        d[type_id] = d.get(type_id, 0) + qty
+    return result
+
+
+def _rollup_stock_from_charassets(assets) -> dict[int, dict[int, int]]:
+    rows = [(a.item_id, a.location_id, a.location_flag, a.type_id, a.quantity, a.is_singleton)
+            for a in assets]
+    return _rollup_stock(rows)
+
+
+def _rollup_stock_from_cache(raw: list[dict]) -> dict[int, dict[int, int]]:
+    rows = [(a["item_id"], a["location_id"], a.get("location_flag", ""),
+             a["type_id"], a["quantity"], a.get("is_singleton", False))
+            for a in raw]
+    return _rollup_stock(rows)
+
+
 async def _build_stock_station_options(
     conn: sqlite3.Connection,
     plan_char_id: int | None,
@@ -1759,13 +1840,11 @@ async def _build_stock_station_options(
     if not plan_char_id:
         return []
     raw = _load_assets_from_cache(conn, plan_char_id)
-    seen_types: dict[int, set] = {}
-    for a in raw:
-        if a.get("is_singleton", False):
-            continue
-        seen_types.setdefault(a["location_id"], set()).add(a["type_id"])
-    if not seen_types:
+    # Roll up obsah kontejnerů na jejich stanici a vynech ship cargo/fittings.
+    station_types = _rollup_stock_from_cache(raw)
+    if not station_types:
         return []
+    seen_types = {sid: set(types.keys()) for sid, types in station_types.items()}
     loc_ids = list(seen_types.keys())
 
     def _is_real(n: str | None, lid: int) -> bool:
