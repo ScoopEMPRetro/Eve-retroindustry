@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.6.1"
+APP_VERSION = "0.6.2"
 
 import asyncio
 import datetime
@@ -1757,14 +1757,51 @@ async def _build_stock_station_options(
     if not seen_types:
         return []
     loc_ids = list(seen_types.keys())
-    try:
-        loc_names = await resolve_station_names_bulk(loc_ids, token=token, conn=conn)
-    except Exception:
-        loc_names = load_location_names_from_db(conn)
+
+    def _is_real(n: str | None, lid: int) -> bool:
+        return bool(n) and not n.startswith("[") and n != str(lid)
+
+    # Best-effort live resolve. Player struktury vyžadují docking access +
+    # esi-universe.read_structures.v1 — struktura nepřístupná plánovací
+    # postavě může být přístupná JINÉ postavě uživatele (přesně jako to dělá
+    # Assets, který resolvuje per-owner tokenem). Projdeme tedy tokeny všech
+    # postav, dokud se jméno nepodaří získat. resolve_station_names_bulk
+    # ukládá reálná jména do location_name_cache, takže příště je to instant.
+    resolved: dict[int, str] = {}
+    tokens: list[str | None] = []
+    if token:
+        tokens.append(token)
+    for cid, _ in list_characters(conn):
+        t = _get_valid_token_for(conn, cid)
+        if t and t not in tokens:
+            tokens.append(t)
+
+    pending = list(loc_ids)
+    for tok in tokens:
+        if not pending:
+            break
+        try:
+            r = await resolve_station_names_bulk(pending, token=tok, conn=conn)
+        except Exception:
+            continue
+        for lid, name in r.items():
+            if _is_real(name, lid):
+                resolved[lid] = name
+        pending = [lid for lid in pending if lid not in resolved]
+
+    db_names = load_location_names_from_db(conn)   # jen reálná jména
+
+    def _best_name(lid: int) -> str:
+        if _is_real(resolved.get(lid), lid):
+            return resolved[lid]
+        if _is_real(db_names.get(lid), lid):
+            return db_names[lid]
+        return f"Private structure · {lid}"
+
     options = [
         {
             "location_id": lid,
-            "name": loc_names.get(lid, str(lid)),
+            "name": _best_name(lid),
             "count": len(types),
             "selected": (lid in selected_ids) if explicit else (lid == default_station),
         }
