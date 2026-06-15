@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 
 import asyncio
 import datetime
@@ -1200,9 +1200,16 @@ async def plan_form(request: Request, char: str = "", station: str = ""):
         ).fetchone()
         if row:
             prefill_station_name = row[0]
+    stock_default = int(prefill_station) if prefill_station else 0
+    stock_station_options = await _build_stock_station_options(
+        conn, plan_char_id, token,
+        selected_ids=set(), default_station=stock_default, explicit=False,
+    )
     conn.close()
     return _tr("plan.html", request, {
         "locations": location_ids,
+        "stock_station_options": stock_station_options,
+        "form_stock_stations": "",
         "result": None,
         "error": None,
         "form_product": product_param,
@@ -1665,39 +1672,18 @@ async def plan_result(
     except Exception as e:
         error = str(e)
 
-    # Stanice, kde má plánovací postava (ne-singleton) zboží — zdroje pro
-    # výběr stocku ve formuláři.
-    location_ids = []
-    stock_counts: dict[int, int] = {}   # location_id → počet distinct typů
-    if plan_char_id_int:
-        raw = _load_assets_from_cache(conn, plan_char_id_int)
-        seen_types: dict[int, set] = {}
-        for a in raw:
-            if a.get("is_singleton", False):
-                continue
-            lid = a["location_id"]
-            seen_types.setdefault(lid, set()).add(a["type_id"])
-        stock_counts = {lid: len(types) for lid, types in seen_types.items()}
-        location_ids = sorted(stock_counts.keys())
+    # Stock-source volby (jména přes ESI, ne holá ID). Default = výrobní
+    # stanice, pokud uživatel nevybral explicitně.
+    _stock_token = _get_valid_token_for(conn, plan_char_id_int) if plan_char_id_int else None
+    stock_station_options = await _build_stock_station_options(
+        conn, plan_char_id_int, _stock_token,
+        selected_ids=stock_station_ids, default_station=station, explicit=stock_explicit,
+    )
+    location_ids = [o["location_id"] for o in stock_station_options]
 
     # Načti jméno stanice pro zobrazení ve formuláři
     loc_names = load_location_names_from_db(conn)
     station_name = loc_names.get(station, str(station))
-
-    # Sestav volby pro stock-source picker. Default výběr = výrobní stanice,
-    # pokud uživatel nevybral explicitně.
-    stock_station_options = sorted(
-        (
-            {
-                "location_id": lid,
-                "name": loc_names.get(lid, str(lid)),
-                "count": stock_counts.get(lid, 0),
-                "selected": (lid in stock_station_ids) if stock_explicit else (lid == station),
-            }
-            for lid in location_ids
-        ),
-        key=lambda o: (-o["count"], o["name"]),
-    )
     rxn_station_name = loc_names.get(reaction_station, str(reaction_station)) if reaction_station else ""
 
     # Best sell cena produktu na prodejní stanici (z station_volume_cache)
@@ -1744,6 +1730,48 @@ async def plan_result(
         "form_adv_industry": form_adv_industry,
         "plan_char_id":      plan_char_id_int,
     })
+
+
+async def _build_stock_station_options(
+    conn: sqlite3.Connection,
+    plan_char_id: int | None,
+    token: str | None,
+    *,
+    selected_ids: set[int],
+    default_station: int,
+    explicit: bool,
+) -> list[dict]:
+    """Stanice, kde má plánovací postava ne-singleton zboží — volby pro
+    stock-source picker. Jména resolvuje přes ESI (resolve_station_names_bulk),
+    takže se nezobrazují holá ID. `selected` = explicitní výběr uživatele,
+    jinak default na výrobní stanici.
+    """
+    if not plan_char_id:
+        return []
+    raw = _load_assets_from_cache(conn, plan_char_id)
+    seen_types: dict[int, set] = {}
+    for a in raw:
+        if a.get("is_singleton", False):
+            continue
+        seen_types.setdefault(a["location_id"], set()).add(a["type_id"])
+    if not seen_types:
+        return []
+    loc_ids = list(seen_types.keys())
+    try:
+        loc_names = await resolve_station_names_bulk(loc_ids, token=token, conn=conn)
+    except Exception:
+        loc_names = load_location_names_from_db(conn)
+    options = [
+        {
+            "location_id": lid,
+            "name": loc_names.get(lid, str(lid)),
+            "count": len(types),
+            "selected": (lid in selected_ids) if explicit else (lid == default_station),
+        }
+        for lid, types in seen_types.items()
+    ]
+    options.sort(key=lambda o: (-o["count"], o["name"]))
+    return options
 
 
 def _build_manufacturing_steps(root, prices: dict, available: dict) -> list[dict]:
