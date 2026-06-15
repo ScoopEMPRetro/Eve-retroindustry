@@ -47,6 +47,7 @@
     <input type="hidden" name="facility_me_bonus" id="mfg-me-bonus-input" value="{{ form_facility_me_bonus or '0' }}">
     <input type="hidden" name="reaction_me_bonus" id="rxn-me-bonus-input" value="{{ form_rxn_me_bonus or '0' }}">
     <input type="hidden" id="has-result" value="{{ 'true' if result else '' }}">
+    <input type="hidden" name="stock_stations" id="stock-stations-input" value="{{ form_stock_stations or '' }}">
 
     {# Row 1: product + qty + mode + ME/TE override + Calculate #}
     <div class="row g-2 align-items-end">
@@ -263,6 +264,52 @@
         </div>
       </div>
     </div>
+
+    {# ──── Stock sources — z kterých stanic počítat zboží které už mám ──── #}
+    {% if stock_station_options %}
+    <div class="row g-2 mt-1">
+      <div class="col-12">
+        <div class="card" style="background:#0d1117;border-color:#21262d">
+          <div class="d-flex align-items-center justify-content-between px-3 py-2"
+               data-bs-toggle="collapse" data-bs-target="#stock-sources" style="cursor:pointer">
+            <span class="small">
+              <i class="bi bi-box-seam me-1" style="color:#3fb950"></i>
+              <span class="fw-medium">Stock sources</span>
+              <span class="text-muted ms-2" id="stock-sources-summary"></span>
+            </span>
+            <i class="bi bi-chevron-down text-muted"></i>
+          </div>
+          <div class="collapse" id="stock-sources">
+            <div class="px-3 pb-3 pt-1">
+              <div class="d-flex gap-2 mb-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                        style="font-size:.75rem" onclick="setAllStockStations(true)">Select all</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                        style="font-size:.75rem" onclick="setAllStockStations(false)">Clear</button>
+                <span class="text-muted align-self-center" style="font-size:.72rem">
+                  Which stations' items count as already-in-stock. Default: the manufacturing station.
+                </span>
+              </div>
+              <div class="row g-1">
+                {% for opt in stock_station_options %}
+                <div class="col-12 col-lg-6">
+                  <label class="d-flex align-items-center gap-2 px-2 py-1 rounded stock-station-row"
+                         style="cursor:pointer">
+                    <input class="form-check-input m-0 stock-station-cb" type="checkbox"
+                           value="{{ opt.location_id }}" {% if opt.selected %}checked{% endif %}
+                           onchange="updateStockStations()">
+                    <span class="text-truncate" style="flex:1;min-width:0;font-size:.82rem">{{ opt.name }}</span>
+                    <span class="badge bg-secondary" style="font-size:.68rem">{{ opt.count }} types</span>
+                  </label>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
   </form>
 </div>
 
@@ -575,7 +622,7 @@ function switchPlanChar(charId) {
           <th class="sortable text-end" data-sort="required" data-sort-type="num" style="cursor:pointer;user-select:none">Required <span class="sort-indicator"></span></th>
           <th class="sortable text-end" data-sort="unit-price" data-sort-type="num" style="cursor:pointer;user-select:none">Price/unit (ISK) <span class="sort-indicator"></span></th>
           <th class="sortable text-end" data-sort="total-price" data-sort-type="num" style="cursor:pointer;user-select:none">Total (ISK) <span class="sort-indicator"></span></th>
-          <th class="sortable text-end" data-sort="avail" data-sort-type="num" style="cursor:pointer;user-select:none">At station <span class="sort-indicator"></span></th>
+          <th class="sortable text-end" data-sort="avail" data-sort-type="num" style="cursor:pointer;user-select:none" title="Quantity already in stock across the selected stock-source stations">In stock <span class="sort-indicator"></span></th>
           <th class="sortable text-end" data-sort="missing" data-sort-type="num" style="cursor:pointer;user-select:none">Missing <span class="sort-indicator"></span></th>
           <th class="sortable text-end" data-sort="buy-price" data-sort-type="num" style="cursor:pointer;user-select:none">Buy (ISK) <span class="sort-indicator"></span></th>
           <th class="sortable text-end" data-sort="coverage" data-sort-type="num" style="cursor:pointer;user-select:none;width:90px">Coverage <span class="sort-indicator"></span></th>
@@ -1015,6 +1062,31 @@ function switchPlanChar(charId) {
 
 {% block scripts %}
 <script>
+// === Stock sources — výběr stanic pro počítání zásob ===
+function _refreshStockSummary() {
+  const cbs = document.querySelectorAll('.stock-station-cb');
+  const sel = document.querySelectorAll('.stock-station-cb:checked').length;
+  const summary = document.getElementById('stock-sources-summary');
+  if (summary && cbs.length) {
+    summary.textContent = `${sel} of ${cbs.length} station${cbs.length !== 1 ? 's' : ''} selected`;
+  }
+}
+function updateStockStations() {
+  // Voláno jen při změně checkboxu uživatelem — od té chvíle je výběr
+  // EXPLICITNÍ. Sentinel "0" = záměrně nic (jinak by prázdná hodnota
+  // spadla zpět na default = výrobní stanice).
+  const ids = [];
+  document.querySelectorAll('.stock-station-cb:checked').forEach(cb => ids.push(cb.value));
+  const input = document.getElementById('stock-stations-input');
+  if (input) input.value = ids.length ? ids.join(',') : '0';
+  _refreshStockSummary();
+}
+function setAllStockStations(on) {
+  document.querySelectorAll('.stock-station-cb').forEach(cb => { cb.checked = on; });
+  updateStockStations();
+}
+document.addEventListener('DOMContentLoaded', _refreshStockSummary);
+
 // === Obnova posledního plánu ===
 const _FORM_FIELD_NAMES = [
   'product','qty','form_me','form_te','mode',

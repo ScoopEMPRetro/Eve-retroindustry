@@ -195,3 +195,20 @@ def assets_at_location(assets: list[CharAsset], location_id: int) -> dict[int, i
             continue
         result[a.type_id] = result.get(a.type_id, 0) + a.quantity
     return result
+
+
+def assets_at_locations(
+    assets: list[CharAsset], location_ids: "set[int] | list[int]"
+) -> dict[int, int]:
+    """
+    Vrátí {type_id: total_quantity} agregované přes VÍCE stanic/struktur.
+    Ignoruje singletony. Slouží pro výběr zdrojů zásob ve výrobním plánu
+    (uživatel zaškrtne, ze kterých stanic se má stav zboží počítat).
+    """
+    wanted = set(location_ids)
+    result: dict[int, int] = {}
+    for a in assets:
+        if a.is_singleton or a.location_id not in wanted:
+            continue
+        result[a.type_id] = result.get(a.type_id, 0) + a.quantity
+    return result

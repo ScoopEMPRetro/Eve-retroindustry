@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.5.9"
+APP_VERSION = "0.6.0"
 
 import asyncio
 import datetime
@@ -32,7 +32,7 @@ from app.auth.token_store import (
 from app.auth.esi_oauth import start_web_login, cancel_web_login
 from app.character.blueprints import fetch_blueprints, ensure_bp_table
 from app.character.assets import (
-    fetch_assets, ensure_assets_table, assets_at_location,
+    fetch_assets, ensure_assets_table, assets_at_location, assets_at_locations,
     fetch_corp_assets, ensure_corp_assets_table,
 )
 from app.db.type_resolver import resolve_names_bulk
@@ -1233,10 +1233,17 @@ async def plan_result(
     form_adv_industry: str = Form("0"),
     plan_char_id: str = Form(""),
     runs_per_job: str = Form("1"),
+    stock_stations: str = Form(""),
 ):
     conn = get_conn()
     error = None
     plan_data = None
+    # Výběr stanic, ze kterých se počítá stav zboží (stock). Prázdné = default
+    # na výrobní stanici (zpětně kompatibilní). CSV location IDs z checkboxů.
+    stock_station_ids: set[int] = {
+        int(x) for x in stock_stations.split(",") if x.strip().lstrip("-").isdigit()
+    }
+    stock_explicit = bool(stock_stations.strip())
     # Kolik runů má jedna BPC kopie — ME se zaokrouhluje per job.
     # 1 (default) = paralelní 1-run kopie; K = kopie po K runech;
     # prázdné/0 = jeden batched job (in-game multi-run okno).
@@ -1323,7 +1330,10 @@ async def plan_result(
         form_industry      = str(industry_level)
         form_adv_industry  = str(adv_industry_level)
 
-        available = assets_at_location(all_assets, station)
+        # Stock zdroje: pokud uživatel vybral stanice, použij je; jinak default
+        # na výrobní stanici (původní chování).
+        effective_stock_ids = stock_station_ids if stock_explicit else {station}
+        available = assets_at_locations(all_assets, effective_stock_ids)
 
         bp = find_blueprint_for_product(blueprints, type_id, conn)
         me = float(me_override if me_override is not None else (bp.material_efficiency if bp else 0))
@@ -1655,15 +1665,39 @@ async def plan_result(
     except Exception as e:
         error = str(e)
 
-    # Use the plan character (not the active cookie) for the location dropdown
+    # Stanice, kde má plánovací postava (ne-singleton) zboží — zdroje pro
+    # výběr stocku ve formuláři.
     location_ids = []
+    stock_counts: dict[int, int] = {}   # location_id → počet distinct typů
     if plan_char_id_int:
         raw = _load_assets_from_cache(conn, plan_char_id_int)
-        location_ids = sorted({a["location_id"] for a in raw if not a.get("is_singleton", False)})
+        seen_types: dict[int, set] = {}
+        for a in raw:
+            if a.get("is_singleton", False):
+                continue
+            lid = a["location_id"]
+            seen_types.setdefault(lid, set()).add(a["type_id"])
+        stock_counts = {lid: len(types) for lid, types in seen_types.items()}
+        location_ids = sorted(stock_counts.keys())
 
     # Načti jméno stanice pro zobrazení ve formuláři
     loc_names = load_location_names_from_db(conn)
     station_name = loc_names.get(station, str(station))
+
+    # Sestav volby pro stock-source picker. Default výběr = výrobní stanice,
+    # pokud uživatel nevybral explicitně.
+    stock_station_options = sorted(
+        (
+            {
+                "location_id": lid,
+                "name": loc_names.get(lid, str(lid)),
+                "count": stock_counts.get(lid, 0),
+                "selected": (lid in stock_station_ids) if stock_explicit else (lid == station),
+            }
+            for lid in location_ids
+        ),
+        key=lambda o: (-o["count"], o["name"]),
+    )
     rxn_station_name = loc_names.get(reaction_station, str(reaction_station)) if reaction_station else ""
 
     # Best sell cena produktu na prodejní stanici (z station_volume_cache)
@@ -1681,6 +1715,8 @@ async def plan_result(
 
     return _tr("plan.html", request, {
         "locations": location_ids,
+        "stock_station_options": stock_station_options,
+        "form_stock_stations": stock_stations,
         "result": plan_data,
         "error": error,
         "form_product": product,
