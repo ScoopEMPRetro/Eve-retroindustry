@@ -114,6 +114,9 @@
         <li class="nav-item">
           <a class="nav-link {% if request.url.path.startswith('/wallet') %}active{% endif %}" href="/wallet"><i class="bi bi-wallet2 me-1"></i>Wallet</a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/orders') %}active{% endif %}" href="/orders"><i class="bi bi-bag me-1"></i>Market Orders</a>
+        </li>
       </ul>
       <ul class="navbar-nav ms-auto align-items-center gap-2">
         <li class="nav-item">

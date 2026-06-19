@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.7.3"
+APP_VERSION = "0.7.4"
 
 import asyncio
 import datetime
@@ -32,6 +32,7 @@ from app.auth.token_store import (
 from app.auth.esi_oauth import start_web_login, cancel_web_login
 from app.character.blueprints import fetch_blueprints, ensure_bp_table
 from app.character import wallet as wallet_api
+from app.character import orders as orders_api
 from app.character.assets import (
     fetch_assets, ensure_assets_table, assets_at_location,
     fetch_corp_assets, ensure_corp_assets_table,
@@ -4057,6 +4058,126 @@ def _decorate(conn, journal: list[dict], txns: list[dict],
     dj.sort(key=lambda x: x["date"], reverse=True)
     dt.sort(key=lambda x: x["date"], reverse=True)
     return dj, dt
+
+
+# ── Market Orders ─────────────────────────────────────────────────────────────
+
+def _decorate_orders(orders: list[dict], type_names: dict[int, str],
+                     loc_names: dict[int, str]) -> list[dict]:
+    """Doplní ordery o jméno itemu, lokaci, % splnění a stav. Seřadí nejnovější
+    podle data zadání (issued) první."""
+    import datetime as _dt
+    out = []
+    for o in orders:
+        total = o.get("volume_total", 0) or 0
+        remain = o.get("volume_remain", 0) or 0
+        filled = total - remain
+        issued = o.get("issued", "")
+        expiry = ""
+        try:
+            if issued and o.get("duration"):
+                base = _dt.datetime.fromisoformat(issued.replace("Z", "+00:00"))
+                expiry = (base + _dt.timedelta(days=o["duration"])).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+        out.append({
+            "type_id": o.get("type_id"),
+            "item": type_names.get(o.get("type_id"), f"#{o.get('type_id')}"),
+            "is_buy": o.get("is_buy_order", False),
+            "price": o.get("price", 0.0),
+            "volume_total": total,
+            "volume_remain": remain,
+            "filled": filled,
+            "filled_pct": int(round(100 * filled / total)) if total else 0,
+            "location": loc_names.get(o.get("location_id"), str(o.get("location_id", ""))),
+            "issued": issued,
+            "expiry": expiry,
+            "state": o.get("state", ""),   # jen u history: expired / cancelled
+        })
+    out.sort(key=lambda x: x["issued"], reverse=True)
+    return out
+
+
+@app.get("/orders", response_class=HTMLResponse)
+async def orders_page(request: Request, char: str = "", scope: str = "personal",
+                      state: str = "active"):
+    conn = get_conn()
+    plan_char_id: int | None = None
+    if char.isdigit() and get_character_row(conn, int(char)):
+        plan_char_id = int(char)
+    if plan_char_id is None:
+        plan_char_id = get_active_character_id(request, conn)
+
+    ctx: dict = {
+        "scope": scope, "state": state, "orders_char_id": plan_char_id,
+        "orders": [], "error": None, "corp_error": None, "corp_name": None,
+    }
+    if not plan_char_id:
+        ctx["error"] = "Nejsi přihlášen."
+        conn.close()
+        return _tr("orders.html", request, ctx)
+    token = _get_valid_token_for(conn, plan_char_id)
+    row = get_character_row(conn, plan_char_id)
+    if not token or not row:
+        ctx["error"] = "Token postavy vypršel — přihlas se znovu."
+        conn.close()
+        return _tr("orders.html", request, ctx)
+
+    def _type_names(type_ids: set[int]) -> dict[int, str]:
+        type_ids = {t for t in type_ids if t}
+        if not type_ids:
+            return {}
+        ph = ",".join("?" * len(type_ids))
+        return {r[0]: r[1] for r in conn.execute(
+            f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(type_ids)
+        ).fetchall()}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            if scope == "corp":
+                corp_id = row.get("corporation_id")
+                if not corp_id:
+                    cr = await client.get(
+                        f"https://esi.evetech.net/latest/characters/{plan_char_id}/", timeout=10)
+                    if cr.status_code == 200:
+                        corp_id = cr.json().get("corporation_id")
+                        if corp_id:
+                            update_corporation_id(conn, plan_char_id, corp_id)
+                if not corp_id:
+                    ctx["corp_error"] = "Nepodařilo se zjistit korporaci postavy."
+                else:
+                    cn = await _resolve_party_names({corp_id})
+                    ctx["corp_name"] = cn.get(corp_id, str(corp_id))
+                    if state == "history":
+                        raw_orders = await orders_api.fetch_corp_orders_history(client, corp_id, token)
+                    else:
+                        raw_orders, err = await orders_api.fetch_corp_orders(client, corp_id, token)
+                        ctx["corp_error"] = err
+                        raw_orders = raw_orders or []
+                    ctx["orders"] = await _finalize_orders(conn, raw_orders, _type_names, token)
+            else:
+                if state == "history":
+                    raw_orders = await orders_api.fetch_orders_history(client, plan_char_id, token)
+                else:
+                    raw_orders = await orders_api.fetch_orders(client, plan_char_id, token)
+                ctx["orders"] = await _finalize_orders(conn, raw_orders, _type_names, token)
+    except Exception as exc:
+        ctx["error"] = f"Chyba při načítání orderů: {exc}"
+
+    conn.close()
+    return _tr("orders.html", request, ctx)
+
+
+async def _finalize_orders(conn, raw_orders: list[dict], type_names_fn, token: str) -> list[dict]:
+    type_names = type_names_fn({o.get("type_id") for o in raw_orders})
+    loc_ids = list({o.get("location_id") for o in raw_orders if o.get("location_id")})
+    loc_names: dict[int, str] = {}
+    if loc_ids:
+        try:
+            loc_names = await resolve_station_names_bulk(loc_ids, token=token, conn=conn)
+        except Exception:
+            loc_names = load_location_names_from_db(conn)
+    return _decorate_orders(raw_orders, type_names, loc_names)
 
 
 # ── Version check / update ───────────────────────────────────────────────────
