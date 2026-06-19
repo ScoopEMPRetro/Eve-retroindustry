@@ -76,8 +76,9 @@
       <thead>
         <tr>
           <th>Item</th><th>Location</th>
-          <th class="text-end">Price (ISK)</th>
+          <th class="text-end">Price/unit (ISK)</th>
           <th class="text-end">{% if state == 'history' %}Filled{% else %}Remaining{% endif %}</th>
+          <th class="text-end">Order total (ISK)</th>
           <th class="text-end">Issued</th>
           {% if state == 'history' %}<th>State</th>{% else %}<th class="text-end">Expires</th>{% endif %}
         </tr>
@@ -85,9 +86,11 @@
       <tbody>
         {% for o in rows %}
         <tr>
-          <td class="d-flex align-items-center gap-2">
-            <img loading="lazy" src="https://images.evetech.net/types/{{ o.type_id }}/icon?size=32" width="24" height="24" class="rounded">
-            {{ o.item }}
+          <td>
+            <span class="d-inline-flex align-items-center gap-2">
+              <img loading="lazy" src="https://images.evetech.net/types/{{ o.type_id }}/icon?size=32" width="24" height="24" class="rounded">
+              {{ o.item }}
+            </span>
           </td>
           <td class="text-muted text-truncate" style="max-width:260px;font-size:.78rem">{{ o.location }}</td>
           <td class="text-end fw-semibold">{{ o.price | isk }}</td>
@@ -101,6 +104,7 @@
               </div>
             {% endif %}
           </td>
+          <td class="text-end fw-semibold" style="white-space:nowrap">{{ o.order_total | isk }}</td>
           <td class="text-end text-muted" style="white-space:nowrap;font-size:.78rem">{{ o.issued | replace('T',' ') | replace('Z','') | truncate(10,true,'') }}</td>
           {% if state == 'history' %}
           <td><span class="badge bg-secondary" style="font-size:.65rem">{{ o.state | upper }}</span></td>

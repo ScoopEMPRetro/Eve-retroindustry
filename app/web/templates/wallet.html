@@ -150,9 +150,11 @@
               {% if t.is_buy %}BUY{% else %}SELL{% endif %}
             </span>
           </td>
-          <td class="d-flex align-items-center gap-2">
-            <img loading="lazy" src="https://images.evetech.net/types/{{ t.type_id }}/icon?size=32" width="24" height="24" class="rounded">
-            {{ t.item }}
+          <td>
+            <span class="d-inline-flex align-items-center gap-2">
+              <img loading="lazy" src="https://images.evetech.net/types/{{ t.type_id }}/icon?size=32" width="24" height="24" class="rounded">
+              {{ t.item }}
+            </span>
           </td>
           <td class="text-end">{{ t.quantity | format_number }}</td>
           <td class="text-end">{{ t.unit_price | isk }}</td>

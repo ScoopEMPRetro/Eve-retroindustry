@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.7.5"
+APP_VERSION = "0.7.6"
 
 import asyncio
 import datetime
@@ -4080,11 +4080,14 @@ def _decorate_orders(orders: list[dict], type_names: dict[int, str],
                 expiry = (base + _dt.timedelta(days=o["duration"])).strftime("%Y-%m-%d")
         except Exception:
             pass
+        price = o.get("price", 0.0) or 0.0
         out.append({
             "type_id": o.get("type_id"),
             "item": type_names.get(o.get("type_id"), f"#{o.get('type_id')}"),
             "is_buy": o.get("is_buy_order", False),
-            "price": o.get("price", 0.0),
+            "price": price,
+            "order_total": price * total,      # cena za všechny jednotky orderu
+            "remain_total": price * remain,    # hodnota dosud nesplněné části
             "volume_total": total,
             "volume_remain": remain,
             "filled": filled,
