@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.6.4"
+APP_VERSION = "0.7.0"
 
 import asyncio
 import datetime
@@ -31,6 +31,7 @@ from app.auth.token_store import (
 )
 from app.auth.esi_oauth import start_web_login, cancel_web_login
 from app.character.blueprints import fetch_blueprints, ensure_bp_table
+from app.character import wallet as wallet_api
 from app.character.assets import (
     fetch_assets, ensure_assets_table, assets_at_location,
     fetch_corp_assets, ensure_corp_assets_table,
@@ -3843,6 +3844,177 @@ async def api_station_volume(request: Request):
 @app.get("/about", response_class=HTMLResponse)
 async def about_page(request: Request):
     return _tr("about.html", request, {"version": APP_VERSION})
+
+
+# ── Wallet ───────────────────────────────────────────────────────────────────
+
+_CORP_DIVISION_NAMES = {
+    1: "Master Wallet", 2: "2nd Wallet", 3: "3rd Wallet", 4: "4th Wallet",
+    5: "5th Wallet", 6: "6th Wallet", 7: "7th Wallet",
+}
+
+
+async def _resolve_party_names(ids: set[int]) -> dict[int, str]:
+    """Resolvuje char/corp/alliance/station/type ID na jména přes ESI
+    /universe/names/. Player struktury (>1e12) endpoint neumí — vynecháme je.
+    """
+    ids = {i for i in ids if i and i < 1_000_000_000_000}
+    out: dict[int, str] = {}
+    if not ids:
+        return out
+    id_list = list(ids)
+    async with httpx.AsyncClient(timeout=10) as client:
+        for i in range(0, len(id_list), 1000):  # ESI limit 1000/req
+            chunk = id_list[i:i + 1000]
+            try:
+                r = await client.post(
+                    "https://esi.evetech.net/latest/universe/names/",
+                    json=chunk, headers={"Accept": "application/json"},
+                )
+                if r.status_code == 200:
+                    for item in r.json():
+                        out[item["id"]] = item["name"]
+            except Exception:
+                pass
+    return out
+
+
+@app.get("/wallet", response_class=HTMLResponse)
+async def wallet_page(request: Request, char: str = "", scope: str = "personal",
+                      division: int = 1):
+    conn = get_conn()
+    # Která postava řídí stránku (?char= přebíjí aktivní cookie)
+    plan_char_id: int | None = None
+    if char.isdigit() and get_character_row(conn, int(char)):
+        plan_char_id = int(char)
+    if plan_char_id is None:
+        plan_char_id = get_active_character_id(request, conn)
+
+    ctx: dict = {
+        "scope": scope, "division": division,
+        "wallet_char_id": plan_char_id,
+        "balance": None, "journal": [], "transactions": [],
+        "corp_wallets": None, "corp_error": None, "corp_name": None,
+        "error": None, "division_names": _CORP_DIVISION_NAMES,
+    }
+
+    if not plan_char_id:
+        ctx["error"] = "Nejsi přihlášen."
+        conn.close()
+        return _tr("wallet.html", request, ctx)
+
+    token = _get_valid_token_for(conn, plan_char_id)
+    row = get_character_row(conn, plan_char_id)
+    if not token or not row:
+        ctx["error"] = "Token postavy vypršel — přihlas se znovu."
+        conn.close()
+        return _tr("wallet.html", request, ctx)
+
+    division = max(1, min(7, division))
+    ctx["division"] = division
+
+    # Type names z lokálního SDE (transakce mají type_id)
+    def _type_names(type_ids: set[int]) -> dict[int, str]:
+        type_ids = {t for t in type_ids if t}
+        if not type_ids:
+            return {}
+        ph = ",".join("?" * len(type_ids))
+        return {r[0]: r[1] for r in conn.execute(
+            f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(type_ids)
+        ).fetchall()}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            if scope == "corp":
+                corp_id = row.get("corporation_id")
+                if not corp_id:
+                    cr = await client.get(
+                        f"https://esi.evetech.net/latest/characters/{plan_char_id}/",
+                        timeout=10)
+                    if cr.status_code == 200:
+                        corp_id = cr.json().get("corporation_id")
+                        if corp_id:
+                            update_corporation_id(conn, plan_char_id, corp_id)
+                if not corp_id:
+                    ctx["corp_error"] = "Nepodařilo se zjistit korporaci postavy."
+                else:
+                    wallets, err = await wallet_api.fetch_corp_wallets(client, corp_id, token)
+                    ctx["corp_wallets"] = wallets
+                    ctx["corp_error"] = err
+                    cn = await _resolve_party_names({corp_id})
+                    ctx["corp_name"] = cn.get(corp_id, str(corp_id))
+                    if wallets:
+                        journal = await wallet_api.fetch_corp_journal(client, corp_id, division, token)
+                        txns = await wallet_api.fetch_corp_transactions(client, corp_id, division, token)
+                        bal = next((w["balance"] for w in wallets if w["division"] == division), None)
+                        ctx["balance"] = bal
+                        ctx["journal"], ctx["transactions"] = _decorate(
+                            conn, journal, txns, _type_names, await _resolve_party_names(
+                                _party_ids(journal, txns)))
+            else:  # personal
+                balance = await wallet_api.fetch_balance(client, plan_char_id, token)
+                journal = await wallet_api.fetch_journal(client, plan_char_id, token)
+                txns = await wallet_api.fetch_transactions(client, plan_char_id, token)
+                ctx["balance"] = balance
+                ctx["journal"], ctx["transactions"] = _decorate(
+                    conn, journal, txns, _type_names,
+                    await _resolve_party_names(_party_ids(journal, txns)))
+    except Exception as exc:
+        ctx["error"] = f"Chyba při načítání peněženky: {exc}"
+
+    conn.close()
+    return _tr("wallet.html", request, ctx)
+
+
+def _party_ids(journal: list[dict], txns: list[dict]) -> set[int]:
+    ids: set[int] = set()
+    for j in journal:
+        for k in ("first_party_id", "second_party_id"):
+            if j.get(k):
+                ids.add(j[k])
+    for t in txns:
+        if t.get("client_id"):
+            ids.add(t["client_id"])
+    return ids
+
+
+def _decorate(conn, journal: list[dict], txns: list[dict],
+              type_names_fn, party_names: dict[int, str]
+              ) -> tuple[list[dict], list[dict]]:
+    """Doplní journal o humanizovaný ref_type + jména stran; transakce o
+    jméno itemu, jména stran a celkovou cenu. Vrátí (journal, transactions)
+    seřazené nejnovější první."""
+    dj = []
+    for j in journal[:500]:
+        dj.append({
+            "date": j.get("date", ""),
+            "ref_type": wallet_api.humanize_ref_type(j.get("ref_type", "")),
+            "amount": j.get("amount"),
+            "balance": j.get("balance"),
+            "description": j.get("description", ""),
+            "reason": j.get("reason", ""),
+            "first_party": party_names.get(j.get("first_party_id"), ""),
+            "second_party": party_names.get(j.get("second_party_id"), ""),
+        })
+    type_ids = {t.get("type_id") for t in txns}
+    tnames = type_names_fn(type_ids)
+    dt = []
+    for t in txns[:500]:
+        qty = t.get("quantity", 0)
+        up = t.get("unit_price", 0.0)
+        dt.append({
+            "date": t.get("date", ""),
+            "type_id": t.get("type_id"),
+            "item": tnames.get(t.get("type_id"), f"#{t.get('type_id')}"),
+            "quantity": qty,
+            "unit_price": up,
+            "total": qty * up,
+            "is_buy": t.get("is_buy", False),
+            "client": party_names.get(t.get("client_id"), ""),
+        })
+    dj.sort(key=lambda x: x["date"], reverse=True)
+    dt.sort(key=lambda x: x["date"], reverse=True)
+    return dj, dt
 
 
 # ── Version check / update ───────────────────────────────────────────────────

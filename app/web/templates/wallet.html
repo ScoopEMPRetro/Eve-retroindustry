@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Wallet — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="row mb-3 align-items-center">
+  <div class="col">
+    <h4 class="mb-0"><i class="bi bi-wallet2 me-2 text-primary"></i>Wallet</h4>
+  </div>
+  {% if all_characters %}
+  <div class="col-auto d-flex align-items-center gap-2">
+    <span class="text-muted small">Character:</span>
+    <div class="btn-group btn-group-sm" role="group">
+      {% for c in all_characters %}
+      {% set is_active = wallet_char_id == c[0] %}
+      <a href="/wallet?char={{ c[0] }}&scope={{ scope }}&division={{ division }}"
+         class="btn d-inline-flex align-items-center gap-2
+                {% if is_active %}btn-eve{% else %}btn-outline-secondary{% endif %}">
+        <img src="https://images.evetech.net/characters/{{ c[0] }}/portrait?size=32"
+             width="18" height="18" class="rounded-circle">
+        {{ c[1] }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% if error %}
+<div class="alert alert-danger"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
+{% endif %}
+
+{# Personal / Corp přepínač #}
+<ul class="nav nav-pills mb-3" style="gap:.5rem">
+  <li class="nav-item">
+    <a class="nav-link {% if scope != 'corp' %}active{% endif %}"
+       href="/wallet?char={{ wallet_char_id }}&scope=personal">
+      <i class="bi bi-person me-1"></i>Personal
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if scope == 'corp' %}active{% endif %}"
+       href="/wallet?char={{ wallet_char_id }}&scope=corp&division={{ division }}">
+      <i class="bi bi-building me-1"></i>Corporation
+    </a>
+  </li>
+</ul>
+
+{% if scope == 'corp' and corp_error %}
+<div class="alert alert-warning"><i class="bi bi-shield-lock me-2"></i>{{ corp_error }}</div>
+{% endif %}
+
+{# Corp division selector #}
+{% if scope == 'corp' and corp_wallets %}
+<div class="mb-3">
+  {% if corp_name %}<div class="text-muted small mb-2"><i class="bi bi-building me-1"></i>{{ corp_name }}</div>{% endif %}
+  <div class="d-flex flex-wrap gap-2">
+    {% for w in corp_wallets | sort(attribute='division') %}
+    <a href="/wallet?char={{ wallet_char_id }}&scope=corp&division={{ w.division }}"
+       class="card px-3 py-2 text-decoration-none {% if w.division == division %}border-primary{% endif %}"
+       style="min-width:150px;{% if w.division == division %}border-color:#e3b341 !important{% endif %}">
+      <div class="text-muted" style="font-size:.72rem">{{ division_names[w.division] or ('Division ' ~ w.division) }}</div>
+      <div class="fw-semibold text-isk">{{ w.balance | isk }} ISK</div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# Balance — velký, jako ingame #}
+{% if balance is not none %}
+<div class="card mb-3 p-3 text-center" style="background:linear-gradient(135deg,#161b22,#0d1117)">
+  <div class="text-muted small text-uppercase" style="letter-spacing:.08em">
+    {% if scope == 'corp' %}{{ division_names[division] or ('Division ' ~ division) }} balance{% else %}Wallet balance{% endif %}
+  </div>
+  <div class="fw-bold" style="font-size:2rem;color:#3fb950">{{ balance | isk }} <span style="font-size:1.1rem;color:#8b949e">ISK</span></div>
+</div>
+{% endif %}
+
+{# Tabs: Journal / Transactions #}
+{% if balance is not none %}
+<ul class="nav nav-tabs mb-0" id="walletTabs" style="border-bottom:1px solid #30363d">
+  <li class="nav-item">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-journal" type="button">
+      <i class="bi bi-journal-text me-1"></i>Journal
+      {% if journal %}<span class="badge bg-secondary ms-1">{{ journal | length }}</span>{% endif %}
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-txns" type="button">
+      <i class="bi bi-cart me-1"></i>Transactions
+      {% if transactions %}<span class="badge bg-secondary ms-1">{{ transactions | length }}</span>{% endif %}
+    </button>
+  </li>
+</ul>
+<div class="tab-content">
+
+{# Journal #}
+<div class="tab-pane fade show active" id="tab-journal">
+<div class="card" style="border-top:none;border-radius:0 0 6px 6px">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle" style="font-size:.85rem">
+      <thead>
+        <tr>
+          <th>Date</th><th>Type</th><th>Parties</th>
+          <th class="text-end">Amount (ISK)</th><th class="text-end">Balance (ISK)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for j in journal %}
+        <tr>
+          <td class="text-muted" style="white-space:nowrap;font-size:.78rem">{{ j.date | replace('T',' ') | replace('Z','') | truncate(16,true,'') }}</td>
+          <td>{{ j.ref_type }}</td>
+          <td class="text-muted" style="font-size:.78rem">
+            {% if j.first_party or j.second_party %}{{ j.first_party }}{% if j.second_party %} → {{ j.second_party }}{% endif %}{% endif %}
+            {% if j.reason %}<div style="opacity:.7">{{ j.reason }}</div>{% endif %}
+          </td>
+          <td class="text-end fw-semibold" style="white-space:nowrap;color:{% if j.amount and j.amount < 0 %}#f85149{% else %}#3fb950{% endif %}">
+            {% if j.amount is not none %}{{ j.amount | isk }}{% else %}—{% endif %}
+          </td>
+          <td class="text-end text-muted" style="white-space:nowrap">{% if j.balance is not none %}{{ j.balance | isk }}{% else %}—{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-muted text-center py-3">No journal entries.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+{# Transactions #}
+<div class="tab-pane fade" id="tab-txns">
+<div class="card" style="border-top:none;border-radius:0 0 6px 6px">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle" style="font-size:.85rem">
+      <thead>
+        <tr>
+          <th>Date</th><th></th><th>Item</th><th class="text-end">Qty</th>
+          <th class="text-end">Unit (ISK)</th><th class="text-end">Total (ISK)</th>
+          <th>Client</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in transactions %}
+        <tr>
+          <td class="text-muted" style="white-space:nowrap;font-size:.78rem">{{ t.date | replace('T',' ') | replace('Z','') | truncate(16,true,'') }}</td>
+          <td>
+            <span class="badge" style="background:{% if t.is_buy %}#3d2c00;color:#e3b341{% else %}#0d2818;color:#3fb950{% endif %};font-size:.65rem">
+              {% if t.is_buy %}BUY{% else %}SELL{% endif %}
+            </span>
+          </td>
+          <td class="d-flex align-items-center gap-2">
+            <img loading="lazy" src="https://images.evetech.net/types/{{ t.type_id }}/icon?size=32" width="24" height="24" class="rounded">
+            {{ t.item }}
+          </td>
+          <td class="text-end">{{ t.quantity | format_number }}</td>
+          <td class="text-end">{{ t.unit_price | isk }}</td>
+          <td class="text-end fw-semibold" style="color:{% if t.is_buy %}#f85149{% else %}#3fb950{% endif %}">{{ t.total | isk }}</td>
+          <td class="text-muted" style="font-size:.78rem">{{ t.client }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-muted text-center py-3">No transactions.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+</div>{# end tab-content #}
+{% elif not error and scope != 'corp' %}
+<div class="text-muted p-3">No wallet data.</div>
+{% endif %}
+
+{% endblock %}
