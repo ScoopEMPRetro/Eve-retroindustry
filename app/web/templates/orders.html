@@ -69,12 +69,13 @@
 <div class="alert alert-warning"><i class="bi bi-shield-lock me-2"></i>{{ corp_error }}</div>
 {% endif %}
 
-<div class="card">
+{% macro orders_table(rows) %}
+<div class="card mb-3">
   <div class="table-responsive">
     <table class="table table-hover table-sm mb-0 align-middle" style="font-size:.85rem">
       <thead>
         <tr>
-          <th></th><th>Item</th><th>Location</th>
+          <th>Item</th><th>Location</th>
           <th class="text-end">Price (ISK)</th>
           <th class="text-end">{% if state == 'history' %}Filled{% else %}Remaining{% endif %}</th>
           <th class="text-end">Issued</th>
@@ -82,13 +83,8 @@
         </tr>
       </thead>
       <tbody>
-        {% for o in orders %}
+        {% for o in rows %}
         <tr>
-          <td>
-            <span class="badge" style="background:{% if o.is_buy %}#3d2c00;color:#e3b341{% else %}#0d2818;color:#3fb950{% endif %};font-size:.65rem">
-              {% if o.is_buy %}BUY{% else %}SELL{% endif %}
-            </span>
-          </td>
           <td class="d-flex align-items-center gap-2">
             <img loading="lazy" src="https://images.evetech.net/types/{{ o.type_id }}/icon?size=32" width="24" height="24" class="rounded">
             {{ o.item }}
@@ -107,21 +103,41 @@
           </td>
           <td class="text-end text-muted" style="white-space:nowrap;font-size:.78rem">{{ o.issued | replace('T',' ') | replace('Z','') | truncate(10,true,'') }}</td>
           {% if state == 'history' %}
-          <td>
-            <span class="badge bg-secondary" style="font-size:.65rem">{{ o.state | upper }}</span>
-          </td>
+          <td><span class="badge bg-secondary" style="font-size:.65rem">{{ o.state | upper }}</span></td>
           {% else %}
           <td class="text-end text-muted" style="white-space:nowrap;font-size:.78rem">{{ o.expiry }}</td>
           {% endif %}
         </tr>
-        {% else %}
-        <tr><td colspan="7" class="text-muted text-center py-4">
-          {% if scope == 'corp' and corp_error %}—{% else %}No {{ 'historical' if state == 'history' else 'active' }} orders.{% endif %}
-        </td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+{% endmacro %}
+
+{% set sell_orders = orders | rejectattr('is_buy') | list %}
+{% set buy_orders  = orders | selectattr('is_buy') | list %}
+
+{% if not orders %}
+<div class="card"><div class="text-muted text-center py-4">
+  {% if scope == 'corp' and corp_error %}—{% else %}No {{ 'historical' if state == 'history' else 'active' }} orders.{% endif %}
+</div></div>
+{% else %}
+
+<h6 class="text-uppercase mb-2" style="font-size:.75rem;letter-spacing:.06em;color:#3fb950">
+  <i class="bi bi-arrow-up-circle me-1"></i>Sell Orders <span class="badge bg-secondary ms-1">{{ sell_orders | length }}</span>
+</h6>
+{% if sell_orders %}{{ orders_table(sell_orders) }}{% else %}
+<div class="card mb-3"><div class="text-muted text-center py-3" style="font-size:.85rem">No sell orders.</div></div>
+{% endif %}
+
+<h6 class="text-uppercase mb-2 mt-3" style="font-size:.75rem;letter-spacing:.06em;color:#e3b341">
+  <i class="bi bi-arrow-down-circle me-1"></i>Buy Orders <span class="badge bg-secondary ms-1">{{ buy_orders | length }}</span>
+</h6>
+{% if buy_orders %}{{ orders_table(buy_orders) }}{% else %}
+<div class="card mb-3"><div class="text-muted text-center py-3" style="font-size:.85rem">No buy orders.</div></div>
+{% endif %}
+
+{% endif %}
 
 {% endblock %}
