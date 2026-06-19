@@ -112,6 +112,7 @@
           <td>{{ j.ref_type }}</td>
           <td class="text-muted" style="font-size:.78rem">
             {% if j.first_party or j.second_party %}{{ j.first_party }}{% if j.second_party %} → {{ j.second_party }}{% endif %}{% endif %}
+            {% if j.location %}<div style="opacity:.85"><i class="bi bi-geo-alt me-1" style="font-size:.7rem"></i>{{ j.location }}</div>{% endif %}
             {% if j.reason %}<div style="opacity:.7">{{ j.reason }}</div>{% endif %}
           </td>
           <td class="text-end fw-semibold" style="white-space:nowrap;color:{% if j.amount and j.amount < 0 %}#f85149{% else %}#3fb950{% endif %}">

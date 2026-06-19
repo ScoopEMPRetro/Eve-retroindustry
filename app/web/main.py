@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.7.1"
+APP_VERSION = "0.7.2"
 
 import asyncio
 import datetime
@@ -3948,17 +3948,17 @@ async def wallet_page(request: Request, char: str = "", scope: str = "personal",
                         txns = await wallet_api.fetch_corp_transactions(client, corp_id, division, token)
                         bal = next((w["balance"] for w in wallets if w["division"] == division), None)
                         ctx["balance"] = bal
+                        names = await _wallet_names(conn, journal, txns, token)
                         ctx["journal"], ctx["transactions"] = _decorate(
-                            conn, journal, txns, _type_names, await _resolve_party_names(
-                                _party_ids(journal, txns)))
+                            conn, journal, txns, _type_names, names)
             else:  # personal
                 balance = await wallet_api.fetch_balance(client, plan_char_id, token)
                 journal = await wallet_api.fetch_journal(client, plan_char_id, token)
                 txns = await wallet_api.fetch_transactions(client, plan_char_id, token)
                 ctx["balance"] = balance
+                names = await _wallet_names(conn, journal, txns, token)
                 ctx["journal"], ctx["transactions"] = _decorate(
-                    conn, journal, txns, _type_names,
-                    await _resolve_party_names(_party_ids(journal, txns)))
+                    conn, journal, txns, _type_names, names)
     except Exception as exc:
         ctx["error"] = f"Chyba při načítání peněženky: {exc}"
 
@@ -3972,10 +3972,36 @@ def _party_ids(journal: list[dict], txns: list[dict]) -> set[int]:
         for k in ("first_party_id", "second_party_id"):
             if j.get(k):
                 ids.add(j[k])
+        # context system/station (např. systém kde bylo bounty uloveno) —
+        # /universe/names/ je umí (oba <1e12)
+        if j.get("context_id_type") in ("system_id", "station_id") and j.get("context_id"):
+            ids.add(j["context_id"])
     for t in txns:
         if t.get("client_id"):
             ids.add(t["client_id"])
     return ids
+
+
+def _context_structure_ids(journal: list[dict]) -> list[int]:
+    """Player-struktura ID z journal contextu (resolvuje se přes auth endpoint)."""
+    return list({
+        j["context_id"] for j in journal
+        if j.get("context_id_type") == "structure_id" and j.get("context_id")
+    })
+
+
+async def _wallet_names(conn, journal: list[dict], txns: list[dict], token: str
+                        ) -> dict[int, str]:
+    """Jména stran + context lokací (systém/stanice přes /universe/names/,
+    player struktury přes autorizovaný resolve_station_names_bulk)."""
+    names = await _resolve_party_names(_party_ids(journal, txns))
+    struct_ids = _context_structure_ids(journal)
+    if struct_ids:
+        try:
+            names.update(await resolve_station_names_bulk(struct_ids, token=token, conn=conn))
+        except Exception:
+            pass
+    return names
 
 
 def _decorate(conn, journal: list[dict], txns: list[dict],
@@ -3997,6 +4023,10 @@ def _decorate(conn, journal: list[dict], txns: list[dict],
         # ESI občas prefixuje player-donation reason "DESC: "
         if reason.startswith("DESC:"):
             reason = reason[5:].strip()
+        # Location z contextu (systém kde bylo bounty uloveno, stanice/struktura…)
+        location = ""
+        if j.get("context_id_type") in ("system_id", "station_id", "structure_id"):
+            location = party_names.get(j.get("context_id"), "")
         dj.append({
             "date": j.get("date", ""),
             "ref_type": wallet_api.humanize_ref_type(j.get("ref_type", "")),
@@ -4004,6 +4034,7 @@ def _decorate(conn, journal: list[dict], txns: list[dict],
             "balance": j.get("balance"),
             "description": j.get("description", ""),
             "reason": reason,
+            "location": location,
             "first_party": party_names.get(j.get("first_party_id"), ""),
             "second_party": party_names.get(j.get("second_party_id"), ""),
         })
