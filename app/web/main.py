@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.7.1"
 
 import asyncio
 import datetime
@@ -3984,15 +3984,26 @@ def _decorate(conn, journal: list[dict], txns: list[dict],
     """Doplní journal o humanizovaný ref_type + jména stran; transakce o
     jméno itemu, jména stran a celkovou cenu. Vrátí (journal, transactions)
     seřazené nejnovější první."""
+    import re as _re
+    # Bounty/agent payouts mají v `reason` strojový rozpis NPC killů
+    # ("24067: 2,24068: 3,…") — ingame se nezobrazuje. Zahodíme reason,
+    # který je jen čísla/dvojtečky/čárky (žádný čitelný text).
+    _numeric_reason = _re.compile(r"^[\d\s:,]*$")
     dj = []
     for j in journal[:500]:
+        reason = (j.get("reason") or "").strip()
+        if _numeric_reason.match(reason):
+            reason = ""
+        # ESI občas prefixuje player-donation reason "DESC: "
+        if reason.startswith("DESC:"):
+            reason = reason[5:].strip()
         dj.append({
             "date": j.get("date", ""),
             "ref_type": wallet_api.humanize_ref_type(j.get("ref_type", "")),
             "amount": j.get("amount"),
             "balance": j.get("balance"),
             "description": j.get("description", ""),
-            "reason": j.get("reason", ""),
+            "reason": reason,
             "first_party": party_names.get(j.get("first_party_id"), ""),
             "second_party": party_names.get(j.get("second_party_id"), ""),
         })
