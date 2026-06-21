@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.7.6"
+APP_VERSION = "0.7.7"
 
 import asyncio
 import datetime
@@ -1223,6 +1223,65 @@ async def plan_form(request: Request, char: str = "", station: str = ""):
     })
 
 
+def _resolve_product_local(conn: sqlite3.Connection, query: str) -> tuple[int, str] | None:
+    """Najde type_id produktu podle jména v lokálním SDE.
+
+    Strategie: exact → prefix → substring. Mezi kandidáty preferuje
+    vyrobitelné (má manufacturing/reaction recept), pak published, pak
+    nejkratší jméno. Tím "Industrial Jump Portal Generator" trefí
+    "…Generator I" místo jeho blueprintu nebo delší varianty.
+    Vrací None, pokud nic nesedí.
+    """
+    q = query.strip()
+    if not q:
+        return None
+
+    def _pick(rows: list[tuple]) -> tuple[int, str] | None:
+        if not rows:
+            return None
+        producible = {
+            r[0] for r in conn.execute(
+                "SELECT DISTINCT product_type_id FROM sde_blueprint_products"
+                " WHERE activity IN ('manufacturing','reaction')"
+                f"   AND product_type_id IN ({','.join('?' * len(rows))})",
+                [r[0] for r in rows],
+            ).fetchall()
+        }
+        # nejlepší = vyrobitelný > published > kratší jméno > nižší type_id
+        rows = sorted(rows, key=lambda r: (
+            0 if r[0] in producible else 1,
+            0 if r[2] else 1,
+            len(r[1]),
+            r[0],
+        ))
+        return rows[0][0], rows[0][1]
+
+    # 1) exact
+    exact = conn.execute(
+        "SELECT type_id, name, published FROM sde_types WHERE name = ? COLLATE NOCASE",
+        (q,),
+    ).fetchall()
+    hit = _pick(exact)
+    if hit:
+        return hit
+    # 2) prefix (limit aby to neexplodovalo na obecných slovech)
+    pref = conn.execute(
+        "SELECT type_id, name, published FROM sde_types"
+        " WHERE name LIKE ? COLLATE NOCASE LIMIT 200",
+        (q + "%",),
+    ).fetchall()
+    hit = _pick(pref)
+    if hit:
+        return hit
+    # 3) substring
+    sub = conn.execute(
+        "SELECT type_id, name, published FROM sde_types"
+        " WHERE name LIKE ? COLLATE NOCASE LIMIT 200",
+        ("%" + q + "%",),
+    ).fetchall()
+    return _pick(sub)
+
+
 @app.post("/plan", response_class=HTMLResponse)
 async def plan_result(
     request: Request,
@@ -1318,15 +1377,14 @@ async def plan_result(
                 type_id = int(product.strip())
                 type_name = await resolve_type(client, session, type_id)
             else:
-                # Nejdřív lokální SDE (přesná shoda jména) — ušetří ESI
-                # /universe/ids/ volání, které navíc může spadnout na 420
-                # error-limit. ESI search jen jako fallback pro neznámé.
-                local = conn.execute(
-                    "SELECT type_id, name FROM sde_types WHERE name = ? COLLATE NOCASE LIMIT 1",
-                    (product.strip(),),
-                ).fetchone()
+                # Lokální SDE resolve — exact → prefix → substring; preferuje
+                # vyrobitelné, published, nejkratší jméno (takže "Industrial
+                # Jump Portal Generator" trefí "…Generator I", ne jeho
+                # blueprint). ESI /universe/ids/ jen jako poslední záchrana
+                # (a navíc je čistě exact-match).
+                local = _resolve_product_local(conn, product.strip())
                 if local:
-                    type_id, type_name = local[0], local[1]
+                    type_id, type_name = local
                 else:
                     results = await search_type_by_name(client, product.strip())
                     if not results:
