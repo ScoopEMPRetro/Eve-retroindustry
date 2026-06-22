@@ -198,16 +198,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-async function syncAll(btn) {
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Syncing…';
-  try {
-    const r = await fetch('/api/sync/start', {method: 'POST'});
-    if (r.ok) { setTimeout(() => location.reload(), 3000); return; }
-  } catch(e) {}
-  btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Sync All';
-}
-</script>
+{# syncAll() is defined globally in base.html #}
 {% endblock %}

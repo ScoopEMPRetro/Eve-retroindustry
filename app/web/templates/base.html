@@ -129,6 +129,12 @@
         </li>
 
         {% if all_characters %}
+        <li class="nav-item">
+          <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
+                  onclick="syncAll(this)" title="Sync blueprints, assets, skills & wallet for all characters">
+            <i class="bi bi-arrow-clockwise"></i><span class="d-none d-xl-inline">Sync All</span>
+          </button>
+        </li>
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle d-flex align-items-center gap-2" href="#"
              data-bs-toggle="dropdown" aria-expanded="false"
@@ -207,6 +213,18 @@ async function removeChar(charId, name) {
   if (!confirm(`Remove character "${name}"? Cached blueprints/assets/skills will be deleted.`)) return;
   const r = await fetch(`/api/characters/${charId}`, {method: 'DELETE'});
   if (r.ok) location.reload();
+}
+// Global Sync All — available on every page via the navbar button.
+async function syncAll(btn) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const r = await fetch('/api/sync/start', {method: 'POST'});
+    if (r.ok) { setTimeout(() => location.reload(), 3500); return; }
+  } catch (e) {}
+  btn.disabled = false;
+  btn.innerHTML = orig;
 }
 
 // Version check — once per session, show dot if update available

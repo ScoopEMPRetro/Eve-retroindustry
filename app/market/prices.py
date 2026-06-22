@@ -74,14 +74,22 @@ async def fetch_adjusted_prices(client: httpx.AsyncClient) -> dict[int, dict]:
     """
     Vrátí {type_id: {adjusted_price, average_price}} pro všechny typy.
     Jeden API call — vhodné pro rychlý odhad.
+
+    Best-effort: tohle je jen fallback odhad ceny. NIKDY neraisuje —
+    při 420 (ESI error-limit), timeoutu či jiné chybě vrátí {}, takže
+    pád ESI nikdy neshodí dashboard / plán. Volající prázdný dict zvládne.
     """
-    r = await client.get(
-        f"{ESI_BASE}/markets/prices/",
-        params={"datasource": "tranquility"},
-        timeout=20,
-    )
-    r.raise_for_status()
-    return {d["type_id"]: d for d in r.json()}
+    try:
+        r = await client.get(
+            f"{ESI_BASE}/markets/prices/",
+            params={"datasource": "tranquility"},
+            timeout=20,
+        )
+        if r.status_code != 200:
+            return {}
+        return {d["type_id"]: d for d in r.json()}
+    except Exception:
+        return {}
 
 
 # ---------------------------------------------------------------------------
