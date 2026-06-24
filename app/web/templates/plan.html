@@ -890,7 +890,11 @@ function switchPlanChar(charId) {
             <tfoot>
               {% if job.input_cost %}
               <tr style="border-top:1px solid #30363d">
-                <td colspan="5" class="text-muted small">Total input costs</td>
+                <td colspan="5" class="text-muted small">
+                  Inputs at Jita price
+                  <i class="bi bi-info-circle ms-1" style="font-size:.7rem"
+                     title="Market value of this step's direct inputs (buy them ready-made). Intermediate components are actually built in earlier steps, so this is NOT the build cost — see the headline Total cost for that."></i>
+                </td>
                 <td class="text-end fw-semibold text-isk">{{ job.input_cost | isk }}</td>
               </tr>
               {% endif %}
