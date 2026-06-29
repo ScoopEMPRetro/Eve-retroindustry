@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.7.9"
+APP_VERSION = "0.8.0"
 
 import asyncio
 import datetime
@@ -33,6 +33,7 @@ from app.auth.esi_oauth import start_web_login, cancel_web_login
 from app.character.blueprints import fetch_blueprints, ensure_bp_table
 from app.character import wallet as wallet_api
 from app.character import orders as orders_api
+from app.character import jobs as jobs_api
 from app.character.assets import (
     fetch_assets, ensure_assets_table, assets_at_location,
     fetch_corp_assets, ensure_corp_assets_table,
@@ -4239,6 +4240,115 @@ async def _finalize_orders(conn, raw_orders: list[dict], type_names_fn, token: s
         except Exception:
             loc_names = load_location_names_from_db(conn)
     return _decorate_orders(raw_orders, type_names, loc_names)
+
+
+# ── Industry Jobs ─────────────────────────────────────────────────────────────
+
+@app.get("/jobs", response_class=HTMLResponse)
+async def jobs_page(request: Request):
+    conn = get_conn()
+    chars = list_characters(conn)
+    if not chars:
+        conn.close()
+        return _tr("jobs.html", request, {"groups": [], "error": "Nejsi přihlášen.",
+                                          "total_active": 0})
+
+    # Stáhni joby všech postav souběžně
+    async def _one(cid: int):
+        tok = _get_valid_token_for(conn, cid)
+        if not tok:
+            return cid, []
+        async with httpx.AsyncClient() as client:
+            return cid, await jobs_api.fetch_industry_jobs(client, cid, tok)
+
+    results = await asyncio.gather(*[_one(cid) for cid, _ in chars])
+    char_name = {cid: name for cid, name in chars}
+
+    # Sesbírej type_id (product/blueprint) a facility_id pro resolve
+    all_type_ids: set[int] = set()
+    all_loc_ids: set[int] = set()
+    for _cid, jl in results:
+        for j in jl:
+            if j.get("product_type_id"):
+                all_type_ids.add(j["product_type_id"])
+            if j.get("blueprint_type_id"):
+                all_type_ids.add(j["blueprint_type_id"])
+            if j.get("facility_id"):
+                all_loc_ids.add(j["facility_id"])
+
+    type_names: dict[int, str] = {}
+    if all_type_ids:
+        ph = ",".join("?" * len(all_type_ids))
+        type_names = {r[0]: r[1] for r in conn.execute(
+            f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(all_type_ids)
+        ).fetchall()}
+    loc_names: dict[int, str] = {}
+    if all_loc_ids:
+        any_tok = next((_get_valid_token_for(conn, cid) for cid, _ in chars
+                        if _get_valid_token_for(conn, cid)), None)
+        try:
+            loc_names = await resolve_station_names_bulk(list(all_loc_ids), token=any_tok, conn=conn)
+        except Exception:
+            loc_names = load_location_names_from_db(conn)
+
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+
+    def _decorate_job(j: dict) -> dict:
+        status = j.get("status", "")
+        end = j.get("end_date", "")
+        remaining = ""
+        is_ready = False
+        try:
+            end_dt = _dt.datetime.fromisoformat(end.replace("Z", "+00:00"))
+            delta = end_dt - now
+            if delta.total_seconds() <= 0:
+                remaining = "Ready"
+                is_ready = True
+            else:
+                secs = int(delta.total_seconds())
+                d, rem = divmod(secs, 86400)
+                h, rem = divmod(rem, 3600)
+                m = rem // 60
+                remaining = (f"{d}d " if d else "") + (f"{h}h " if (d or h) else "") + f"{m}m"
+        except Exception:
+            pass
+        prod = type_names.get(j.get("product_type_id")) \
+            or type_names.get(j.get("blueprint_type_id"), f"#{j.get('blueprint_type_id')}")
+        return {
+            "activity": jobs_api.activity_label(j.get("activity_id", 0)),
+            "product": prod,
+            "product_type_id": j.get("product_type_id") or j.get("blueprint_type_id"),
+            "runs": j.get("runs", 0),
+            "location": loc_names.get(j.get("facility_id"), str(j.get("facility_id", ""))),
+            "start_date": j.get("start_date", ""),
+            "end_date": end,
+            "remaining": remaining,
+            "is_ready": is_ready,
+            "status": status,
+        }
+
+    # Aktivní = status active nebo ready (ještě nedoručené). Ostatní skryjeme.
+    groups = []
+    total_active = 0
+    for cid, jl in results:
+        active = [j for j in jl if j.get("status") in ("active", "paused")]
+        decorated = [_decorate_job(j) for j in active]
+        # nejdřív ty co brzy skončí
+        decorated.sort(key=lambda x: x["end_date"])
+        total_active += len(decorated)
+        groups.append({
+            "char_id": cid,
+            "char_name": char_name.get(cid, str(cid)),
+            "jobs": decorated,
+        })
+    # postavy s nejvíc joby první
+    groups.sort(key=lambda g: -len(g["jobs"]))
+
+    conn.close()
+    return _tr("jobs.html", request, {
+        "groups": groups, "error": None, "total_active": total_active,
+    })
 
 
 # ── Version check / update ───────────────────────────────────────────────────

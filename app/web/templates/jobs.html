@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Jobs — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="row mb-3 align-items-center">
+  <div class="col">
+    <h4 class="mb-0"><i class="bi bi-gear-wide-connected me-2 text-primary"></i>Industry Jobs
+      {% if total_active %}<span class="badge bg-secondary ms-2">{{ total_active }} running</span>{% endif %}
+    </h4>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
+{% endif %}
+
+{% set ns = namespace(any=false) %}
+{% for g in groups %}{% if g.jobs %}{% set ns.any = true %}{% endif %}{% endfor %}
+
+{% if not ns.any and not error %}
+<div class="card"><div class="text-muted text-center py-4">No running industry jobs across your characters.</div></div>
+{% endif %}
+
+{% for g in groups %}
+{% if g.jobs %}
+<div class="mb-4">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <img src="https://images.evetech.net/characters/{{ g.char_id }}/portrait?size=32"
+         width="28" height="28" class="rounded-circle">
+    <span class="fw-semibold">{{ g.char_name }}</span>
+    <span class="badge bg-secondary">{{ g.jobs | length }} job{{ 's' if g.jobs | length != 1 }}</span>
+  </div>
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm mb-0 align-middle" style="font-size:.85rem">
+        <thead>
+          <tr>
+            <th>Activity</th><th>Product</th>
+            <th class="text-end">Runs</th>
+            <th>Location</th>
+            <th class="text-end">Ends</th>
+            <th class="text-end">Remaining</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for j in g.jobs %}
+          <tr>
+            <td>
+              <span class="badge" style="background:{% if j.activity == 'Reactions' %}#2d2200;color:#b392f0{% elif j.activity == 'Manufacturing' %}#3d2c00;color:#e3b341{% else %}#21262d;color:#8b949e{% endif %};font-size:.65rem">{{ j.activity }}</span>
+              {% if j.status == 'paused' %}<span class="badge bg-secondary ms-1" style="font-size:.6rem">PAUSED</span>{% endif %}
+            </td>
+            <td>
+              <span class="d-inline-flex align-items-center gap-2">
+                <img loading="lazy" src="https://images.evetech.net/types/{{ j.product_type_id }}/icon?size=32" width="24" height="24" class="rounded">
+                {{ j.product }}
+              </span>
+            </td>
+            <td class="text-end">{{ j.runs | format_number }}</td>
+            <td class="text-muted text-truncate" style="max-width:280px;font-size:.78rem">{{ j.location }}</td>
+            <td class="text-end text-muted" style="white-space:nowrap;font-size:.78rem">{{ j.end_date | replace('T',' ') | replace('Z','') | truncate(16,true,'') }}</td>
+            <td class="text-end fw-semibold" style="white-space:nowrap;color:{% if j.is_ready %}#3fb950{% else %}#e6edf3{% endif %}">
+              {% if j.is_ready %}<i class="bi bi-check-circle me-1"></i>{% endif %}{{ j.remaining }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+
+{% endblock %}
