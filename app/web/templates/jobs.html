@@ -51,7 +51,9 @@
             </td>
             <td>
               <span class="d-inline-flex align-items-center gap-2">
-                <img loading="lazy" src="https://images.evetech.net/types/{{ j.product_type_id }}/icon?size=32" width="24" height="24" class="rounded">
+                <img loading="lazy" src="https://images.evetech.net/types/{{ j.icon_id }}/{% if j.is_blueprint %}bp{% else %}icon{% endif %}?size=32"
+                     width="24" height="24" class="rounded"
+                     onerror="this.src='https://images.evetech.net/types/{{ j.icon_id }}/icon?size=32'">
                 {{ j.product }}
               </span>
             </td>

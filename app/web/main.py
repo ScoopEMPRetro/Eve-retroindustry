@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.0"
+APP_VERSION = "0.8.1"
 
 import asyncio
 import datetime
@@ -4313,12 +4313,19 @@ async def jobs_page(request: Request):
                 remaining = (f"{d}d " if d else "") + (f"{h}h " if (d or h) else "") + f"{m}m"
         except Exception:
             pass
-        prod = type_names.get(j.get("product_type_id")) \
-            or type_names.get(j.get("blueprint_type_id"), f"#{j.get('blueprint_type_id')}")
+        # Manufacturing/Reactions vyrábí produkt → ikona produktu. Research/
+        # Copying/Invention pracují s blueprintem → ikona blueprintu (image
+        # server používá /bp variantu, ne /icon, jinak se nezobrazí).
+        prod_id = j.get("product_type_id")
+        bp_id = j.get("blueprint_type_id")
+        is_bp = not prod_id
+        icon_id = prod_id or bp_id
+        prod = type_names.get(prod_id) or type_names.get(bp_id, f"#{bp_id}")
         return {
             "activity": jobs_api.activity_label(j.get("activity_id", 0)),
             "product": prod,
-            "product_type_id": j.get("product_type_id") or j.get("blueprint_type_id"),
+            "icon_id": icon_id,
+            "is_blueprint": is_bp,
             "runs": j.get("runs", 0),
             "location": loc_names.get(j.get("facility_id"), str(j.get("facility_id", ""))),
             "start_date": j.get("start_date", ""),
