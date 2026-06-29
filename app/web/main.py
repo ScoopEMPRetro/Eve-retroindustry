@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.1"
+APP_VERSION = "0.8.2"
 
 import asyncio
 import datetime
@@ -4313,14 +4313,14 @@ async def jobs_page(request: Request):
                 remaining = (f"{d}d " if d else "") + (f"{h}h " if (d or h) else "") + f"{m}m"
         except Exception:
             pass
-        # Manufacturing/Reactions vyrábí produkt → ikona produktu. Research/
-        # Copying/Invention pracují s blueprintem → ikona blueprintu (image
-        # server používá /bp variantu, ne /icon, jinak se nezobrazí).
+        # Ikona: image server používá pro blueprinty /bp (ne /icon — to vrací
+        # HTTP 400). Blueprint poznáme podle jména (pokrývá i invention, kde
+        # product_type_id je vyrobená BPC kopie = taky blueprint).
         prod_id = j.get("product_type_id")
         bp_id = j.get("blueprint_type_id")
-        is_bp = not prod_id
         icon_id = prod_id or bp_id
         prod = type_names.get(prod_id) or type_names.get(bp_id, f"#{bp_id}")
+        is_bp = bool(prod) and prod.endswith("Blueprint")
         return {
             "activity": jobs_api.activity_label(j.get("activity_id", 0)),
             "product": prod,
