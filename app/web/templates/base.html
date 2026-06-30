@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}EVE Retroindustry{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='3' fill='%230d1117'/%3E%3Cpolygon points='16,2 29,9.5 29,22.5 16,30 3,22.5 3,9.5' fill='none' stroke='%23e3b341' stroke-width='1.5'/%3E%3Crect x='10' y='11' width='4' height='11' fill='%23e3b341'/%3E%3Crect x='19' y='14' width='4' height='8' fill='%23e3b341'/%3E%3Crect x='6' y='20' width='20' height='7' fill='%23e3b341'/%3E%3Crect x='13' y='22' width='6' height='5' fill='%230d1117'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/static/bootstrap.min.css">
+  <link rel="stylesheet" href="/static/bootstrap-icons.min.css">
   <style>
     :root {
       --eve-gold:   #e3b341;
@@ -205,8 +205,7 @@
   {% block content %}{% endblock %}
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<script src="/static/bootstrap.bundle.min.js"></script>
 <script>
 async function setActiveChar(charId) {
   const r = await fetch(`/api/characters/${charId}/activate`, {method: 'POST'});

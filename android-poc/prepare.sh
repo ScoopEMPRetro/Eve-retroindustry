@@ -23,10 +23,11 @@ cp -r "$ROOT/app/." "$PY_DST/"
 find "$PY_DST" -name '__pycache__' -type d -prune -exec rm -rf {} +
 find "$PY_DST" -name '*.pyc' -delete
 
-# ── Assety: templates + SDE (čtené z filesystému přes EVE_BUNDLE_DIR) ─────────
+# ── Assety: templates + static + SDE (čtené z filesystému přes EVE_BUNDLE_DIR) ─
 rm -rf "$ASSET_DST"
 mkdir -p "$ASSET_DST/app/web"
 cp -r "$ROOT/app/web/templates" "$ASSET_DST/app/web/templates"
+cp -r "$ROOT/app/web/static" "$ASSET_DST/app/web/static"
 cp "$ROOT/sde_base.db" "$ASSET_DST/sde_base.db"
 
 echo "==> prepare: python -> $PY_DST"

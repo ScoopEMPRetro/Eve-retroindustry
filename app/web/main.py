@@ -104,6 +104,7 @@ _BUNDLE_DIR = os.environ.get("EVE_BUNDLE_DIR") or os.path.abspath(
 
 DB_ABS = os.path.join(_APP_DIR, "eve_cache.db")
 TEMPLATES_DIR = Path(_BUNDLE_DIR) / "app" / "web" / "templates"
+STATIC_DIR = Path(_BUNDLE_DIR) / "app" / "web" / "static"
 
 SDE_DOWNLOAD_URL = (
     "https://github.com/ScoopEMPRetro/Eve-retroindustry"
@@ -118,6 +119,12 @@ _sync_state: dict = {"running": False, "done": False}
 
 app = FastAPI(title="EVE Retroindustry")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Vendrované front-end assety (Bootstrap CSS/JS + ikony) servírované lokálně —
+# žádná závislost na CDN (důležité pro Android WebView + offline desktop).
+if STATIC_DIR.is_dir():
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.exception_handler(Exception)

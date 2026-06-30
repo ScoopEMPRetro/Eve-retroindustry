@@ -46,6 +46,7 @@ a = Analysis(
     binaries=_wv_binaries,
     datas=[
         ("app/web/templates", "app/web/templates"),
+        ("app/web/static", "app/web/static"),
         ("assets/icon.ico", "assets"),
         # Bundle SDE base — first run copies it to eve_cache.db; later runs
         # use it to refresh SDE tables when the bundled DB has newer/more

@@ -4,6 +4,8 @@ import android.annotation.SuppressLint;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.webkit.ConsoleMessage;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -51,6 +53,16 @@ public class MainActivity extends AppCompatActivity {
         // Stránka je http (localhost), ale tahá Bootstrap z https CDN → povolit mix.
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         web.setWebViewClient(new WebViewClient());   // navigace zůstane ve WebView
+        // WebChromeClient: bez něj nefungují window.alert/confirm/prompt (např.
+        // potvrzení smazání postavy) a ztrácí se console.* logy. Forwardujeme
+        // je do logcatu (tag EveRetro) pro diagnostiku.
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(ConsoleMessage m) {
+                Log.i(TAG, "console: " + m.message()
+                        + " @ " + m.sourceId() + ":" + m.lineNumber());
+                return true;
+            }
+        });
 
         // Hardwarové tlačítko zpět = historie WebView.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
