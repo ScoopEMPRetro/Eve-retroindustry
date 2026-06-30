@@ -76,6 +76,8 @@ public class MainActivity extends AppCompatActivity {
             }
             final Python py = Python.getInstance();
             final PyObject mod = py.getModule("android_main");
+            // Předej Activity Pythonu — potřebné pro otevření SSO loginu přes Intent.
+            mod.callAttr("set_context", this);
 
             // start_server je blokující (uvicorn.serve) → vlastní vlákno.
             new Thread(() -> {

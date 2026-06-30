@@ -9,10 +9,34 @@ import socket
 
 PORT = 8000
 
+# Reference na Android Activity — předaná z Javy přes set_context().
+# Potřebná pro otevření systémového browseru (ESI SSO login) přes Intent.
+_activity = None
+
 
 def _log(msg):
     # Jde do logcat (python.stdout) — užitečné při ladění na zařízení.
     print(f"[android_main] {msg}", flush=True)
+
+
+def set_context(activity):
+    """Java MainActivity sem předá `this` po startu Pythonu."""
+    global _activity
+    _activity = activity
+
+
+def _open_url_intent(url):
+    """Otevře URL v systémovém browseru přes Android Intent (ACTION_VIEW).
+    Náhrada za webbrowser/xdg-open, které na Chaquopy nefungují.
+    EVE SSO pak po loginu přesměruje na http://localhost:5173/callback —
+    loopback je na zařízení sdílený, takže callback server appky to chytne.
+    """
+    from android.content import Intent
+    from android.net import Uri
+    intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    _activity.startActivity(intent)
+    _log("opened SSO url via Intent")
 
 
 def start_server(files_dir, port=PORT):
@@ -29,7 +53,10 @@ def start_server(files_dir, port=PORT):
 
     # Import až po nastavení env (app.web.main čte cesty při importu —
     # SDE bootstrap z EVE_BUNDLE_DIR/sde_base.db do EVE_APP_DIR/eve_cache.db).
-    from app.web.main import app
+    from app.web import main as webmain
+    # Zaregistruj Android Intent-opener pro SSO login (místo xdg-open/webbrowser).
+    webmain.set_browser_opener(_open_url_intent)
+    app = webmain.app
     import uvicorn
 
     _log(f"starting uvicorn on 127.0.0.1:{port}")

@@ -773,6 +773,18 @@ _CORP_DIV_ORDER = list(_CORP_DIV_LABEL.keys())
 # Auth
 # ---------------------------------------------------------------------------
 
+# Volitelný override pro otevření URL (SSO login) v externím browseru.
+# Android shell (android_main) ho nastaví na funkci, která vystřelí Android
+# Intent — desktop ho nechává None a používá subprocess/xdg-open níže.
+_EXTERNAL_BROWSER_OPENER = None
+
+
+def set_browser_opener(fn) -> None:
+    """Zaregistruje platformně specifický opener URL (volá Android shell)."""
+    global _EXTERNAL_BROWSER_OPENER
+    _EXTERNAL_BROWSER_OPENER = fn
+
+
 def _open_in_external_browser(url: str) -> bool:
     """Otevře URL v systémovém default browseru bez toho aby
     zdědil AppImage / PyInstaller env (LD_LIBRARY_PATH, QT_*…),
@@ -783,6 +795,16 @@ def _open_in_external_browser(url: str) -> bool:
     a PyInstaller bootloader do `_PYI_*` — vrátíme je tam zpět než
     voláme xdg-open.
     """
+    # Android: otevři přes registrovaný Intent-opener (subprocess/xdg-open
+    # na Androidu neexistuje).
+    if _EXTERNAL_BROWSER_OPENER is not None:
+        try:
+            _EXTERNAL_BROWSER_OPENER(url)
+            return True
+        except Exception as exc:
+            print(f"[browser] android opener failed: {exc}", flush=True)
+            return False
+
     import subprocess
     if _sys.platform.startswith("win"):
         try:
