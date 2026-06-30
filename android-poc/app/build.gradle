@@ -59,5 +59,9 @@ android {
 }
 
 dependencies {
+    // kotlin-bom sjednotí verze kotlin-stdlib napříč tranzitivními závislostmi.
+    // Bez něj: "Duplicate class kotlin.collections.jdk8.*" (stdlib 1.8.22 vs
+    // stdlib-jdk8 1.6.21) — od Kotlin 1.8 jsou jdk7/jdk8 sloučené do stdlib.
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
     implementation 'androidx.appcompat:appcompat:1.7.0'
 }
