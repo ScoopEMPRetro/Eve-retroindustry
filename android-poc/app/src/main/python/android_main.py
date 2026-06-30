@@ -49,6 +49,7 @@ def start_server(files_dir, port=PORT):
     """
     os.environ.setdefault("EVE_APP_DIR", files_dir)
     os.environ.setdefault("EVE_BUNDLE_DIR", files_dir)
+    os.environ["EVE_ANDROID"] = "1"   # UI: nativní updater místo desktopového
     _log(f"EVE_APP_DIR=EVE_BUNDLE_DIR={files_dir}")
 
     # Import až po nastavení env (app.web.main čte cesty při importu —

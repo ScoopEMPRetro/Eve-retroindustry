@@ -126,6 +126,11 @@ if STATIC_DIR.is_dir():
     from fastapi.staticfiles import StaticFiles
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+# Android shell nastaví EVE_ANDROID=1 — šablony pak skryjí desktopový updater
+# (stahuje desktop zip) a ukážou nativní "Zkontrolovat aktualizace" tlačítko,
+# které přes JS bridge AndroidApp.checkForUpdate() spustí instalaci nového APK.
+templates.env.globals["IS_ANDROID"] = bool(os.environ.get("EVE_ANDROID"))
+
 
 @app.exception_handler(Exception)
 async def _log_unhandled(request: Request, exc: Exception):

@@ -58,6 +58,20 @@
     <h6 class="text-muted text-uppercase mb-2" style="font-size:.75rem;letter-spacing:.06em">
       <i class="bi bi-cloud-download me-1"></i>Updates
     </h6>
+    {% if IS_ANDROID %}
+    <div class="card mb-4">
+      <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div>
+          <div class="fw-semibold mb-1">App updates</div>
+          <div class="text-muted small">Current version: <span class="text-primary">v{{ version }}</span></div>
+        </div>
+        <button class="btn btn-sm btn-eve"
+                onclick="(window.AndroidApp &amp;&amp; AndroidApp.checkForUpdate) ? AndroidApp.checkForUpdate() : alert('Aktualizace nejsou dostupné')">
+          <i class="bi bi-arrow-clockwise me-1"></i>Zkontrolovat aktualizace
+        </button>
+      </div>
+    </div>
+    {% else %}
     <div class="card mb-4" id="update-card">
       <div class="card-body">
         <div id="update-idle" class="d-flex align-items-center justify-content-between flex-wrap gap-2">
@@ -151,6 +165,7 @@
         </div>
       </div>
     </div>
+    {% endif %}
 
     {# Source code #}
     <div class="card mb-3">

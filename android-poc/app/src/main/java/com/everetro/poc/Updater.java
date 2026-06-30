@@ -52,6 +52,33 @@ public class Updater {
         }, "eve-update-check").start();
     }
 
+    /** Ruční kontrola (z tlačítka v UI) — vždy dá zpětnou vazbu, i když je vše aktuální. */
+    public static void checkManual(Activity act) {
+        act.runOnUiThread(() ->
+            Toast.makeText(act, "Kontroluji aktualizace…", Toast.LENGTH_SHORT).show());
+        new Thread(() -> {
+            try {
+                JSONObject meta = fetchJson(VERSION_URL);
+                int remote = meta.optInt("versionCode", -1);
+                String name = meta.optString("versionName", "?");
+                String apkUrl = meta.optString("apkUrl", "");
+                int local = BuildConfig.VERSION_CODE;
+                act.runOnUiThread(() -> {
+                    if (remote > local && !apkUrl.isEmpty()) {
+                        promptUpdate(act, name, apkUrl);
+                    } else {
+                        Toast.makeText(act, "Máš nejnovější verzi (" + BuildConfig.VERSION_NAME + ").",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            } catch (Throwable t) {
+                Log.w(TAG, "manual update check failed", t);
+                act.runOnUiThread(() -> Toast.makeText(act,
+                        "Kontrola aktualizací selhala: " + t.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }, "eve-update-manual").start();
+    }
+
     private static void promptUpdate(Activity act, String name, String apkUrl) {
         new AlertDialog.Builder(act)
             .setTitle("Aktualizace k dispozici")

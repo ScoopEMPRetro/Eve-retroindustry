@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.webkit.ConsoleMessage;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -63,6 +64,14 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
         });
+        // JS most: webové UI (About → Zkontrolovat aktualizace) spustí nativní
+        // updater. window.AndroidApp.checkForUpdate()
+        web.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void checkForUpdate() {
+                Updater.checkManual(MainActivity.this);
+            }
+        }, "AndroidApp");
 
         // Hardwarové tlačítko zpět = historie WebView.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
