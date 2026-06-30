@@ -32,4 +32,10 @@ class ManufacturingNode(BaseModel):
     is_leaf: bool = False  # True = nelze dál rozkládat (ruda, ice, PI...)
 
 
-ManufacturingNode.model_rebuild()
+# Resolve the forward reference in `children`. pydantic v2 uses model_rebuild();
+# the Android build runs pydantic v1 (no Rust pydantic-core), which uses
+# update_forward_refs(). Support both so the same code runs on desktop + Android.
+try:
+    ManufacturingNode.model_rebuild()        # pydantic v2 (desktop)
+except AttributeError:                        # pragma: no cover
+    ManufacturingNode.update_forward_refs()   # pydantic v1 (android)

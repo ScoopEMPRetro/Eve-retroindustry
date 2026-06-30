@@ -22,8 +22,8 @@ android {
         python {
             version "3.12"
             pip {
-                // ── Toto je jádro PoC: ověřit, že tyhle závislosti naběhnou na Androidu ──
-                // Pure-Python (mělo by jít hladce):
+                // Závislosti reálné appky (app/web/main). Vše pure-Python wheely
+                // dostupné pro Chaquopy arm64.
                 install "fastapi==0.115.0"
                 install "starlette==0.38.6"
                 install "uvicorn==0.30.6"
@@ -34,15 +34,13 @@ android {
                 install "jinja2==3.1.4"
                 install "PyJWT==2.9.0"
                 install "python-multipart==0.0.9"
-                // ── pydantic ──
-                // pydantic v2 → pydantic-core (Rust) NEMÁ Chaquopy wheel pro
-                // arm64 (ověřeno: build padá na 'maturin' / sdist). Zkoušíme
-                // proto v1, který nemá Rust závislost. FastAPI 0.115 v1 umí.
-                // Pokud i v1 spadne (sdist Cython build), padáme na vlastní
-                // cross-kompilaci pydantic-core.
-                install "pydantic==1.10.18"
-                // SQLAlchemy má volitelné C rozšíření, ale i pure-Python fallback.
+                install "rich==13.9.4"        // importuje app.auth.esi_oauth
                 install "sqlalchemy==2.0.35"
+                // pydantic v1 — v2 vyžaduje pydantic-core (Rust), který NEMÁ
+                // Chaquopy arm64 wheel (build padá na maturin/sdist). v1 má
+                // čistě-Python wheel; FastAPI 0.115 v1 podporuje. app kód je
+                // v1/v2 kompatibilní (viz app/models/blueprint.py).
+                install "pydantic==1.10.18"
             }
         }
     }
