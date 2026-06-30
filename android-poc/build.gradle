@@ -1,0 +1,6 @@
+// Root build file. Plugin versions declared here, applied in app/build.gradle.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+    // Chaquopy — Python runtime for Android. 16.x supports Python 3.8–3.13.
+    id 'com.chaquo.python' version '16.0.0' apply false
+}

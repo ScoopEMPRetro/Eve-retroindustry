@@ -24,6 +24,11 @@ data/tokens.json
 data/sde.zip
 data/fsd/
 
+# Android / Gradle (build/ výše už pokrývá android-poc/app/build/)
+.gradle/
+android-poc/local.properties
+android-poc/.gradle/
+
 # IDE
 .idea/
 .vscode/

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="#0d1117">
+    <TextView android:id="@+id/report"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:fontFamily="monospace" android:textSize="13sp"
+        android:textColor="#c9d1d9" />
+</ScrollView>
