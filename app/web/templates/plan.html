@@ -719,10 +719,15 @@ function switchPlanChar(charId) {
 {% set missing_count = result.materials | selectattr('missing', '>', 0) | list | length %}
 {% if shop_items %}
 <div class="card mb-3" id="shopping-list">
-  <div class="card-header py-2">
+  <div class="card-header py-2 d-flex align-items-center justify-content-between gap-2">
     <span class="fw-semibold text-danger" id="shop-header-label">
       <i class="bi bi-cart me-2"></i>Shopping List (<span id="shop-item-count">{{ missing_count }}</span> items)
     </span>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="shop-copy-btn"
+            onclick="copyShoppingList(this)"
+            title="Kopírovat seznam pro in-game Multibuy (název ⇥ počet)">
+      <i class="bi bi-clipboard me-1"></i>Copy
+    </button>
   </div>
   <div class="table-responsive">
     <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
@@ -1594,6 +1599,55 @@ function _isk(n) {
 function _fmtInt(n) {
   const v = parseInt(n) || 0;
   return v.toLocaleString('en-US').replace(/,/g, ' ');
+}
+
+// Zkopíruje shopping list ve formátu pro in-game Multibuy: "Název<TAB>počet"
+// na řádek. Respektuje aktuální stock režim (with = jen chybějící, without =
+// vše). Clipboard API + fallback přes execCommand (spolehlivé v Android WebView).
+function copyShoppingList(btn) {
+  const withMode = (typeof _stockMode === 'undefined') || _stockMode !== 'without';
+  const lines = [];
+  document.querySelectorAll('#shopping-list tbody tr').forEach(row => {
+    const stocked = row.dataset.stocked === 'true';
+    if (withMode && stocked) return;
+    const qty = withMode ? (parseInt(row.dataset.missing) || 0)
+                         : (parseInt(row.dataset.required) || 0);
+    if (qty <= 0) return;
+    const nameCell = row.children[1];
+    if (!nameCell) return;
+    const name = nameCell.textContent.trim();
+    if (name) lines.push(name + '\t' + qty);
+  });
+  const text = lines.join('\n');
+  if (!text) { _shopCopyFeedback(btn, 'Nic k nákupu', false); return; }
+
+  const done = () => _shopCopyFeedback(btn, 'Zkopírováno', true);
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    _shopCopyFeedback(btn, ok ? 'Zkopírováno' : 'Kopírování selhalo', ok);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(fallback);
+  } else {
+    fallback();
+  }
+}
+
+function _shopCopyFeedback(btn, msg, ok) {
+  if (!btn) return;
+  const orig = btn.dataset._orig || btn.innerHTML;
+  btn.dataset._orig = orig;
+  btn.innerHTML = '<i class="bi bi-' + (ok ? 'check2' : 'exclamation-triangle')
+                + ' me-1"></i>' + msg;
+  setTimeout(() => { btn.innerHTML = orig; }, 1800);
 }
 
 function toggleStockMode(checked) {
