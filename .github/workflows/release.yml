@@ -121,8 +121,73 @@ jobs:
             EVE_Retroindustry-${{ github.ref_name }}-linux.zip
             EVE_Retroindustry-${{ github.ref_name }}-linux.AppImage
 
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Prepare shared Python + assets
+        working-directory: android-poc
+        run: bash prepare.sh
+
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+
+      - name: Derive version from tag
+        id: ver
+        run: |
+          TAG="${{ github.ref_name }}"
+          VN="${TAG#v}"
+          IFS='.' read -r MA MI PA <<< "$VN"
+          VC=$(( ${MA:-0}*10000 + ${MI:-0}*100 + ${PA:-0} ))
+          echo "name=$VN" >> "$GITHUB_OUTPUT"
+          echo "code=$VC" >> "$GITHUB_OUTPUT"
+          echo "Android version $VN ($VC)"
+
+      - name: Build signed release APK
+        working-directory: android-poc
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_VERSION_CODE: ${{ steps.ver.outputs.code }}
+          ANDROID_VERSION_NAME: ${{ steps.ver.outputs.name }}
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Stage APK + version.json (stabilní jména pro releases/latest/download)
+        run: |
+          cp android-poc/app/build/outputs/apk/release/app-release.apk EveRetroindustry.apk
+          cat > version.json <<EOF
+          {"versionCode": ${{ steps.ver.outputs.code }}, "versionName": "${{ steps.ver.outputs.name }}", "apkUrl": "https://github.com/ScoopEMPRetro/Eve-retroindustry/releases/latest/download/EveRetroindustry.apk"}
+          EOF
+          cat version.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            EveRetroindustry.apk
+            version.json
+
   release:
-    needs: [build-windows, build-linux]
+    needs: [build-windows, build-linux, build-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -143,9 +208,13 @@ jobs:
             --generate-notes \
             artifacts/*.zip \
             artifacts/*.AppImage \
+            artifacts/EveRetroindustry.apk \
+            artifacts/version.json \
             sde_base.db \
           || gh release upload ${{ github.ref_name }} \
             artifacts/*.zip \
             artifacts/*.AppImage \
+            artifacts/EveRetroindustry.apk \
+            artifacts/version.json \
             sde_base.db \
             --clobber

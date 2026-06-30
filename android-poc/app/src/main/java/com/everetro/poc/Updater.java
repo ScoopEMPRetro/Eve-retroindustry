@@ -30,8 +30,10 @@ import java.net.URL;
  */
 public class Updater {
     private static final String TAG = "EveRetroUpdate";
+    // Stabilní URL na NEJNOVĚJŠÍ normální release (ignoruje prerelease jako
+    // android-latest). version.json je asset každého releasu (z release.yml).
     private static final String VERSION_URL =
-        "https://github.com/ScoopEMPRetro/Eve-retroindustry/releases/download/android-latest/version.json";
+        "https://github.com/ScoopEMPRetro/Eve-retroindustry/releases/latest/download/version.json";
 
     /** Spustí kontrolu na pozadí; při dostupném updatu ukáže dialog (UI thread). */
     public static void check(Activity act) {

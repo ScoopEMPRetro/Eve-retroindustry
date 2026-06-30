@@ -15,10 +15,12 @@ android {
         applicationId "com.everetro.poc"
         minSdk 26
         targetSdk 34
-        // versionCode MUSÍ růst každým releasem (in-app updater podle něj pozná
-        // novější build). versionName = lidská verze. 0.8.2 -> 802.
-        versionCode 805
-        versionName "0.8.5"
+        // Verze: v normálním releasu ji řídí git tag (release.yml předá env
+        // ANDROID_VERSION_CODE/NAME, odvozené z tagu v0.8.6 -> 806/"0.8.6").
+        // Fallback pro manuální/test buildy. versionCode MUSÍ růst každým
+        // releasem (in-app updater podle něj pozná novější build).
+        versionCode (System.getenv("ANDROID_VERSION_CODE") ?: "806").toInteger()
+        versionName (System.getenv("ANDROID_VERSION_NAME") ?: "0.8.6")
 
         ndk {
             // Pouze reálné telefony (arm64). Bez emulátoru → x86_64 netřeba.
