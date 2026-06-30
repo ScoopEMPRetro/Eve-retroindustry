@@ -37,13 +37,23 @@ jobs:
         working-directory: android-poc
         run: bash prepare.sh
 
-      - name: Build APK
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+
+      - name: Build signed release APK
         working-directory: android-poc
         # První build je pomalý — Chaquopy stahuje CPython 3.12 + wheely.
-        run: gradle assembleDebug --no-daemon --stacktrace
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK
-        run: cp android-poc/app/build/outputs/apk/debug/app-debug.apk EveRetroindustry.apk
+        run: cp android-poc/app/build/outputs/apk/release/app-release.apk EveRetroindustry.apk
 
       - name: Publish to 'android-latest' prerelease
         env:
