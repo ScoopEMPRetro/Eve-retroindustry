@@ -34,9 +34,13 @@ android {
                 install "jinja2==3.1.4"
                 install "PyJWT==2.9.0"
                 install "python-multipart==0.0.9"
-                // ── Nativně kompilované — TADY se to láme nebo projde ──
-                // pydantic v2 → pydantic-core (Rust). FastAPI na něm závisí.
-                install "pydantic==2.9.2"
+                // ── pydantic ──
+                // pydantic v2 → pydantic-core (Rust) NEMÁ Chaquopy wheel pro
+                // arm64 (ověřeno: build padá na 'maturin' / sdist). Zkoušíme
+                // proto v1, který nemá Rust závislost. FastAPI 0.115 v1 umí.
+                // Pokud i v1 spadne (sdist Cython build), padáme na vlastní
+                // cross-kompilaci pydantic-core.
+                install "pydantic==1.10.18"
                 // SQLAlchemy má volitelné C rozšíření, ale i pure-Python fallback.
                 install "sqlalchemy==2.0.35"
             }
