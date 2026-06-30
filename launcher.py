@@ -93,6 +93,59 @@ def _wait_for_server(port: int, timeout: float = 15.0) -> bool:
     return False
 
 
+def _patch_qt_clipboard() -> None:
+    """Oprava clipboardu v pywebview Qt backendu (pywebview 6.x + PyQt6 6.11).
+
+    Dva problémy, kvůli kterým "Copy" v Shopping Listu shazoval appku na Linuxu:
+      1. JS přístup ke schránce je defaultně vypnutý → execCommand('copy') selže.
+      2. onFeaturePermissionRequested volá setFeaturePermission(url, feature, int),
+         ale PyQt6 6.11 vyžaduje enum PermissionPolicy → TypeError shodí appku ve
+         chvíli, kdy stránka zavolá navigator.clipboard.writeText() na secure
+         originu (náš http://127.0.0.1). Přesně to dělalo kopírování seznamu.
+
+    Patchujeme bundlovaný pywebview (běží v AppImage) před webview.start().
+    Vše v try/except — selhání patche nesmí shodit start appky.
+    """
+    try:
+        from webview.platforms.qt import BrowserView
+        from qtpy.QtWebEngineWidgets import QWebEnginePage, QWebEngineSettings
+    except Exception as exc:  # pragma: no cover
+        print(f"[clipboard-patch] skipped: {exc!r}", file=sys.stderr)
+        return
+
+    WebPage = getattr(BrowserView, "WebPage", None)
+    if WebPage is None:
+        return
+
+    attr = QWebEngineSettings.WebAttribute
+    _orig_init = WebPage.__init__
+
+    def _init(self, parent=None, profile=None):
+        _orig_init(self, parent, profile)
+        try:
+            self.settings().setAttribute(attr.JavascriptCanAccessClipboard, True)
+            self.settings().setAttribute(attr.JavascriptCanPaste, True)
+        except Exception:
+            pass
+
+    def _on_perm(self, url, feature):
+        try:
+            policy = QWebEnginePage.PermissionPolicy
+            media = (
+                QWebEnginePage.Feature.MediaAudioCapture,
+                QWebEnginePage.Feature.MediaVideoCapture,
+                QWebEnginePage.Feature.MediaAudioVideoCapture,
+            )
+            granted = policy.PermissionGrantedByUser if feature in media else policy.PermissionDeniedByUser
+            self.setFeaturePermission(url, feature, granted)
+        except Exception:
+            pass
+
+    WebPage.__init__ = _init
+    if hasattr(WebPage, "onFeaturePermissionRequested"):
+        WebPage.onFeaturePermissionRequested = _on_perm
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -116,6 +169,8 @@ def main() -> None:
     except Exception as exc:  # pragma: no cover — surfaces at startup only
         print(f"ERROR: Qt backend failed to load: {exc!r}", file=sys.stderr)
         raise
+
+    _patch_qt_clipboard()
 
     import webview
 
