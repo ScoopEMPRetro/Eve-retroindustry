@@ -55,17 +55,26 @@ jobs:
       - name: Rename APK
         run: cp android-poc/app/build/outputs/apk/release/app-release.apk EveRetroindustry.apk
 
+      - name: Generate version.json (pro in-app updater)
+        run: |
+          VC=$(grep -oP 'versionCode \K[0-9]+' android-poc/app/build.gradle | head -1)
+          VN=$(grep -oP 'versionName "\K[^"]+' android-poc/app/build.gradle | head -1)
+          cat > version.json <<EOF
+          {"versionCode": $VC, "versionName": "$VN", "apkUrl": "https://github.com/ScoopEMPRetro/Eve-retroindustry/releases/download/android-latest/EveRetroindustry.apk"}
+          EOF
+          echo "version.json:"; cat version.json
+
       - name: Publish to 'android-latest' prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Vytvoř prerelease (poprvé) nebo jen nahraj/přepiš APK (dále).
-          gh release create android-latest EveRetroindustry.apk \
+          # Vytvoř prerelease (poprvé) nebo jen nahraj/přepiš assety (dále).
+          gh release create android-latest EveRetroindustry.apk version.json \
             --prerelease \
             --title "EVE Retroindustry — Android (test build)" \
-            --notes "Automatický testovací Android build (arm64, sideload). Stáhni EveRetroindustry.apk a nainstaluj ručně (povol instalaci z neznámých zdrojů). Character login zatím nefunguje; SDE kalkulačka ano." \
+            --notes "Automatický testovací Android build (arm64, sideload). Stáhni EveRetroindustry.apk a nainstaluj ručně (povol instalaci z neznámých zdrojů). Aktualizace pak jdou přímo v appce." \
             --target main \
-          || gh release upload android-latest EveRetroindustry.apk --clobber
+          || gh release upload android-latest EveRetroindustry.apk version.json --clobber
 
       - name: Upload APK artifact (záloha)
         uses: actions/upload-artifact@v4

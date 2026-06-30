@@ -100,6 +100,9 @@ public class MainActivity extends AppCompatActivity {
                 web.setVisibility(View.VISIBLE);
                 web.loadUrl(URL);
             });
+
+            // Po nahození UI zkontroluj dostupnou aktualizaci (tiše, na pozadí).
+            Updater.check(this);
         } catch (Throwable t) {
             Log.e(TAG, "boot failed", t);
             setStatus("Start selhal:\n" + Log.getStackTraceString(t));

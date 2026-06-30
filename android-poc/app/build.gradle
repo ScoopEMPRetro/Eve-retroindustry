@@ -7,6 +7,10 @@ android {
     namespace 'com.everetro.poc'
     compileSdk 34
 
+    buildFeatures {
+        buildConfig true   // BuildConfig.VERSION_CODE pro in-app update check
+    }
+
     defaultConfig {
         applicationId "com.everetro.poc"
         minSdk 26
