@@ -1,19 +1,21 @@
-name: Android PoC (Chaquopy dependency check)
+name: Android (test build)
 
-# Samostatný workflow, spouštěný RUČNĚ (Actions → "Android PoC" → Run workflow).
-# Cíl: ověřit, že Chaquopy umí pro arm64 sehnat všechny wheely aplikace —
-# hlavně pydantic-core (Rust). Build APK = test stacku. Výsledek APK se
-# nahraje jako artifact; nainstaluješ na telefon a appka vypíše report.
+# Spouštěný RUČNĚ (Actions → "Android (test build)" → Run workflow).
+# Postaví Android APK (Chaquopy + WebView nad reálnou FastAPI appkou) a
+# publikuje ho jako prerelease "android-latest" s přímým odkazem ke stažení:
+#   https://github.com/ScoopEMPRetro/Eve-retroindustry/releases/download/android-latest/EveRetroindustry.apk
 #
-# Záměrně NEnapojeno na release.yml — dokud je to PoC, nepatří do veřejného
-# releasu. Po ověření (pydantic_core OK) se reálná appka integruje do release.yml.
+# Záměrně NEnapojeno na release.yml — dokud je Android jen testovací (runtime na
+# zařízení neověřen, OAuth login zatím nejde), nepatří do verzovaných releasů.
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-android-poc:
+  build-android:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write          # potřeba pro publikaci release assetu
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +45,19 @@ jobs:
       - name: Rename APK
         run: cp android-poc/app/build/outputs/apk/debug/app-debug.apk EveRetroindustry.apk
 
-      - name: Upload APK artifact
+      - name: Publish to 'android-latest' prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Vytvoř prerelease (poprvé) nebo jen nahraj/přepiš APK (dále).
+          gh release create android-latest EveRetroindustry.apk \
+            --prerelease \
+            --title "EVE Retroindustry — Android (test build)" \
+            --notes "Automatický testovací Android build (arm64, sideload). Stáhni EveRetroindustry.apk a nainstaluj ručně (povol instalaci z neznámých zdrojů). Character login zatím nefunguje; SDE kalkulačka ano." \
+            --target main \
+          || gh release upload android-latest EveRetroindustry.apk --clobber
+
+      - name: Upload APK artifact (záloha)
         uses: actions/upload-artifact@v4
         with:
           name: EveRetroindustry-apk
