@@ -21,8 +21,23 @@ _BONUS_RE = re.compile(
 
 console = Console()
 
-SDE_DIR = os.path.join(os.path.dirname(__file__), "data/fsd")
+_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+# Nové CCP SDE (build 3417089+) má soubory v rootu zipu, ne ve fsd/. Podporuj
+# obě rozložení — data/fsd/ (starší) i data/ (nové).
+SDE_DIR = os.path.join(_DATA_DIR, "fsd") \
+    if os.path.exists(os.path.join(_DATA_DIR, "fsd", "types.yaml")) else _DATA_DIR
 DB_PATH = os.path.join(os.path.dirname(__file__), "eve_cache.db")
+
+
+def _yaml_load(f):
+    """Načte YAML přes libyaml C loader, pokud je dostupný (řádově rychlejší
+    na velkém types.yaml ~150 MB), jinak pure-Python SafeLoader."""
+    try:
+        from yaml import CSafeLoader as _Loader
+    except ImportError:
+        from yaml import SafeLoader as _Loader
+    return yaml.load(f, Loader=_Loader)
+
 
 BLUEPRINTS_YAML = os.path.join(SDE_DIR, "blueprints.yaml")
 TYPES_YAML = os.path.join(SDE_DIR, "types.yaml")
@@ -90,7 +105,7 @@ def import_types(conn: sqlite3.Connection) -> dict:
     t0 = time.time()
 
     with open(TYPES_YAML, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+        data = _yaml_load(f)
 
     console.print(f"[dim]YAML načten za {time.time()-t0:.1f}s, importuji {len(data):,} typů...[/]")
 
@@ -138,7 +153,7 @@ def import_groups(conn: sqlite3.Connection):
         return
     console.print("Načítám groups.yaml…")
     with open(GROUPS_YAML, "r", encoding="utf-8") as f:
-        groups = yaml.safe_load(f)
+        groups = _yaml_load(f)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS sde_groups (
             group_id INTEGER PRIMARY KEY,
@@ -189,7 +204,7 @@ def import_blueprints(conn: sqlite3.Connection):
     console.print("[cyan]Načítám blueprints.yaml...[/]")
 
     with open(BLUEPRINTS_YAML, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+        data = _yaml_load(f)
 
     console.print(f"[dim]Importuji {len(data):,} blueprintů...[/]")
 
