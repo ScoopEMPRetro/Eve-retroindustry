@@ -1094,6 +1094,17 @@ function setAllStockStations(on) {
   document.querySelectorAll('.stock-station-cb').forEach(cb => { cb.checked = on; });
   updateStockStations();
 }
+// Auto-zaškrtne stock source odpovídající vybrané výrobní/reakční stanici, aby
+// se zásoba automaticky brala z místa výroby. No-op, pokud daná stanice není
+// mezi zdroji (uživatel tam nemá žádné assety) nebo už je zaškrtnutá.
+function autoSelectStockSource(locationId) {
+  if (!locationId) return;
+  const cb = document.querySelector('.stock-station-cb[value="' + String(locationId) + '"]');
+  if (cb && !cb.checked) {
+    cb.checked = true;
+    updateStockStations();
+  }
+}
 document.addEventListener('DOMContentLoaded', _refreshStockSummary);
 
 // === Obnova posledního plánu ===
@@ -1557,6 +1568,7 @@ makeStationSelector({
       sciMfgId: 'sci-mfg-val',
       rigPrefix: 'mfg',
     });
+    autoSelectStockSource(item.location_id);
   },
 });
 
@@ -1584,6 +1596,7 @@ makeStationSelector({
       sciRxnId: 'rxn-sci-val',
       rigPrefix: 'rxn',
     });
+    autoSelectStockSource(item.location_id);
   },
 });
 
