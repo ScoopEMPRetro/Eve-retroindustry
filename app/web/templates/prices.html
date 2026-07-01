@@ -74,7 +74,9 @@
     <div class="card p-4 h-100">
       <h6 class="mb-1"><i class="bi bi-geo-alt me-2 text-primary"></i>Custom Station Prices</h6>
       <p class="text-muted small mb-3">
-        Search for a station or citadel and fetch sell prices and traded volume for all items in the table.
+        Search for a station or citadel and fetch sell prices for all items in the table.
+        The 7-day volume column is region-wide market history (ESI has no per-structure
+        trade history), so it reflects regional demand rather than sales at that exact station.
       </p>
       <div class="d-flex gap-2 align-items-start mb-2">
         <div class="position-relative flex-grow-1">
@@ -146,8 +148,9 @@
           <th class="text-end station-col" style="display:none" title="Best sell price at station">
             <span class="stn-name">Station</span> sell
           </th>
-          <th class="text-end station-col" style="display:none" title="Traded volume over the last 7 days in the station region (ESI history)">
-            <span class="stn-name">Station</span> /7d
+          <th class="text-end station-col" style="display:none" title="Trade volume over the last 7 days across the station's whole REGION (ESI market history). CCP does not publish trade history for individual player structures, so this is region-wide demand — not sales at this specific station/citadel.">
+            <span class="stn-name">Station</span> region vol/7d
+            <i class="bi bi-info-circle ms-1" style="opacity:.5;font-size:.75rem"></i>
           </th>
           <th class="text-end station-col" style="display:none" title="Available units in sell orders at station">
             <span class="stn-name">Station</span> available
