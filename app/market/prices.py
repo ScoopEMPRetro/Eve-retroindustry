@@ -419,8 +419,10 @@ async def fetch_structure_market(
                 break
             page += 1
 
-    # Fetch history pro typy které mají alespoň nějaké objednávky
-    traded_with_orders = {tid for tid, e in aggregated.items() if e["volume"] > 0}
+    # 7-day "volume" je REGIONÁLNÍ historie (ESI nezveřejňuje historii obchodů
+    # pro player struktury). Tahej ji pro VŠECHNY požadované typy — i pro ty,
+    # které ve struktuře zrovna nemají žádnou nabídku, jinak by u nich "prodáno
+    # za 7 dní" chybělo, přestože v regionu se s nimi obchoduje.
     if region_id is None:
         # Try location_name_cache first (populated by location resolver in web layer)
         try:
@@ -436,9 +438,9 @@ async def fetch_structure_market(
         region_id = await get_region_for_structure(structure_id)
 
     history_map: dict[int, int | None] = {}
-    if region_id and traded_with_orders:
+    if region_id and our_type_ids:
         async with httpx.AsyncClient() as client:
-            hist_tasks = {tid: _fetch_region_volume(client, region_id, tid) for tid in traded_with_orders}
+            hist_tasks = {tid: _fetch_region_volume(client, region_id, tid) for tid in our_type_ids}
             hist_results = await asyncio.gather(*hist_tasks.values(), return_exceptions=True)
         for tid, res in zip(hist_tasks.keys(), hist_results):
             history_map[tid] = res if isinstance(res, int) else None
@@ -501,18 +503,18 @@ async def fetch_station_volumes(
         order_tasks = [_fetch_orders_for_type(client, region_id, location_id, tid) for tid in type_ids]
         order_results = await asyncio.gather(*order_tasks, return_exceptions=True)
 
-    # History jen pro typy s objednávkami
     order_map: dict[int, tuple] = {}
     for tid, res in zip(type_ids, order_results):
         order_map[tid] = res if isinstance(res, tuple) else (None, None)
 
-    types_with_orders = [tid for tid, (vol, _) in order_map.items() if vol and vol > 0]
+    # 7-day regionální volume pro VŠECHNY typy — i pro ty, co na stanici zrovna
+    # nemají order (jinak by u nich "prodáno za 7 dní" chybělo).
     history_map: dict[int, int | None] = {}
-    if types_with_orders:
+    if type_ids:
         async with httpx.AsyncClient() as client:
-            hist_tasks = [_fetch_region_volume(client, region_id, tid) for tid in types_with_orders]
+            hist_tasks = [_fetch_region_volume(client, region_id, tid) for tid in type_ids]
             hist_results = await asyncio.gather(*hist_tasks, return_exceptions=True)
-        for tid, res in zip(types_with_orders, hist_results):
+        for tid, res in zip(type_ids, hist_results):
             history_map[tid] = res if isinstance(res, int) else None
 
     now = time.time()
