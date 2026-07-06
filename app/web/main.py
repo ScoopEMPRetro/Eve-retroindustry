@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.11"
+APP_VERSION = "0.8.12"
 
 import asyncio
 import datetime
@@ -4174,6 +4174,17 @@ def _decorate_orders(orders: list[dict], type_names: dict[int, str],
         except Exception:
             pass
         price = o.get("price", 0.0) or 0.0
+        # ESI history má state jen "expired"/"cancelled" — plně splněný order se
+        # uzavře jako "expired" s volume_remain==0. Rozliš proto skutečný stav:
+        # completed = beze zbytku prodáno/nakoupeno; expired = doběhla doba se
+        # zbytkem; cancelled = zrušeno uživatelem.
+        raw_state = o.get("state", "")
+        if remain == 0 and total:
+            status_label = "completed"
+        elif raw_state == "cancelled":
+            status_label = "cancelled"
+        else:
+            status_label = raw_state or "expired"
         out.append({
             "type_id": o.get("type_id"),
             "item": type_names.get(o.get("type_id"), f"#{o.get('type_id')}"),
@@ -4189,6 +4200,7 @@ def _decorate_orders(orders: list[dict], type_names: dict[int, str],
             "issued": issued,
             "expiry": expiry,
             "state": o.get("state", ""),   # jen u history: expired / cancelled
+            "status_label": status_label,  # completed / expired / cancelled
         })
     out.sort(key=lambda x: x["issued"], reverse=True)
     return out
@@ -4277,6 +4289,26 @@ async def _finalize_orders(conn, raw_orders: list[dict], type_names_fn, token: s
 
 
 # ── Industry Jobs ─────────────────────────────────────────────────────────────
+
+# Industry job sloty: mapování ESI activity_id → kategorie slotu a skilly, které
+# kapacitu určují (base 1 + level obou skillů, max 11 na kategorii).
+_SLOT_CATEGORY = {
+    1: "manufacturing",                       # Manufacturing
+    3: "science", 4: "science",               # TE / ME research
+    5: "science", 8: "science",               # Copying / Invention
+    9: "reactions", 11: "reactions",          # Reactions
+}
+_SLOT_SKILLS = {
+    "manufacturing": (3387, 24625),   # Mass Production, Advanced Mass Production
+    "science":       (3406, 24624),   # Laboratory Operation, Advanced Laboratory Operation
+    "reactions":     (45748, 45749),  # Mass Reactions, Advanced Mass Reactions
+}
+_SLOT_ORDER = (
+    ("manufacturing", "Manufacturing"),
+    ("science", "Science"),
+    ("reactions", "Reactions"),
+)
+
 
 @app.get("/jobs", response_class=HTMLResponse)
 async def jobs_page(request: Request):
@@ -4373,15 +4405,33 @@ async def jobs_page(request: Request):
     groups = []
     total_active = 0
     for cid, jl in results:
-        active = [j for j in jl if j.get("status") in ("active", "paused")]
+        # active/paused/ready = joby, které stále drží slot (ready = hotový,
+        # nedoručený). delivered/cancelled/reverted slot neblokují.
+        active = [j for j in jl if j.get("status") in ("active", "paused", "ready")]
         decorated = [_decorate_job(j) for j in active]
         # nejdřív ty co brzy skončí
         decorated.sort(key=lambda x: x["end_date"])
         total_active += len(decorated)
+
+        # Obsazenost slotů podle kategorie (kolik z kolika). Max = base 1 +
+        # obě skill úrovně; None pokud skilly ještě nejsou nasynchronizované.
+        skills = get_cached_skills(conn, cid)
+        used = {"manufacturing": 0, "science": 0, "reactions": 0}
+        for j in active:
+            cat = _SLOT_CATEGORY.get(j.get("activity_id", 0))
+            if cat:
+                used[cat] += 1
+        slots = []
+        for cat, label in _SLOT_ORDER:
+            sa, sb = _SLOT_SKILLS[cat]
+            mx = (1 + skills.get(sa, 0) + skills.get(sb, 0)) if skills else None
+            slots.append({"label": label, "used": used[cat], "max": mx})
+
         groups.append({
             "char_id": cid,
             "char_name": char_name.get(cid, str(cid)),
             "jobs": decorated,
+            "slots": slots,
         })
     # postavy s nejvíc joby první
     groups.sort(key=lambda g: -len(g["jobs"]))

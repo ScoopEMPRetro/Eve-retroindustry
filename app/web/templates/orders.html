@@ -107,7 +107,7 @@
           <td class="text-end fw-semibold" style="white-space:nowrap">{{ o.order_total | isk }}</td>
           <td class="text-end text-muted" style="white-space:nowrap;font-size:.78rem">{{ o.issued | replace('T',' ') | replace('Z','') | truncate(10,true,'') }}</td>
           {% if state == 'history' %}
-          <td><span class="badge bg-secondary" style="font-size:.65rem">{{ o.state | upper }}</span></td>
+          <td><span class="badge {% if o.status_label == 'completed' %}bg-success{% elif o.status_label == 'cancelled' %}bg-danger{% else %}bg-secondary{% endif %}" style="font-size:.65rem">{{ o.status_label | upper }}</span></td>
           {% else %}
           <td class="text-end text-muted" style="white-space:nowrap;font-size:.78rem">{{ o.expiry }}</td>
           {% endif %}
