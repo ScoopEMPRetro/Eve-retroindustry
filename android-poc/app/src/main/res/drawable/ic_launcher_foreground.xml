@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Logo EVE Retroindustry (shodné s favicon v base.html): šestiúhelník +
+     zlaté sloupce. Kresleno v 32-unit prostoru, škálované do bezpečné zóny
+     adaptivní ikony (108x108). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:scaleX="2.0" android:scaleY="2.0"
+           android:translateX="22" android:translateY="22">
+        <path android:pathData="M16,2 L29,9.5 L29,22.5 L16,30 L3,22.5 L3,9.5 Z"
+              android:fillColor="#00000000"
+              android:strokeColor="#e3b341" android:strokeWidth="1.5" />
+        <path android:pathData="M10,11 L14,11 L14,22 L10,22 Z" android:fillColor="#e3b341" />
+        <path android:pathData="M19,14 L23,14 L23,22 L19,22 Z" android:fillColor="#e3b341" />
+        <path android:pathData="M6,20 L26,20 L26,27 L6,27 Z" android:fillColor="#e3b341" />
+        <path android:pathData="M13,22 L19,22 L19,27 L13,27 Z" android:fillColor="#0d1117" />
+    </group>
+</vector>
