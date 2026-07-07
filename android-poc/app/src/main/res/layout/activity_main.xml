@@ -7,7 +7,7 @@
         android:layout_width="match_parent" android:layout_height="match_parent"
         android:visibility="gone" />
 
-    <ScrollView
+    <ScrollView android:id="@+id/status_scroll"
         android:layout_width="match_parent" android:layout_height="match_parent">
         <TextView android:id="@+id/status"
             android:layout_width="match_parent" android:layout_height="wrap_content"

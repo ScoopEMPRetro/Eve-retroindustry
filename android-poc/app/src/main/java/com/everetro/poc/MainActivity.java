@@ -30,6 +30,7 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView web;
     private TextView status;
+    private View statusScroll;   // obal status textu — musí se skrýt celý, jinak žere doteky
     private String url;
     // Server běží jednou za proces (Android proces přežívá relaunch Activity).
     // sPort = port NAŠEHO serveru pro tento proces (0 = ještě nespuštěn). Volíme
@@ -45,6 +46,7 @@ public class MainActivity extends AppCompatActivity {
 
         web = findViewById(R.id.webview);
         status = findViewById(R.id.status);
+        statusScroll = findViewById(R.id.status_scroll);
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -145,7 +147,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             runOnUiThread(() -> {
-                status.setVisibility(View.GONE);
+                statusScroll.setVisibility(View.GONE);   // celý overlay pryč, ať WebView dostává doteky
                 web.setVisibility(View.VISIBLE);
                 web.loadUrl(url);
             });
@@ -230,6 +232,7 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, text);
             runOnUiThread(() -> {
                 web.setVisibility(View.GONE);
+                statusScroll.setVisibility(View.VISIBLE);
                 status.setVisibility(View.VISIBLE);
                 status.setText(text);
             });
