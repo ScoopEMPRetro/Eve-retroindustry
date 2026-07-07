@@ -27,13 +27,15 @@ import java.io.OutputStream;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "EveRetro";
-    private static final int PORT = 8000;
-    private static final String URL = "http://127.0.0.1:" + PORT;
 
     private WebView web;
     private TextView status;
+    private String url;
     // Server běží jednou za proces (Android proces přežívá relaunch Activity).
+    // sPort = port NAŠEHO serveru pro tento proces (0 = ještě nespuštěn). Volíme
+    // volný port dynamicky — natvrdo 8000 může držet zombie z minula.
     private static volatile boolean sServerLaunched = false;
+    private static volatile int sPort = 0;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -113,16 +115,20 @@ public class MainActivity extends AppCompatActivity {
             // Předej Activity Pythonu — potřebné pro otevření SSO loginu přes Intent.
             mod.callAttr("set_context", this);
 
-            // Android drží proces naživu mezi spuštěními Activity. Server tedy
-            // spouštěj jen JEDNOU za proces — jinak druhý uvicorn selže na bind
-            // portu 8000 (SystemExit) a appka "spadne", i když ten první běží.
-            // Když port už odpovídá (běží z minula), rovnou pokračuj na WebView.
-            boolean alreadyUp = mod.callAttr("is_up", PORT).toBoolean();
-            if (!alreadyUp && !sServerLaunched) {
+            // Server spouštěj jen JEDNOU za proces (Android proces přežívá
+            // relaunch Activity). Vezmi si VLASTNÍ volný port — reuse existujícího
+            // listeneru na pevném portu by mohl trefit zaseknutý zombie z minula
+            // (ERR_EMPTY_RESPONSE). V rámci procesu držíme svůj port v sPort.
+            final int port;
+            if (sServerLaunched && sPort != 0) {
+                port = sPort;   // náš server z dřívějška v tomto procesu
+            } else {
+                port = findFreePort();
+                sPort = port;
                 sServerLaunched = true;
                 new Thread(() -> {
                     try {
-                        mod.callAttr("start_server", filesDir.getAbsolutePath(), PORT);
+                        mod.callAttr("start_server", filesDir.getAbsolutePath(), port);
                     } catch (Throwable t) {
                         sServerLaunched = false;   // umožni retry po pádu
                         Log.e(TAG, "server crashed", t);
@@ -130,9 +136,10 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }, "eve-uvicorn").start();
             }
+            url = "http://127.0.0.1:" + port;
 
             setStatus("Čekám na server…");
-            if (!waitForServer(mod, 30_000)) {
+            if (!waitForServer(mod, port, 30_000)) {
                 setStatus("Server nenaběhl do 30 s — viz logcat (python.stdout).");
                 return;
             }
@@ -140,7 +147,7 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 status.setVisibility(View.GONE);
                 web.setVisibility(View.VISIBLE);
-                web.loadUrl(URL);
+                web.loadUrl(url);
             });
 
             // Po nahození UI zkontroluj dostupnou aktualizaci (tiše, na pozadí).
@@ -151,12 +158,22 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /** Najde volný TCP port na loopbacku (nový server = nový port, bez konfliktu). */
+    private int findFreePort() {
+        try (java.net.ServerSocket ss = new java.net.ServerSocket(
+                0, 1, java.net.InetAddress.getByName("127.0.0.1"))) {
+            return ss.getLocalPort();
+        } catch (Exception e) {
+            return 8000;   // fallback
+        }
+    }
+
     /** Poll přes Python helper, dokud server nepřijímá spojení (nebo timeout). */
-    private boolean waitForServer(PyObject mod, long timeoutMs) {
+    private boolean waitForServer(PyObject mod, int port, long timeoutMs) {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
             try {
-                if (mod.callAttr("is_up", PORT).toBoolean()) return true;
+                if (mod.callAttr("is_up", port).toBoolean()) return true;
                 Thread.sleep(200);
             } catch (InterruptedException e) {
                 return false;
