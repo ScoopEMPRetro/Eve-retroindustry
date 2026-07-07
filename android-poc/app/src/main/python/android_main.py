@@ -50,30 +50,55 @@ def start_server(files_dir, port=PORT):
     os.environ.setdefault("EVE_APP_DIR", files_dir)
     os.environ.setdefault("EVE_BUNDLE_DIR", files_dir)
     os.environ["EVE_ANDROID"] = "1"   # UI: nativní updater místo desktopového
+
+    # Přesměruj veškerý Python výstup (uvicorn logy + app tracebacky) do souboru,
+    # aby šla chyba zobrazit v appce i bez adb (viz get_log / MainActivity).
+    try:
+        _f = open(os.path.join(files_dir, "server.log"), "w", buffering=1, encoding="utf-8")
+        sys.stdout = _f
+        sys.stderr = _f
+    except Exception:
+        pass
     _log(f"EVE_APP_DIR=EVE_BUNDLE_DIR={files_dir}")
 
-    # Import až po nastavení env (app.web.main čte cesty při importu —
-    # SDE bootstrap z EVE_BUNDLE_DIR/sde_base.db do EVE_APP_DIR/eve_cache.db).
-    from app.web import main as webmain
-    # Zaregistruj Android Intent-opener pro SSO login (místo xdg-open/webbrowser).
-    webmain.set_browser_opener(_open_url_intent)
-    app = webmain.app
-    import uvicorn
+    try:
+        # Import až po nastavení env (app.web.main čte cesty při importu —
+        # SDE bootstrap z EVE_BUNDLE_DIR/sde_base.db do EVE_APP_DIR/eve_cache.db).
+        from app.web import main as webmain
+        # Zaregistruj Android Intent-opener pro SSO login (místo xdg-open/webbrowser).
+        webmain.set_browser_opener(_open_url_intent)
+        app = webmain.app
+        import uvicorn
 
-    _log(f"starting uvicorn on 127.0.0.1:{port}")
-    config = uvicorn.Config(
-        app,
-        host="127.0.0.1",
-        port=port,
-        log_level="warning",
-        # uvicorn instaluje signal handlery jen na main threadu — na background
-        # threadu je sám přeskočí, takže běh ve vlákně je v pořádku.
-    )
-    server = uvicorn.Server(config)
+        _log(f"starting uvicorn on 127.0.0.1:{port}")
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="info",
+            # uvicorn instaluje signal handlery jen na main threadu — na background
+            # threadu je sám přeskočí, takže běh ve vlákně je v pořádku.
+        )
+        server = uvicorn.Server(config)
 
-    import asyncio
-    asyncio.run(server.serve())
-    _log("uvicorn stopped")
+        import asyncio
+        asyncio.run(server.serve())
+        _log("uvicorn stopped")
+    except BaseException:
+        import traceback
+        _log("SERVER CRASHED:\n" + traceback.format_exc())
+        raise
+
+
+def get_log(files_dir, max_chars=6000):
+    """Vrátí konec server.log (pro zobrazení chyby v appce bez adb)."""
+    try:
+        with open(os.path.join(files_dir, "server.log"), "r",
+                  encoding="utf-8", errors="replace") as f:
+            data = f.read()
+        return data[-max_chars:] if data else "(server.log je prázdný)"
+    except Exception as exc:
+        return f"(server.log nelze načíst: {exc})"
 
 
 def is_up(port=PORT):

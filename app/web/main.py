@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.12"
+APP_VERSION = "0.8.13"
 
 import asyncio
 import datetime
@@ -198,30 +198,39 @@ def _refresh_sde_from_bundle(conn: sqlite3.Connection) -> int:
         return types, groups
 
     user_count, user_groups = _counts(conn)
+    # ATTACH-free: čteme z bundlované DB samostatným spojením a kopírujeme řádky
+    # v Pythonu. ATTACH DATABASE nemusí být spolehlivé na Chaquopy (Android) a
+    # navíc dřívější varianta mohla při částečném selhání nechat SDE tabulky
+    # dropnuté. Nejdřív VŠE přečteme (když je bundle nečitelný, uživatelovy
+    # tabulky se ani nedotkneme), pak teprve nahradíme.
     bsrc = sqlite3.connect(bundled)
     try:
         bundled_count, bundled_groups = _counts(bsrc)
+        if bundled_count <= user_count and bundled_groups <= user_groups:
+            return user_count  # user má stejně/víc typů i groups → ne-merge
+
+        print(f"[sde] refreshing SDE tables: user={user_count}, bundled={bundled_count}",
+              flush=True)
+        payload = []
+        for table in _SDE_TABLES_TO_REFRESH:
+            ddl = bsrc.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+            ).fetchone()
+            if not ddl or not ddl[0]:
+                continue
+            rows = bsrc.execute(f"SELECT * FROM {table}").fetchall()
+            payload.append((table, ddl[0], rows))
     finally:
         bsrc.close()
 
-    if bundled_count <= user_count and bundled_groups <= user_groups:
-        return user_count  # user má stejně/víc typů i groups → ne-merge
-
-    print(f"[sde] refreshing SDE tables: user={user_count}, bundled={bundled_count}",
-          flush=True)
-    # Attach bundlovanou DB jako 'src' a kopíruj tabulky.
-    conn.execute("ATTACH DATABASE ? AS src", (bundled,))
-    try:
-        for table in _SDE_TABLES_TO_REFRESH:
-            try:
-                conn.execute(f"DROP TABLE IF EXISTS {table}")
-                conn.execute(f"CREATE TABLE {table} AS SELECT * FROM src.{table}")
-            except sqlite3.Error as exc:
-                print(f"[sde] table {table}: {exc}", flush=True)
-        conn.commit()
-    finally:
-        conn.execute("DETACH DATABASE src")
-    return bundled_count
+    for table, ddl, rows in payload:
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
+        conn.execute(ddl)
+        if rows:
+            ph = ",".join("?" * len(rows[0]))
+            conn.executemany(f"INSERT INTO {table} VALUES ({ph})", rows)
+    conn.commit()
+    return conn.execute("SELECT COUNT(*) FROM sde_types").fetchone()[0]
 
 
 @app.on_event("startup")

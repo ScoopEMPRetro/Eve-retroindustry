@@ -53,7 +53,18 @@ public class MainActivity extends AppCompatActivity {
         s.setDisplayZoomControls(false);
         // Stránka je http (localhost), ale tahá Bootstrap z https CDN → povolit mix.
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        web.setWebViewClient(new WebViewClient());   // navigace zůstane ve WebView
+        web.setWebViewClient(new WebViewClient() {
+            // Když se hlavní rámec (náš lokální server) nenačte, ukaž Python
+            // server.log v appce — ať jde chyba diagnostikovat i bez adb.
+            @Override
+            public void onReceivedError(WebView view, android.webkit.WebResourceRequest req,
+                                        android.webkit.WebResourceError err) {
+                if (req != null && req.isForMainFrame()) {
+                    showServerLog("Načtení selhalo: " + err.getErrorCode()
+                            + " " + err.getDescription());
+                }
+            }
+        });
         // WebChromeClient: bez něj nefungují window.alert/confirm/prompt (např.
         // potvrzení smazání postavy) a ztrácí se console.* logy. Forwardujeme
         // je do logcatu (tag EveRetro) pro diagnostiku.
@@ -176,5 +187,25 @@ public class MainActivity extends AppCompatActivity {
 
     private void setStatus(String msg) {
         runOnUiThread(() -> status.setText(msg));
+    }
+
+    /** Zobrazí konec Python server.logu v appce (diagnostika chyby serveru). */
+    private void showServerLog(String header) {
+        new Thread(() -> {
+            String log;
+            try {
+                PyObject mod = Python.getInstance().getModule("android_main");
+                log = mod.callAttr("get_log", getFilesDir().getAbsolutePath()).toString();
+            } catch (Throwable t) {
+                log = "(log nedostupný: " + t + ")";
+            }
+            final String text = header + "\n\n=== server.log (konec) ===\n" + log;
+            Log.e(TAG, text);
+            runOnUiThread(() -> {
+                web.setVisibility(View.GONE);
+                status.setVisibility(View.VISIBLE);
+                status.setText(text);
+            });
+        }, "eve-log").start();
     }
 }
