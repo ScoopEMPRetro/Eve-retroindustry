@@ -32,6 +32,8 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView web;
     private TextView status;
+    // Server běží jednou za proces (Android proces přežívá relaunch Activity).
+    private static volatile boolean sServerLaunched = false;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -111,15 +113,23 @@ public class MainActivity extends AppCompatActivity {
             // Předej Activity Pythonu — potřebné pro otevření SSO loginu přes Intent.
             mod.callAttr("set_context", this);
 
-            // start_server je blokující (uvicorn.serve) → vlastní vlákno.
-            new Thread(() -> {
-                try {
-                    mod.callAttr("start_server", filesDir.getAbsolutePath(), PORT);
-                } catch (Throwable t) {
-                    Log.e(TAG, "server crashed", t);
-                    setStatus("Server spadl:\n" + Log.getStackTraceString(t));
-                }
-            }, "eve-uvicorn").start();
+            // Android drží proces naživu mezi spuštěními Activity. Server tedy
+            // spouštěj jen JEDNOU za proces — jinak druhý uvicorn selže na bind
+            // portu 8000 (SystemExit) a appka "spadne", i když ten první běží.
+            // Když port už odpovídá (běží z minula), rovnou pokračuj na WebView.
+            boolean alreadyUp = mod.callAttr("is_up", PORT).toBoolean();
+            if (!alreadyUp && !sServerLaunched) {
+                sServerLaunched = true;
+                new Thread(() -> {
+                    try {
+                        mod.callAttr("start_server", filesDir.getAbsolutePath(), PORT);
+                    } catch (Throwable t) {
+                        sServerLaunched = false;   // umožni retry po pádu
+                        Log.e(TAG, "server crashed", t);
+                        showServerLog("Server spadl: " + t);
+                    }
+                }, "eve-uvicorn").start();
+            }
 
             setStatus("Čekám na server…");
             if (!waitForServer(mod, 30_000)) {
