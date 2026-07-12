@@ -40,20 +40,6 @@
     </div>
   </div>
   <div class="col">
-    <div class="card stat-card h-100 p-3">
-      <div class="text-muted small mb-1"><i class="bi bi-file-earmark-text me-1"></i>Blueprints</div>
-      <div class="fs-3 fw-bold">{{ agg_bps }}</div>
-      <a href="/blueprints" class="small mt-1 d-block">View →</a>
-    </div>
-  </div>
-  <div class="col">
-    <div class="card stat-card h-100 p-3">
-      <div class="text-muted small mb-1"><i class="bi bi-geo-alt me-1"></i>Asset Locations</div>
-      <div class="fs-3 fw-bold">{{ agg_locations }}</div>
-      <a href="/assets" class="small mt-1 d-block">View assets →</a>
-    </div>
-  </div>
-  <div class="col">
     <div class="card stat-card h-100 p-3" style="border-left-color:#e3b341">
       <div class="text-muted small mb-1"><i class="bi bi-coin me-1"></i>Est. Net Worth</div>
       {% if agg_value %}
@@ -101,18 +87,28 @@
           </div>
         </div>
 
-        <div class="row g-2 text-center mb-3">
-          <div class="col-4">
-            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">BPs</div>
-            <div class="fw-semibold">{{ c.bp_count }}</div>
+        <div class="mb-3">
+          {# Poloha — docknutá stanice/struktura, nebo systém + undocked #}
+          <div class="d-flex align-items-center gap-2 mb-1" style="font-size:.82rem">
+            <i class="bi bi-geo-alt {% if c.location_state == 'docked' %}text-success{% elif c.location_state == 'undocked' %}text-warning{% else %}text-muted{% endif %}" style="flex-shrink:0"></i>
+            {% if c.location_name %}
+              <span class="text-truncate">{{ c.location_name }}</span>
+              {% if c.location_state == 'undocked' %}
+              <span class="badge bg-warning text-dark ms-auto" style="font-size:.58rem;flex-shrink:0">UNDOCKED</span>
+              {% endif %}
+            {% else %}
+              <span class="text-muted">Location unknown</span>
+            {% endif %}
           </div>
-          <div class="col-4">
-            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Assets</div>
-            <div class="fw-semibold">{{ c.asset_count }}</div>
-          </div>
-          <div class="col-4">
-            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Locations</div>
-            <div class="fw-semibold">{{ c.asset_locs }}</div>
+          {# Aktivní skillování + zbývající čas #}
+          <div class="d-flex align-items-center gap-2" style="font-size:.82rem">
+            <i class="bi bi-mortarboard text-info" style="flex-shrink:0"></i>
+            {% if c.training %}
+              <span class="text-truncate">{{ c.training.skill }} {{ c.training.level }}</span>
+              <span class="text-muted ms-auto" style="font-size:.72rem;white-space:nowrap;flex-shrink:0">{{ c.training.remaining }}</span>
+            {% else %}
+              <span class="text-muted">Not training</span>
+            {% endif %}
           </div>
         </div>
 

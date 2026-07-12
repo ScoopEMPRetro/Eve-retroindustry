@@ -19,6 +19,41 @@ _GENERAL_SKILL_IDS = {3380, 3388}
 _CACHE_VERSION = 2
 
 
+async def fetch_skill_queue(client: httpx.AsyncClient, character_id: int, access_token: str) -> list[dict]:
+    """Vrátí frontu skillů z ESI (seřazeno dle queue_position). Prázdný list =
+    žádné aktivní skillování. Vyžaduje scope esi-skills.read_skillqueue.v1."""
+    try:
+        r = await client.get(
+            f"{ESI_BASE}/characters/{character_id}/skillqueue/",
+            params={"datasource": "tranquility"},
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            q = r.json()
+            return sorted(q, key=lambda e: e.get("queue_position", 0)) if isinstance(q, list) else []
+    except Exception:
+        pass
+    return []
+
+
+async def fetch_location(client: httpx.AsyncClient, character_id: int, access_token: str) -> dict:
+    """Vrátí aktuální polohu postavy z ESI: {solar_system_id, station_id?,
+    structure_id?}. Prázdný dict při chybě. Scope esi-location.read_location.v1."""
+    try:
+        r = await client.get(
+            f"{ESI_BASE}/characters/{character_id}/location/",
+            params={"datasource": "tranquility"},
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=10,
+        )
+        if r.status_code == 200 and isinstance(r.json(), dict):
+            return r.json()
+    except Exception:
+        pass
+    return {}
+
+
 def get_mfg_skill_ids(conn: sqlite3.Connection) -> set[int]:
     """Vrátí set type_id všech skillů relevantních pro výrobu (science + Industry/AdvIndustry)."""
     try:

@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.17"
+APP_VERSION = "0.8.18"
 
 import asyncio
 import datetime
@@ -82,6 +82,8 @@ from app.web.industry_helper import (
 from app.character.skills import (
     ensure_skills_table,
     fetch_skills,
+    fetch_skill_queue,
+    fetch_location,
     get_cached_skills,
     get_mfg_skill_ids,
 )
@@ -1059,6 +1061,26 @@ async def api_save_client_id(request: Request):
 # Dashboard
 # ---------------------------------------------------------------------------
 
+def _roman(n: int) -> str:
+    return {1: "I", 2: "II", 3: "III", 4: "IV", 5: "V"}.get(n, str(n))
+
+
+def _fmt_remaining(finish_iso: str, now) -> str:
+    """'2d 3h 15m' do konce; '' při chybě."""
+    import datetime as _dt
+    try:
+        end = _dt.datetime.fromisoformat(finish_iso.replace("Z", "+00:00"))
+        secs = int((end - now).total_seconds())
+        if secs <= 0:
+            return "hotovo"
+        d, r = divmod(secs, 86400)
+        h, r = divmod(r, 3600)
+        m = r // 60
+        return (f"{d}d " if d else "") + (f"{h}h " if (d or h) else "") + f"{m}m"
+    except Exception:
+        return ""
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     conn = get_conn()
@@ -1135,6 +1157,65 @@ async def dashboard(request: Request):
             )
         )
 
+        # Aktuální poloha + skillování (živě z ESI, souběžně pro všechny postavy).
+        import datetime as _dt
+        _now_utc = _dt.datetime.now(_dt.timezone.utc)
+        _char_ids = [cid for cid, _ in chars]
+
+        async def _fetch_loc_sq(cid: int):
+            tok = _get_valid_token_for(conn, cid)
+            if not tok:
+                return {}, []
+            async with httpx.AsyncClient() as client:
+                return await asyncio.gather(
+                    fetch_location(client, cid, tok),
+                    fetch_skill_queue(client, cid, tok),
+                )
+
+        loc_sq = dict(zip(_char_ids, await asyncio.gather(*[_fetch_loc_sq(c) for c in _char_ids])))
+
+        _dock_ids: set[int] = set()   # station / structure
+        _sys_ids: set[int] = set()
+        _skill_ids: set[int] = set()
+        for _cid in _char_ids:
+            _loc, _sq = loc_sq.get(_cid, ({}, []))
+            if _loc.get("station_id"):
+                _dock_ids.add(_loc["station_id"])
+            if _loc.get("structure_id"):
+                _dock_ids.add(_loc["structure_id"])
+            if _loc.get("solar_system_id"):
+                _sys_ids.add(_loc["solar_system_id"])
+            if _sq and _sq[0].get("skill_id"):
+                _skill_ids.add(_sq[0]["skill_id"])
+
+        dock_names: dict[int, str] = {}
+        if _dock_ids:
+            _any_tok = next((_get_valid_token_for(conn, c) for c in _char_ids
+                             if _get_valid_token_for(conn, c)), None)
+            try:
+                dock_names = await resolve_station_names_bulk(list(_dock_ids), token=_any_tok, conn=conn)
+            except Exception:
+                dock_names = {}
+        sys_names: dict[int, str] = {}
+        if _sys_ids:
+            try:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    rr = await client.post(
+                        "https://esi.evetech.net/latest/universe/names/",
+                        json=list(_sys_ids), headers={"Accept": "application/json"},
+                    )
+                    if rr.status_code == 200:
+                        for it in rr.json():
+                            sys_names[it["id"]] = it["name"]
+            except Exception:
+                pass
+        skill_names: dict[int, str] = {}
+        if _skill_ids:
+            _ph = ",".join("?" * len(_skill_ids))
+            skill_names = {r[0]: r[1] for r in conn.execute(
+                f"SELECT type_id, name FROM sde_types WHERE type_id IN ({_ph})", list(_skill_ids)
+            ).fetchall()}
+
         for cid, cname in chars:
             char_row = char_rows[cid]
             bp_row = conn.execute(
@@ -1166,19 +1247,43 @@ async def dashboard(request: Request):
             last_sync_at = char_row.get("last_sync_at")
             corp_id = char_row.get("corporation_id")
 
+            # Poloha: docknutá stanice/struktura, nebo systém + "undocked".
+            _loc, _sq = loc_sq.get(cid, ({}, []))
+            location_name = None
+            location_state = None
+            if _loc.get("station_id"):
+                location_name = dock_names.get(_loc["station_id"]) or f"#{_loc['station_id']}"
+                location_state = "docked"
+            elif _loc.get("structure_id"):
+                location_name = dock_names.get(_loc["structure_id"]) or f"#{_loc['structure_id']}"
+                location_state = "docked"
+            elif _loc.get("solar_system_id"):
+                location_name = sys_names.get(_loc["solar_system_id"]) or f"#{_loc['solar_system_id']}"
+                location_state = "undocked"
+
+            # Aktivní skillování: první položka fronty s finish_date.
+            training = None
+            _act = _sq[0] if _sq else None
+            if _act and _act.get("skill_id") and _act.get("finish_date"):
+                training = {
+                    "skill":     skill_names.get(_act["skill_id"], f"#{_act['skill_id']}"),
+                    "level":     _roman(_act.get("finished_level", 0)),
+                    "remaining": _fmt_remaining(_act["finish_date"], _now_utc),
+                }
+
             char_cards.append({
                 "char_id":     cid,
                 "char_name":   cname,
                 "corp_id":     corp_id,
                 "corp_name":   corp_names.get(corp_id, "") if corp_id else "",
-                "bp_count":    bp_count,
-                "asset_count": len(assets),
-                "asset_locs":  len(locs),
                 "asset_value": char_value,
                 "wallet":      wallet,
                 "net_worth":   net_worth,
                 "last_sync_at": last_sync_at,
                 "is_active":   cid == active_char_id,
+                "location_name":  location_name,
+                "location_state": location_state,
+                "training":       training,
             })
 
             agg_bps += bp_count
