@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.18"
+APP_VERSION = "0.8.19"
 
 import asyncio
 import datetime
@@ -1269,6 +1269,7 @@ async def dashboard(request: Request):
                     "skill":     skill_names.get(_act["skill_id"], f"#{_act['skill_id']}"),
                     "level":     _roman(_act.get("finished_level", 0)),
                     "remaining": _fmt_remaining(_act["finish_date"], _now_utc),
+                    "finish_iso": _act["finish_date"],   # živý odpočet na klientu
                 }
 
             char_cards.append({

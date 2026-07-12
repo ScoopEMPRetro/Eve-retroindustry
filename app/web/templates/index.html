@@ -105,7 +105,8 @@
             <i class="bi bi-mortarboard text-info" style="flex-shrink:0"></i>
             {% if c.training %}
               <span class="text-truncate">{{ c.training.skill }} {{ c.training.level }}</span>
-              <span class="text-muted ms-auto" style="font-size:.72rem;white-space:nowrap;flex-shrink:0">{{ c.training.remaining }}</span>
+              <span class="text-muted ms-auto skill-countdown" data-finish="{{ c.training.finish_iso }}"
+                    style="font-size:.72rem;white-space:nowrap;flex-shrink:0">{{ c.training.remaining }}</span>
             {% else %}
               <span class="text-muted">Not training</span>
             {% endif %}
@@ -195,4 +196,30 @@
 
 {% block scripts %}
 {# syncAll() is defined globally in base.html #}
+<script>
+// Živý odpočet zbývajícího času skillování (per karta postavy).
+(function () {
+  function fmt(ms) {
+    if (ms <= 0) return 'hotovo';
+    let s = Math.floor(ms / 1000);
+    const d = Math.floor(s / 86400); s -= d * 86400;
+    const h = Math.floor(s / 3600);  s -= h * 3600;
+    const m = Math.floor(s / 60);    s -= m * 60;
+    let out = '';
+    if (d) out += d + 'd ';
+    if (d || h) out += h + 'h ';
+    out += m + 'm ' + s + 's';
+    return out;
+  }
+  function tick() {
+    const now = Date.now();
+    document.querySelectorAll('.skill-countdown').forEach(function (el) {
+      const t = Date.parse(el.dataset.finish || '');
+      if (!isNaN(t)) el.textContent = fmt(t - now);
+    });
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
 {% endblock %}
