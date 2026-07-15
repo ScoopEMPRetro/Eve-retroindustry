@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.19"
+APP_VERSION = "0.8.20"
 
 import asyncio
 import datetime
@@ -4325,6 +4325,55 @@ def _decorate_orders(orders: list[dict], type_names: dict[int, str],
 async def orders_page(request: Request, char: str = "", scope: str = "personal",
                       state: str = "active"):
     conn = get_conn()
+    all_chars = (char == "all")
+
+    def _type_names(type_ids: set[int]) -> dict[int, str]:
+        type_ids = {t for t in type_ids if t}
+        if not type_ids:
+            return {}
+        ph = ",".join("?" * len(type_ids))
+        return {r[0]: r[1] for r in conn.execute(
+            f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(type_ids)
+        ).fetchall()}
+
+    # ── All characters: osobní ordery napříč všemi postavami, otagované jménem ──
+    if all_chars:
+        ctx: dict = {
+            "scope": "personal", "state": state, "orders_char_id": None,
+            "all_chars": True, "orders": [], "error": None,
+            "corp_error": None, "corp_name": None,
+        }
+        chars = list_characters(conn)
+        if not chars:
+            ctx["error"] = "Nejsi přihlášen."
+            conn.close()
+            return _tr("orders.html", request, ctx)
+
+        async def _orders_for(cid: int, cname: str) -> list[dict]:
+            tok = _get_valid_token_for(conn, cid)
+            if not tok:
+                return []
+            async with httpx.AsyncClient() as client:
+                if state == "history":
+                    raw = await orders_api.fetch_orders_history(client, cid, tok)
+                else:
+                    raw = await orders_api.fetch_orders(client, cid, tok)
+                decorated = await _finalize_orders(conn, raw, _type_names, tok)
+            for o in decorated:
+                o["char_id"] = cid
+                o["char_name"] = cname
+            return decorated
+
+        try:
+            results = await asyncio.gather(*[_orders_for(cid, cn) for cid, cn in chars])
+            merged = [o for r in results for o in r]
+            merged.sort(key=lambda x: x.get("issued", ""), reverse=True)
+            ctx["orders"] = merged
+        except Exception as exc:
+            ctx["error"] = f"Chyba při načítání orderů: {exc}"
+        conn.close()
+        return _tr("orders.html", request, ctx)
+
     plan_char_id: int | None = None
     if char.isdigit() and get_character_row(conn, int(char)):
         plan_char_id = int(char)
@@ -4333,6 +4382,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
 
     ctx: dict = {
         "scope": scope, "state": state, "orders_char_id": plan_char_id,
+        "all_chars": False,
         "orders": [], "error": None, "corp_error": None, "corp_name": None,
     }
     if not plan_char_id:
@@ -4345,15 +4395,6 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
         ctx["error"] = "Token postavy vypršel — přihlas se znovu."
         conn.close()
         return _tr("orders.html", request, ctx)
-
-    def _type_names(type_ids: set[int]) -> dict[int, str]:
-        type_ids = {t for t in type_ids if t}
-        if not type_ids:
-            return {}
-        ph = ",".join("?" * len(type_ids))
-        return {r[0]: r[1] for r in conn.execute(
-            f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(type_ids)
-        ).fetchall()}
 
     try:
         async with httpx.AsyncClient() as client:
