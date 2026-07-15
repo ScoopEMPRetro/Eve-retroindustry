@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.20"
+APP_VERSION = "0.8.21"
 
 import asyncio
 import datetime
@@ -4336,12 +4336,16 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
             f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(type_ids)
         ).fetchall()}
 
-    # ── All characters: osobní ordery napříč všemi postavami, otagované jménem ──
+    # ── All characters: ordery napříč všemi postavami, otagované "party" ──
+    #   personal → jedna sada na postavu (party = postava)
+    #   corp     → jedna sada na UNIKÁTNÍ korporaci (party = korporace), ať se
+    #              nedplikují sdílené corp ordery, když je víc postav v jedné corp
     if all_chars:
+        is_corp = (scope == "corp")
         ctx: dict = {
-            "scope": "personal", "state": state, "orders_char_id": None,
-            "all_chars": True, "orders": [], "error": None,
-            "corp_error": None, "corp_name": None,
+            "scope": "corp" if is_corp else "personal", "state": state,
+            "orders_char_id": None, "all_chars": True, "orders": [],
+            "error": None, "corp_error": None, "corp_name": None,
         }
         chars = list_characters(conn)
         if not chars:
@@ -4349,7 +4353,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
             conn.close()
             return _tr("orders.html", request, ctx)
 
-        async def _orders_for(cid: int, cname: str) -> list[dict]:
+        async def _char_orders(cid: int, cname: str) -> list[dict]:
             tok = _get_valid_token_for(conn, cid)
             if not tok:
                 return []
@@ -4360,12 +4364,51 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
                     raw = await orders_api.fetch_orders(client, cid, tok)
                 decorated = await _finalize_orders(conn, raw, _type_names, tok)
             for o in decorated:
-                o["char_id"] = cid
-                o["char_name"] = cname
+                o["party_id"], o["party_name"], o["party_kind"] = cid, cname, "char"
+            return decorated
+
+        async def _corp_orders(corp_id: int, corp_name: str, tok: str) -> list[dict]:
+            async with httpx.AsyncClient() as client:
+                if state == "history":
+                    raw = await orders_api.fetch_corp_orders_history(client, corp_id, tok)
+                else:
+                    raw, _err = await orders_api.fetch_corp_orders(client, corp_id, tok)
+                    raw = raw or []
+                decorated = await _finalize_orders(conn, raw, _type_names, tok)
+            for o in decorated:
+                o["party_id"], o["party_name"], o["party_kind"] = corp_id, corp_name, "corp"
             return decorated
 
         try:
-            results = await asyncio.gather(*[_orders_for(cid, cn) for cid, cn in chars])
+            if is_corp:
+                # unikátní corp → token postavy v ní
+                corp_token: dict[int, str] = {}
+                async with httpx.AsyncClient() as client:
+                    for cid, _cn in chars:
+                        tok = _get_valid_token_for(conn, cid)
+                        if not tok:
+                            continue
+                        crow = get_character_row(conn, cid) or {}
+                        corp_id = crow.get("corporation_id")
+                        if not corp_id:
+                            try:
+                                cr = await client.get(
+                                    f"https://esi.evetech.net/latest/characters/{cid}/", timeout=10)
+                                if cr.status_code == 200:
+                                    corp_id = cr.json().get("corporation_id")
+                                    if corp_id:
+                                        update_corporation_id(conn, cid, corp_id)
+                            except Exception:
+                                pass
+                        if corp_id and corp_id not in corp_token:
+                            corp_token[corp_id] = tok
+                corp_names = await _resolve_party_names(set(corp_token)) if corp_token else {}
+                results = await asyncio.gather(*[
+                    _corp_orders(corp_id, corp_names.get(corp_id, str(corp_id)), tok)
+                    for corp_id, tok in corp_token.items()
+                ])
+            else:
+                results = await asyncio.gather(*[_char_orders(cid, cn) for cid, cn in chars])
             merged = [o for r in results for o in r]
             merged.sort(key=lambda x: x.get("issued", ""), reverse=True)
             ctx["orders"] = merged

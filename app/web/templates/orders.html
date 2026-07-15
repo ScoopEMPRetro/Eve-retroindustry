@@ -36,25 +36,21 @@
 
 {% set char_param = 'all' if all_chars else orders_char_id %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  {# Personal / Corp — nedává smysl v režimu "all" (ten je vždy osobní) #}
-  {% if not all_chars %}
+  {# Personal / Corp (funguje i v režimu "all" — přes char_param) #}
   <ul class="nav nav-pills mb-0" style="gap:.5rem">
     <li class="nav-item">
       <a class="nav-link {% if scope != 'corp' %}active{% endif %}"
-         href="/orders?char={{ orders_char_id }}&scope=personal&state={{ state }}">
+         href="/orders?char={{ char_param }}&scope=personal&state={{ state }}">
         <i class="bi bi-person me-1"></i>Personal
       </a>
     </li>
     <li class="nav-item">
       <a class="nav-link {% if scope == 'corp' %}active{% endif %}"
-         href="/orders?char={{ orders_char_id }}&scope=corp&state={{ state }}">
+         href="/orders?char={{ char_param }}&scope=corp&state={{ state }}">
         <i class="bi bi-building me-1"></i>Corporation
       </a>
     </li>
   </ul>
-  {% else %}
-  <span class="text-muted small"><i class="bi bi-people me-1"></i>All characters — personal orders</span>
-  {% endif %}
   {# Active / History #}
   <ul class="nav nav-pills mb-0" style="gap:.5rem">
     <li class="nav-item">
@@ -85,7 +81,7 @@
     <table class="table table-hover table-sm mb-0 align-middle" style="font-size:.85rem">
       <thead>
         <tr>
-          {% if all_chars %}<th>Character</th>{% endif %}
+          {% if all_chars %}<th>{{ 'Corporation' if scope == 'corp' else 'Character' }}</th>{% endif %}
           <th>Item</th><th>Location</th>
           <th class="text-end">Price/unit (ISK)</th>
           <th class="text-end">{% if state == 'history' %}Filled{% else %}Remaining{% endif %}</th>
@@ -100,9 +96,14 @@
           {% if all_chars %}
           <td class="text-nowrap">
             <span class="d-inline-flex align-items-center gap-1">
-              <img loading="lazy" src="https://images.evetech.net/characters/{{ o.char_id }}/portrait?size=32"
+              {% if o.party_kind == 'corp' %}
+              <img loading="lazy" src="https://images.evetech.net/corporations/{{ o.party_id }}/logo?size=32"
+                   width="18" height="18" class="rounded">
+              {% else %}
+              <img loading="lazy" src="https://images.evetech.net/characters/{{ o.party_id }}/portrait?size=32"
                    width="18" height="18" class="rounded-circle">
-              <span style="font-size:.78rem">{{ o.char_name }}</span>
+              {% endif %}
+              <span style="font-size:.78rem">{{ o.party_name }}</span>
             </span>
           </td>
           {% endif %}
