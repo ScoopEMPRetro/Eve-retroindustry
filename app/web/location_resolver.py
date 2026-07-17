@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import httpx
+from app.esi.client import esi_client
 
 ESI_BASE = "https://esi.evetech.net/latest"
 _cache: dict[int, str] = {}
@@ -69,7 +70,7 @@ async def get_security_status(
         return row[0]
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             r = await client.get(
                 f"{ESI_BASE}/universe/systems/{system_id}/",
                 params={"datasource": "tranquility"},
@@ -152,7 +153,7 @@ async def get_region_for_location(conn: sqlite3.Connection, location_id: int, to
 
     # Pokud nemáme system_id, resolve stanici
     if not sys_id:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             _, sys_id = await resolve_station_name(client, location_id, token)
         if sys_id:
             conn.execute(
@@ -166,7 +167,7 @@ async def get_region_for_location(conn: sqlite3.Connection, location_id: int, to
 
     # system → constellation → region (2 ESI volání)
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             sys_r = await client.get(
                 f"{ESI_BASE}/universe/systems/{sys_id}/",
                 params={"datasource": "tranquility"}, timeout=8,
@@ -304,7 +305,7 @@ async def resolve_station_names_bulk(
     else:
         db_names = {}
 
-    async with httpx.AsyncClient() as client:
+    async with esi_client() as client:
         tasks = [resolve_station_name(client, lid, token) for lid in location_ids]
         results = await asyncio.gather(*tasks)
 

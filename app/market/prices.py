@@ -9,6 +9,7 @@ import asyncio
 import time
 import sqlite3
 import httpx
+from app.esi.client import esi_client
 
 ESI_BASE = "https://esi.evetech.net/latest"
 JITA_REGION = 10000002   # The Forge
@@ -332,7 +333,7 @@ async def get_region_for_structure(structure_id: int) -> int | None:
     if structure_id in _region_cache:
         return _region_cache[structure_id]
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             # NPC stanice: /universe/stations/{id}/ → system_id
             if structure_id < 1_000_000_000_000:
                 r = await client.get(f"{ESI_BASE}/universe/stations/{structure_id}/",
@@ -380,7 +381,7 @@ async def fetch_structure_market(
     aggregated: dict[int, dict] = {}
     page = 1
 
-    async with httpx.AsyncClient() as client:
+    async with esi_client() as client:
         while True:
             try:
                 r = await client.get(
@@ -439,7 +440,7 @@ async def fetch_structure_market(
 
     history_map: dict[int, int | None] = {}
     if region_id and our_type_ids:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             hist_tasks = {tid: _fetch_region_volume(client, region_id, tid) for tid in our_type_ids}
             hist_results = await asyncio.gather(*hist_tasks.values(), return_exceptions=True)
         for tid, res in zip(hist_tasks.keys(), hist_results):
@@ -499,7 +500,7 @@ async def fetch_station_volumes(
 ) -> dict[int, tuple[int | None, float | None, int | None]]:
     """Stáhne a uloží objemy+ceny+historii pro všechny type_ids na dané NPC stanici."""
     ensure_price_table(conn)
-    async with httpx.AsyncClient() as client:
+    async with esi_client() as client:
         order_tasks = [_fetch_orders_for_type(client, region_id, location_id, tid) for tid in type_ids]
         order_results = await asyncio.gather(*order_tasks, return_exceptions=True)
 
@@ -511,7 +512,7 @@ async def fetch_station_volumes(
     # nemají order (jinak by u nich "prodáno za 7 dní" chybělo).
     history_map: dict[int, int | None] = {}
     if type_ids:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             hist_tasks = [_fetch_region_volume(client, region_id, tid) for tid in type_ids]
             hist_results = await asyncio.gather(*hist_tasks, return_exceptions=True)
         for tid, res in zip(type_ids, hist_results):

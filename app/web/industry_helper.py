@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import time
 import httpx
+from app.esi.client import esi_client
 
 ESI_BASE = "https://esi.evetech.net/latest"
 
@@ -669,7 +670,7 @@ async def get_adjusted_prices(conn: sqlite3.Connection) -> dict[int, float]:
         rows = conn.execute("SELECT type_id, adjusted FROM adjusted_price_cache").fetchall()
         return {r[0]: r[1] for r in rows}
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             r = await client.get(
                 f"{ESI_BASE}/markets/prices/",
                 params={"datasource": "tranquility"},
@@ -714,7 +715,7 @@ async def get_sci_for_system(
         if row:
             return row[0]
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             r = await client.get(
                 f"{ESI_BASE}/industry/systems/",
                 params={"datasource": "tranquility"},

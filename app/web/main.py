@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.21"
+APP_VERSION = "0.8.22"
 
 import asyncio
 import datetime
@@ -15,6 +15,7 @@ import zipfile as _zipfile
 from pathlib import Path
 
 import httpx
+from app.esi.client import esi_client
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -379,7 +380,7 @@ async def setup_download():
     async def _stream():
         tmp_path = DB_ABS + ".download"
         try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
+            async with esi_client(follow_redirects=True, timeout=120) as client:
                 async with client.stream("GET", SDE_DOWNLOAD_URL) as r:
                     if r.status_code != 200:
                         yield f"data: {json.dumps({'error': f'HTTP {r.status_code}'})}\n\n"
@@ -495,7 +496,7 @@ async def _fetch_wallet_balance(
     if not token:
         return row[0] if row else None
     try:
-        async with httpx.AsyncClient(timeout=8) as client:
+        async with esi_client(timeout=8) as client:
             r = await client.get(
                 f"https://esi.evetech.net/latest/characters/{char_id}/wallet/",
                 headers={"Authorization": f"Bearer {token}"},
@@ -700,7 +701,7 @@ async def _ensure_groups_populated(conn: sqlite3.Connection) -> None:
                 pass
             return None
 
-    async with httpx.AsyncClient() as client:
+    async with esi_client() as client:
         results = await asyncio.gather(*[_fetch(client, gid) for gid in group_ids])
 
     for row in results:
@@ -924,7 +925,7 @@ async def _bg_initial_sync():
         all_loc_ids: set[int] = set()
         any_token: str | None = None
 
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             for char_id, _name in chars:
                 try:
                     token = _get_valid_token_for(conn, char_id)
@@ -1103,7 +1104,7 @@ async def dashboard(request: Request):
         })
         if corp_ids:
             try:
-                async with httpx.AsyncClient(timeout=5) as client:
+                async with esi_client(timeout=5) as client:
                     r = await client.post(
                         "https://esi.evetech.net/latest/universe/names/",
                         json=corp_ids,
@@ -1166,7 +1167,7 @@ async def dashboard(request: Request):
             tok = _get_valid_token_for(conn, cid)
             if not tok:
                 return {}, []
-            async with httpx.AsyncClient() as client:
+            async with esi_client() as client:
                 return await asyncio.gather(
                     fetch_location(client, cid, tok),
                     fetch_skill_queue(client, cid, tok),
@@ -1199,7 +1200,7 @@ async def dashboard(request: Request):
         sys_names: dict[int, str] = {}
         if _sys_ids:
             try:
-                async with httpx.AsyncClient(timeout=5) as client:
+                async with esi_client(timeout=5) as client:
                     rr = await client.post(
                         "https://esi.evetech.net/latest/universe/names/",
                         json=list(_sys_ids), headers={"Accept": "application/json"},
@@ -1334,7 +1335,7 @@ async def plan_form(request: Request, char: str = "", station: str = ""):
         raw = _load_assets_from_cache(conn, char_row["character_id"])
         location_ids = sorted({a["location_id"] for a in raw if not a.get("is_singleton", False)})
         if token:
-            async with httpx.AsyncClient() as client:
+            async with esi_client() as client:
                 char_skills = await fetch_skills(client, char_row["character_id"], token, conn)
         else:
             char_skills = get_cached_skills(conn, char_row["character_id"])
@@ -1521,7 +1522,7 @@ async def plan_result(
         char = (row["character_id"], row["character_name"])
         char_id, _ = char
 
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             session = get_session()
             if product.strip().isdigit():
                 type_id = int(product.strip())
@@ -1543,7 +1544,7 @@ async def plan_result(
                     type_name = await resolve_type(client, session, type_id)
             session.close()
 
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             blueprints, all_assets, char_skills = await asyncio.gather(
                 fetch_blueprints(client, char_id, token, conn),
                 fetch_assets(client, char_id, token, conn),
@@ -2306,7 +2307,7 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
     corp_data: dict[int, tuple[int, list]] = {}  # char_id → (corp_id, assets list)
     primary_token: str | None = None
     if selected_chars:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             for cid, _name in selected_chars:
                 tok = _get_valid_token_for(conn, cid)
                 if not tok:
@@ -2783,7 +2784,7 @@ async def assets_distances(request: Request):
         return {"ok": False, "error": "Nepřihlášen"}
     char_id, _ = char
 
-    async with httpx.AsyncClient() as client:
+    async with esi_client() as client:
         r = await client.get(
             f"https://esi.evetech.net/latest/characters/{char_id}/location/",
             params={"datasource": "tranquility"},
@@ -2820,7 +2821,7 @@ async def assets_distances(request: Request):
         except Exception:
             return -1
 
-    async with httpx.AsyncClient() as client:
+    async with esi_client() as client:
         results = await asyncio.gather(*[_jumps(client, s) for s in unique_sys])
     sys_jumps = dict(zip(unique_sys, results))
 
@@ -2843,7 +2844,7 @@ async def _resolve_corp_container_names(
     result: dict[int, tuple[str, int]] = {}
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             r = await client.post(
                 f"https://esi.evetech.net/latest/corporations/{corp_id}/assets/names/",
                 params={"datasource": "tranquility"},
@@ -2897,7 +2898,7 @@ async def _resolve_container_names(
     _ = parent_ids  # parent IDs se resolvují zvlášť přes resolve_station_names_bulk
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             r = await client.post(
                 f"https://esi.evetech.net/latest/characters/{char_id}/assets/names/",
                 params={"datasource": "tranquility"},
@@ -2961,7 +2962,7 @@ async def blueprints_page(request: Request, search: str = "", view: str = ""):
     char_name_by_id = {cid: name for cid, name in all_chars}
 
     if selected_chars:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             all_unique_type_ids: set[int] = set()
             for cid_sel, _name in selected_chars:
                 tok = _get_valid_token_for(conn, cid_sel)
@@ -3243,7 +3244,7 @@ async def suggest_station(request: Request, q: str = ""):
 
     # ESI search — NPC stanice + systémy + player struktury (paralelně)
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             esi_tasks: list = [
                 client.get(
                     "https://esi.evetech.net/latest/search/",
@@ -3390,7 +3391,7 @@ async def add_station(request: Request, raw: str = Form(...)):
 
     # Zkus ESI
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             if structure_id < 1_000_000_000_000:
                 r = await client.get(
                     f"https://esi.evetech.net/latest/universe/stations/{structure_id}/",
@@ -3452,7 +3453,7 @@ async def location_resolve(request: Request, location_id: int):
         return {"ok": False, "error": "Nepřihlášen"}
     from app.web.location_resolver import resolve_station_name, _cache
     _cache.pop(location_id, None)  # vynutí čerstvé ESI volání
-    async with httpx.AsyncClient() as client:
+    async with esi_client() as client:
         name, sys_id = await resolve_station_name(client, location_id, token)
     resolved = name != str(location_id) and not name.startswith("[Privátní")
     if resolved:
@@ -3478,7 +3479,7 @@ async def my_location(request: Request):
     ensure_location_name_table(conn)
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             r = await client.get(
                 f"https://esi.evetech.net/latest/characters/{char[0]}/location/",
                 params={"datasource": "tranquility"},
@@ -3494,7 +3495,7 @@ async def my_location(request: Request):
 
         if not structure_id:
             # Načti jméno systému
-            async with httpx.AsyncClient() as client:
+            async with esi_client() as client:
                 sr = await client.get(
                     f"https://esi.evetech.net/latest/universe/systems/{sys_id}/",
                     params={"datasource": "tranquility"}, timeout=5,
@@ -3505,7 +3506,7 @@ async def my_location(request: Request):
         # Vyřeš jméno struktury/stanice a ulož do cache
         resolved_name = str(structure_id)
         try:
-            async with httpx.AsyncClient() as client:
+            async with esi_client() as client:
                 if structure_id < 1_000_000_000_000:
                     r2 = await client.get(
                         f"https://esi.evetech.net/latest/universe/stations/{structure_id}/",
@@ -3796,7 +3797,7 @@ async def _bg_fetch_prices(type_ids: list[int]) -> None:
     from app.market.prices import fetch_jita_prices_bulk as _bulk
     conn = get_conn()
     try:
-        async with _httpx.AsyncClient() as client:
+        async with _esi_client() as client:
             await _bulk(client, conn, type_ids, force=True)
     except Exception:
         pass
@@ -4072,7 +4073,7 @@ async def _resolve_party_names(ids: set[int]) -> dict[int, str]:
     if not ids:
         return out
     id_list = list(ids)
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with esi_client(timeout=10) as client:
         for i in range(0, len(id_list), 1000):  # ESI limit 1000/req
             chunk = id_list[i:i + 1000]
             try:
@@ -4133,7 +4134,7 @@ async def wallet_page(request: Request, char: str = "", scope: str = "personal",
         ).fetchall()}
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             if scope == "corp":
                 corp_id = row.get("corporation_id")
                 if not corp_id:
@@ -4357,7 +4358,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
             tok = _get_valid_token_for(conn, cid)
             if not tok:
                 return []
-            async with httpx.AsyncClient() as client:
+            async with esi_client() as client:
                 if state == "history":
                     raw = await orders_api.fetch_orders_history(client, cid, tok)
                 else:
@@ -4368,7 +4369,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
             return decorated
 
         async def _corp_orders(corp_id: int, corp_name: str, tok: str) -> list[dict]:
-            async with httpx.AsyncClient() as client:
+            async with esi_client() as client:
                 if state == "history":
                     raw = await orders_api.fetch_corp_orders_history(client, corp_id, tok)
                 else:
@@ -4383,7 +4384,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
             if is_corp:
                 # unikátní corp → token postavy v ní
                 corp_token: dict[int, str] = {}
-                async with httpx.AsyncClient() as client:
+                async with esi_client() as client:
                     for cid, _cn in chars:
                         tok = _get_valid_token_for(conn, cid)
                         if not tok:
@@ -4440,7 +4441,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
         return _tr("orders.html", request, ctx)
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             if scope == "corp":
                 corp_id = row.get("corporation_id")
                 if not corp_id:
@@ -4523,7 +4524,7 @@ async def jobs_page(request: Request):
         tok = _get_valid_token_for(conn, cid)
         if not tok:
             return cid, []
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             return cid, await jobs_api.fetch_industry_jobs(client, cid, tok)
 
     results = await asyncio.gather(*[_one(cid) for cid, _ in chars])
@@ -4664,7 +4665,7 @@ async def api_version_check():
     if _VERSION_CACHE and (now - _VERSION_CACHE_TS) < _VERSION_CACHE_TTL:
         return _VERSION_CACHE
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with esi_client(timeout=10) as client:
             r = await client.get(
                 f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest",
                 headers={"Accept": "application/vnd.github+json", "User-Agent": "EVE-Retroindustry"},
@@ -4711,7 +4712,7 @@ async def api_version_download(url: str):
         staging = app_dir / "update_staging"
         tmp_zip = app_dir / "update.zip.tmp"
         try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=300) as client:
+            async with esi_client(follow_redirects=True, timeout=300) as client:
                 async with client.stream("GET", url) as r:
                     if r.status_code != 200:
                         yield f"data: {json.dumps({'error': f'HTTP {r.status_code}'})}\n\n"

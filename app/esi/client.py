@@ -5,6 +5,20 @@ from typing import Optional
 ESI_BASE = "https://esi.evetech.net/latest"
 FUZZWORK_BASE = "https://www.fuzzwork.co.uk"
 
+# ESI date-based verzování: pinneme chování k pevnému datu (X-Compatibility-Date),
+# ať nás budoucí breaking changes nerozbijou. Datum měň jen při vědomém přechodu
+# na novější chování API. /latest v URL zůstává funkční, header má přednost.
+ESI_COMPAT_DATE = "2026-07-17"
+
+
+def esi_client(**kwargs) -> httpx.AsyncClient:
+    """httpx.AsyncClient s přednastavenou hlavičkou X-Compatibility-Date pro
+    všechna ESI volání. Pro ne-ESI hosty (GitHub, obrázky) je hlavička neškodná.
+    Per-request headers se s touto klientskou hlavičkou slučují."""
+    headers = {"X-Compatibility-Date": ESI_COMPAT_DATE}
+    headers.update(kwargs.pop("headers", None) or {})
+    return httpx.AsyncClient(headers=headers, **kwargs)
+
 # Rate limiting: ESI dovoluje ~150 req/s, Fuzzwork je pomalejší
 ESI_SEMAPHORE = asyncio.Semaphore(20)
 FUZZ_SEMAPHORE = asyncio.Semaphore(5)

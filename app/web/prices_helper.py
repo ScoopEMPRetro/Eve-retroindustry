@@ -9,6 +9,7 @@ import json as _json
 import sqlite3
 import time
 import httpx
+from app.esi.client import esi_client
 
 from app.market.prices import (
     fetch_adjusted_prices,
@@ -99,7 +100,7 @@ async def get_prices_for_ids(
     adjusted: dict[int, tuple[float | None, float | None]] = {}
 
     if missing:
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             adj_raw = await fetch_adjusted_prices(client)
         for tid in missing:
             entry = adj_raw.get(tid, {})
@@ -251,7 +252,7 @@ async def _fill_volumes(
         return tid, vol
 
     updated = 0
-    async with httpx.AsyncClient() as client:
+    async with esi_client() as client:
         # Zpracovávej v dávkách aby šel průběh hlásit a commitnout postupně.
         for start in range(0, total, BATCH):
             batch = type_ids[start:start + BATCH]
@@ -286,7 +287,7 @@ async def refresh_jita_prices_all(conn: sqlite3.Connection, type_ids: list[int])
     """
     ensure_price_table(conn)
     wanted = set(type_ids)
-    async with httpx.AsyncClient() as client:
+    async with esi_client() as client:
         bulk = await fetch_region_orders_bulk(client, JITA_REGION)
     refreshed, traded = _persist_bulk_orders(conn, bulk, wanted)
     if traded:
@@ -310,7 +311,7 @@ async def stream_jita_refresh(conn: sqlite3.Connection, type_ids: list[int]):
     bulk_holder: dict = {}
 
     async def _run():
-        async with httpx.AsyncClient() as client:
+        async with esi_client() as client:
             bulk_holder.update(
                 await fetch_region_orders_bulk(client, JITA_REGION, progress_cb=_progress)
             )
