@@ -11,12 +11,22 @@ FUZZWORK_BASE = "https://www.fuzzwork.co.uk"
 ESI_COMPAT_DATE = "2026-07-17"
 
 
+# Connection pool musí pokrýt naši souběžnost (semafory až 30), jinak je refresh
+# úzkým hrdlem: httpx default max_keepalive_connections=20 recykluje jen ~20
+# spojení a zbytek platí TLS handshake pořád dokola — s keepalive 50 je bulk
+# volume/orders refresh ~2.8× rychlejší (naměřeno). Zůstáváme na 30 souběžných
+# (semafor), takže pod ESI rate-limitem.
+_ESI_LIMITS = httpx.Limits(max_connections=50, max_keepalive_connections=50)
+
+
 def esi_client(**kwargs) -> httpx.AsyncClient:
-    """httpx.AsyncClient s přednastavenou hlavičkou X-Compatibility-Date pro
-    všechna ESI volání. Pro ne-ESI hosty (GitHub, obrázky) je hlavička neškodná.
-    Per-request headers se s touto klientskou hlavičkou slučují."""
+    """httpx.AsyncClient s přednastavenou hlavičkou X-Compatibility-Date a
+    connection poolem dimenzovaným na náš concurrency (viz _ESI_LIMITS). Pro
+    ne-ESI hosty (GitHub, obrázky) je obojí neškodné. Per-request headers se
+    s klientskou hlavičkou slučují; volající může limits přebít přes kwargs."""
     headers = {"X-Compatibility-Date": ESI_COMPAT_DATE}
     headers.update(kwargs.pop("headers", None) or {})
+    kwargs.setdefault("limits", _ESI_LIMITS)
     return httpx.AsyncClient(headers=headers, **kwargs)
 
 # Rate limiting: ESI dovoluje ~150 req/s, Fuzzwork je pomalejší
