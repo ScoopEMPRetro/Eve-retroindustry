@@ -328,7 +328,10 @@ async def _maybe_call(cb, *args):
         cb(*args)
 
 
-_STATION_SEM = asyncio.Semaphore(20)
+# Per-type orders na custom stanici (fáze A ve fetch_station_volumes). Běží
+# sekvenčně před history fází (_HIST_SEM), takže se concurrency nesčítá — 30 je
+# bezpečné pod ESI rate-limitem (stejně jako _HIST_SEM).
+_STATION_SEM = asyncio.Semaphore(30)
 STATION_VOLUME_TTL = 60 * 30
 _region_cache: dict[int, int] = {}  # structure_id → region_id (in-memory)
 
