@@ -22,7 +22,12 @@ PRICE_CACHE_TTL = 60 * 60 * 12  # 12 hodin
 # ~3 s, user obvykle refreshuje 1× denně.
 
 _JITA_SEM = asyncio.Semaphore(10)
-_HIST_SEM = asyncio.Semaphore(10)
+# 7-day history se tahá per-type (žádný bulk endpoint), takže je to dominantní
+# část refreshe (~19k volání). Concurrency 30 = ~2.5× rychlejší než 10 (515 vs
+# 204 req/s naměřeno) a přitom bezpečně pod ESI rate-limitem — od ~45 souběžných
+# začne ESI vracet HTTP 420 (error-limit), což je pomalejší A poškozuje sdílený
+# error budget celé appky. 30 drží nulu 420 s rezervou.
+_HIST_SEM = asyncio.Semaphore(30)
 
 
 # ---------------------------------------------------------------------------
