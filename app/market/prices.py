@@ -265,27 +265,22 @@ async def _fetch_orders_page(
         return [], 0
 
 
-async def fetch_region_orders_bulk(
+async def _fetch_all_region_orders(
     client: httpx.AsyncClient,
-    region_id: int = JITA_REGION,
+    region_id: int,
     progress_cb=None,
-) -> dict[int, dict]:
-    """Stáhne VŠECHNY aktivní orders pro region paginovaně a agreguje
-    per type_id: {type_id: {sell, buy, jita_available}}.
-
-    Tohle je řádově efektivnější než per-type call: ~500 stránek vs. 19k volání.
-    progress_cb(page, total_pages) zavoláno po každé stránce (pokud zadáno).
-    """
-    # První stránka — odhalí celkový počet stránek
+) -> list[list[dict]]:
+    """Stáhne VŠECHNY stránky orders regionu paginovaně (paralelně, _JITA_SEM).
+    Vrátí seznam stránek (každá = list orderů). progress_cb(done, total) po každé
+    stránce. Sdíleno mezi region-bulk a station-bulk agregací."""
     first, total_pages = await _fetch_orders_page(client, region_id, 1)
     if not first and total_pages == 0:
-        return {}
+        return []
 
     pages_data: list[list[dict]] = [first]
     if progress_cb:
         await _maybe_call(progress_cb, 1, total_pages)
 
-    # Zbylé stránky paralelně (semaphore _JITA_SEM omezí počet souběžných requestů)
     remaining = list(range(2, total_pages + 1))
     completed = [1]
     lock = asyncio.Lock()
@@ -299,6 +294,55 @@ async def fetch_region_orders_bulk(
                 await _maybe_call(progress_cb, completed[0], total_pages)
 
     await asyncio.gather(*[_one(p) for p in remaining], return_exceptions=True)
+    return pages_data
+
+
+async def fetch_station_orders_bulk(
+    client: httpx.AsyncClient,
+    region_id: int,
+    location_id: int,
+    progress_cb=None,
+) -> dict[int, tuple[int, float]]:
+    """Bulk varianta pro konkrétní stanici: stáhne regionální ordery jednou
+    (~stránky, ne ~19k per-type volání) a vrátí {type_id: (sell_volume_sum,
+    best_sell)} agregované JEN pro sell ordery na dané location_id.
+
+    Řádově rychlejší než per-type `_fetch_orders_for_type` pro velké type_ids."""
+    pages_data = await _fetch_all_region_orders(client, region_id, progress_cb)
+    agg: dict[int, tuple[int, float]] = {}
+    for page_orders in pages_data:
+        for o in page_orders:
+            if o.get("is_buy_order"):
+                continue
+            if o.get("location_id") != location_id:
+                continue
+            tid = o.get("type_id")
+            price = o.get("price")
+            if tid is None or price is None:
+                continue
+            vol = int(o.get("volume_remain", 0))
+            cur = agg.get(tid)
+            if cur is None:
+                agg[tid] = (vol, price)
+            else:
+                agg[tid] = (cur[0] + vol, min(cur[1], price))
+    return agg
+
+
+async def fetch_region_orders_bulk(
+    client: httpx.AsyncClient,
+    region_id: int = JITA_REGION,
+    progress_cb=None,
+) -> dict[int, dict]:
+    """Stáhne VŠECHNY aktivní orders pro region paginovaně a agreguje
+    per type_id: {type_id: {sell, buy, jita_available}}.
+
+    Tohle je řádově efektivnější než per-type call: ~500 stránek vs. 19k volání.
+    progress_cb(page, total_pages) zavoláno po každé stránce (pokud zadáno).
+    """
+    pages_data = await _fetch_all_region_orders(client, region_id, progress_cb)
+    if not pages_data:
+        return {}
 
     # Agregace per type_id
     agg: dict[int, dict] = {}
@@ -333,6 +377,9 @@ async def _maybe_call(cb, *args):
 # bezpečné pod ESI rate-limitem (stejně jako _HIST_SEM).
 _STATION_SEM = asyncio.Semaphore(30)
 STATION_VOLUME_TTL = 60 * 30
+# Od tolika type_ids se ve fetch_station_volumes vyplatí bulk (jeden region
+# download) místo per-type volání. Pod prahem je per-type lehčí a rychlejší.
+_BULK_ORDERS_THRESHOLD = 1000
 _region_cache: dict[int, int] = {}  # structure_id → region_id (in-memory)
 
 
@@ -508,13 +555,26 @@ async def fetch_station_volumes(
 ) -> dict[int, tuple[int | None, float | None, int | None]]:
     """Stáhne a uloží objemy+ceny+historii pro všechny type_ids na dané NPC stanici."""
     ensure_price_table(conn)
-    async with esi_client() as client:
-        order_tasks = [_fetch_orders_for_type(client, region_id, location_id, tid) for tid in type_ids]
-        order_results = await asyncio.gather(*order_tasks, return_exceptions=True)
 
+    # Fáze A (ceny): dvě strategie podle počtu typů.
+    #  - málo typů → per-type volání (lehké, žádný 94MB region download); vhodné
+    #    pro plan sell price (1 typ).
+    #  - hodně typů → bulk regionální ordery jednou + filtr na stanici (~2 s
+    #    místo ~37 s); crossover ~1000 typů (bulk má fixní ~2 s + 94MB overhead).
     order_map: dict[int, tuple] = {}
-    for tid, res in zip(type_ids, order_results):
-        order_map[tid] = res if isinstance(res, tuple) else (None, None)
+    if len(type_ids) >= _BULK_ORDERS_THRESHOLD:
+        async with esi_client() as client:
+            station_orders = await fetch_station_orders_bulk(client, region_id, location_id)
+        for tid in type_ids:
+            vs = station_orders.get(tid)
+            # typ bez sell orderu na stanici → (0, None), konzistentní s per-type
+            order_map[tid] = vs if vs is not None else (0, None)
+    else:
+        async with esi_client() as client:
+            order_tasks = [_fetch_orders_for_type(client, region_id, location_id, tid) for tid in type_ids]
+            order_results = await asyncio.gather(*order_tasks, return_exceptions=True)
+        for tid, res in zip(type_ids, order_results):
+            order_map[tid] = res if isinstance(res, tuple) else (None, None)
 
     # 7-day regionální volume pro VŠECHNY typy — i pro ty, co na stanici zrovna
     # nemají order (jinak by u nich "prodáno za 7 dní" chybělo).
