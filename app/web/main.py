@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.26"
+APP_VERSION = "0.8.27"
 
 import asyncio
 import datetime
@@ -1091,6 +1091,7 @@ async def dashboard(request: Request):
     corp_names: dict[int, str] = {}
     agg_bps = agg_assets = agg_locations = 0
     agg_value: float | None = None
+    agg_wallet: float | None = None   # veškerá hotovost — součet peněženek všech postav
 
     if logged_in:
         chars = list_characters(conn)
@@ -1157,6 +1158,9 @@ async def dashboard(request: Request):
                 ]),
             )
         )
+        _wallets = [w for w in wallet_balances.values() if w is not None]
+        if _wallets:
+            agg_wallet = sum(_wallets)
 
         # Aktuální poloha + skillování (živě z ESI, souběžně pro všechny postavy).
         import datetime as _dt
@@ -1306,6 +1310,7 @@ async def dashboard(request: Request):
         "agg_assets": agg_assets,
         "agg_locations": agg_locations,
         "agg_value": agg_value,
+        "agg_wallet": agg_wallet,
         "price_stats": price_stats,
         "login_busy": request.query_params.get("login_busy") == "1",
     })
