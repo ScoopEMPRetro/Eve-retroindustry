@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-updates.sh\"",
+            "timeout": 25,
+            "statusMessage": "Kontrola aktuálnosti repozitářů…"
+          }
+        ]
+      }
+    ]
+  }
+}
