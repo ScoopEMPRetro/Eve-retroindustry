@@ -42,3 +42,6 @@ android-poc/app/src/main/assets/
 # OS
 .DS_Store
 Thumbs.db
+
+# Privátní Claude kontext (symlink na repo eve-retroindustry-notes) — nikdy do public
+/CLAUDE.md
