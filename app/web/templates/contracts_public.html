@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Public Contracts — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h4 class="mb-0"><i class="bi bi-globe me-2 text-primary"></i>Public Contracts</h4>
+  <a href="/contracts" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person me-1"></i>My contracts</a>
+</div>
+
+{% if error %}
+<div class="alert alert-danger"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
+{% endif %}
+
+{# Výběr regionu #}
+<form method="get" action="/contracts/public" class="card mb-3">
+  <div class="card-body d-flex align-items-end gap-2 flex-wrap">
+    <div style="flex:1;min-width:220px">
+      <label class="form-label small text-muted mb-1">Region (jméno nebo ID)</label>
+      <input type="text" name="region" value="{{ region_name }}" class="form-control form-control-sm"
+             placeholder="např. The Forge, Domain, Delve…" list="region-hints" autocomplete="off">
+      <datalist id="region-hints">
+        <option value="The Forge"><option value="Domain"><option value="Sinq Laison">
+        <option value="Heimatar"><option value="Metropolis"><option value="Delve">
+      </datalist>
+    </div>
+    <button class="btn btn-sm btn-eve"><i class="bi bi-search me-1"></i>Vybrat region</button>
+  </div>
+</form>
+
+{% if region_id %}
+<div class="card mb-3">
+  <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <div>
+      <span class="fw-semibold">{{ region_name }}</span>
+      {% if status %}
+      <span class="text-muted small ms-2">
+        {{ "{:,}".format(status.contract_count) }} kontraktů · indexováno
+        <span id="idx-age" data-ts="{{ status.indexed_at }}"></span>
+      </span>
+      {% else %}
+      <span class="text-warning small ms-2">region ještě nenaindexován</span>
+      {% endif %}
+    </div>
+    <button class="btn btn-sm {% if status %}btn-outline-secondary{% else %}btn-eve{% endif %}"
+            id="index-btn" onclick="indexRegion({{ region_id }})">
+      <i class="bi bi-cloud-download me-1"></i>{% if status %}Přeindexovat{% else %}Naindexovat region{% endif %}
+    </button>
+  </div>
+  <div id="index-progress" class="d-none px-3 pb-3">
+    <div class="d-flex justify-content-between small text-muted mb-1">
+      <span id="idx-label">Stahuji…</span><span id="idx-pct">0%</span>
+    </div>
+    <div class="progress" style="height:6px"><div id="idx-bar" class="progress-bar bg-warning" style="width:0%"></div></div>
+    <div class="text-muted mt-1" style="font-size:.72rem">Velký region (The Forge ~34k kontraktů) může trvat 1–2 min.</div>
+  </div>
+</div>
+{% endif %}
+
+{% if status %}
+{# Hledání v naindexovaném regionu #}
+<form method="get" action="/contracts/public" class="card mb-3">
+  <input type="hidden" name="region" value="{{ region_name }}">
+  <div class="card-body d-flex align-items-end gap-2 flex-wrap">
+    <div style="flex:2;min-width:200px">
+      <label class="form-label small text-muted mb-1">Item (obsah kontraktu)</label>
+      <input type="text" name="item" value="{{ item }}" class="form-control form-control-sm" placeholder="např. Raven, Tritanium…">
+    </div>
+    <div style="min-width:140px">
+      <label class="form-label small text-muted mb-1">Typ</label>
+      <select name="ctype" class="form-select form-select-sm">
+        <option value="" {% if not ctype %}selected{% endif %}>Všechny</option>
+        <option value="item_exchange" {% if ctype=='item_exchange' %}selected{% endif %}>Item Exchange</option>
+        <option value="auction" {% if ctype=='auction' %}selected{% endif %}>Auction</option>
+        <option value="courier" {% if ctype=='courier' %}selected{% endif %}>Courier</option>
+      </select>
+    </div>
+    <div style="min-width:130px">
+      <label class="form-label small text-muted mb-1">Max cena (ISK)</label>
+      <input type="number" name="max_price" value="{{ max_price }}" class="form-control form-control-sm" placeholder="—">
+    </div>
+    <button class="btn btn-sm btn-eve"><i class="bi bi-search me-1"></i>Hledat</button>
+  </div>
+</form>
+
+{% if results %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle" style="font-size:.85rem">
+      <thead><tr>
+        <th>Type</th><th>Contract</th><th>Location</th>
+        <th class="text-end">Price</th><th class="text-end">Reward</th>
+        <th>Issuer</th><th class="text-end">Expires</th>
+      </tr></thead>
+      <tbody>
+        {% for c in results %}
+        <tr>
+          <td><span class="badge" style="font-size:.65rem;background:
+            {%- if c.type == 'courier' %}#0b2d4a;color:#79c0ff
+            {%- elif c.type == 'auction' %}#2d2200;color:#b392f0
+            {%- else %}#3d2c00;color:#e3b341{% endif %}">{{ c.type_label }}</span></td>
+          <td style="max-width:280px">
+            {% if c.title %}<div class="text-truncate" title="{{ c.title }}">{{ c.title }}</div>{% endif %}
+            {% if c.type != 'courier' %}
+            <button class="btn btn-link p-0 text-decoration-none" style="font-size:.72rem"
+                    onclick="pubItems(this, {{ c.contract_id }})"><i class="bi bi-box me-1"></i>items</button>
+            <div class="pub-items text-muted" style="font-size:.75rem"></div>
+            {% endif %}
+          </td>
+          <td class="text-muted text-truncate" style="max-width:210px;font-size:.75rem">
+            {% if c.courier %}{{ c.start_name }} <i class="bi bi-arrow-right"></i> {{ c.end_name }}{% else %}{{ c.start_name }}{% endif %}
+          </td>
+          <td class="text-end" style="white-space:nowrap">{% if c.price %}{{ c.price | isk }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end" style="white-space:nowrap">{% if c.reward %}{{ c.reward | isk }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-muted text-truncate" style="max-width:130px;font-size:.78rem">{{ c.issuer_name }}</td>
+          <td class="text-end text-muted" style="white-space:nowrap;font-size:.75rem">{{ c.date_expired | replace('T',' ') | replace('Z','') | truncate(10,true,'') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<div class="text-muted small mt-2">{{ results | length }} výsledků (max 300)</div>
+{% else %}
+<div class="card"><div class="text-muted text-center py-4">Žádné kontrakty pro tento filtr.</div></div>
+{% endif %}
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// stáří indexu
+(function(){
+  const el = document.getElementById('idx-age');
+  if (!el) return;
+  const ts = parseFloat(el.dataset.ts) * 1000;
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  el.textContent = mins < 1 ? 'právě teď' : (mins < 60 ? mins + ' min' : Math.floor(mins/60) + ' h') + ' zpět';
+})();
+
+function indexRegion(regionId) {
+  const btn = document.getElementById('index-btn');
+  const prog = document.getElementById('index-progress');
+  btn.disabled = true;
+  prog.classList.remove('d-none');
+  const es = new EventSource('/api/contracts/public/index?region_id=' + regionId);
+  es.onmessage = (e) => {
+    const d = JSON.parse(e.data);
+    document.getElementById('idx-bar').style.width = (d.pct || 0) + '%';
+    document.getElementById('idx-pct').textContent = (d.pct || 0) + '%';
+    if (d.phase === 'list') document.getElementById('idx-label').textContent = `Výpis: ${d.done}/${d.total} stránek`;
+    else if (d.phase === 'items') document.getElementById('idx-label').textContent = `Položky: ${d.done}/${d.total} kontraktů`;
+    if (d.done) { es.close(); document.getElementById('idx-label').textContent = 'Hotovo, načítám…'; setTimeout(() => location.reload(), 800); }
+  };
+  es.onerror = () => { es.close(); document.getElementById('idx-label').textContent = 'Chyba spojení'; btn.disabled = false; };
+}
+
+async function pubItems(btn, contractId) {
+  const box = btn.parentElement.querySelector('.pub-items');
+  if (btn.dataset.loaded) { box.classList.toggle('d-none'); return; }
+  btn.disabled = true; const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const r = await fetch('/api/contracts/public/items?contract_id=' + contractId);
+    const d = await r.json();
+    box.innerHTML = (d.items && d.items.length)
+      ? d.items.map(it => `<div class="${it.included ? '' : 'text-danger'}">${it.included ? '' : '↩ '}${it.quantity.toLocaleString()}× ${it.name}</div>`).join('')
+      : '<span class="text-muted">(no items)</span>';
+    btn.dataset.loaded = '1'; btn.innerHTML = '<i class="bi bi-box me-1"></i>items';
+  } catch (e) { box.innerHTML = '<span class="text-danger">load failed</span>'; btn.innerHTML = orig; }
+  btn.disabled = false;
+}
+</script>
+{% endblock %}

@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.29"
+APP_VERSION = "0.8.30"
 
 import asyncio
 import datetime
@@ -36,6 +36,7 @@ from app.character import wallet as wallet_api
 from app.character import orders as orders_api
 from app.character import jobs as jobs_api
 from app.character import contracts as contracts_api
+from app.web import contracts_helper
 from app.character.assets import (
     fetch_assets, ensure_assets_table, assets_at_location,
     fetch_corp_assets, ensure_corp_assets_table,
@@ -4683,6 +4684,95 @@ async def api_contract_items(request: Request, contract_id: int,
             "included": it.get("is_included", True),
         } for it in items]
         return {"items": out}
+    finally:
+        conn.close()
+
+
+# ── Veřejné kontrakty (per-region index + lokální search) ─────────────────────
+
+async def _resolve_region_id(name_or_id: str) -> tuple[int | None, str]:
+    """Vrátí (region_id, region_name) z názvu nebo ID. (None,'') když nenalezeno."""
+    s = name_or_id.strip()
+    if not s:
+        return None, ""
+    if s.isdigit():
+        return int(s), s
+    try:
+        async with esi_client(timeout=10) as client:
+            r = await client.post("https://esi.evetech.net/latest/universe/ids/",
+                                  json=[s], headers={"Accept": "application/json"})
+            if r.status_code == 200:
+                regs = r.json().get("regions") or []
+                if regs:
+                    return regs[0]["id"], regs[0]["name"]
+    except Exception:
+        pass
+    return None, s
+
+
+@app.get("/contracts/public", response_class=HTMLResponse)
+async def public_contracts_page(request: Request, region: str = "", item: str = "",
+                                ctype: str = "", max_price: str = ""):
+    conn = get_conn()
+    ctx: dict = {
+        "region_name": region, "region_id": None, "status": None, "results": [],
+        "item": item, "ctype": ctype, "max_price": max_price, "error": None,
+    }
+    region_id, region_name = await _resolve_region_id(region)
+    ctx["region_id"] = region_id
+    ctx["region_name"] = region_name
+    if region and region_id is None:
+        ctx["error"] = f'Region „{region}" nenalezen.'
+    if region_id:
+        ctx["status"] = contracts_helper.get_index_status(conn, region_id)
+        if ctx["status"]:
+            mp = None
+            try:
+                mp = float(max_price) if max_price.strip() else None
+            except ValueError:
+                mp = None
+            results = contracts_helper.search_public_contracts(
+                conn, region_id, item=item, ctype=ctype, max_price=mp)
+            party_ids = {c["issuer_id"] for c in results if c["issuer_id"]}
+            loc_ids = {lid for c in results for lid in (c["start_location_id"], c["end_location_id"]) if lid}
+            party_names = await _resolve_party_names(party_ids) if party_ids else {}
+            loc_names: dict[int, str] = {}
+            if loc_ids:
+                any_tok = next((_get_valid_token_for(conn, cid) for cid, _ in list_characters(conn)
+                                if _get_valid_token_for(conn, cid)), None)
+                try:
+                    loc_names = await resolve_station_names_bulk(list(loc_ids), token=any_tok, conn=conn)
+                except Exception:
+                    loc_names = load_location_names_from_db(conn)
+            for c in results:
+                c["type_label"] = contracts_api.type_label(c["type"])
+                c["issuer_name"] = party_names.get(c["issuer_id"], str(c["issuer_id"] or ""))
+                c["start_name"] = loc_names.get(c["start_location_id"], "")
+                c["end_name"] = loc_names.get(c["end_location_id"], "")
+                c["courier"] = c["type"] == "courier"
+            ctx["results"] = results
+    conn.close()
+    return _tr("contracts_public.html", request, ctx)
+
+
+@app.get("/api/contracts/public/index")
+async def api_public_index(request: Request, region_id: int):
+    """SSE stream: naindexuje region (výpis + položky) do cache."""
+    async def gen():
+        conn = get_conn()
+        try:
+            async for chunk in contracts_helper.stream_public_index(conn, region_id):
+                yield chunk
+        finally:
+            conn.close()
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/api/contracts/public/items")
+async def api_public_contract_items(request: Request, contract_id: int):
+    conn = get_conn()
+    try:
+        return {"items": contracts_helper.get_contract_items(conn, contract_id)}
     finally:
         conn.close()
 
