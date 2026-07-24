@@ -465,6 +465,18 @@ function switchPlanChar(charId) {
       <span id="station-sell-price-val" class="fw-semibold d-none"></span>
       {% endif %}
     </span>
+    <span class="text-muted" style="opacity:.4">|</span>
+    <span class="d-flex align-items-center gap-1">
+      <span class="text-muted" style="font-size:.8rem">Contract&nbsp;</span>
+      <span id="contract-price-val" class="fw-semibold d-none"></span>
+      <span id="contract-price-badge"></span>
+      <button type="button" data-location-id="{{ _sell_loc_id }}" data-type-id="{{ result.product_type_id }}"
+              onclick="fetchContractPrice(this)"
+              class="btn btn-sm" style="background:#21262d;border-color:#30363d;color:#8b949e;font-size:.75rem;padding:1px 7px"
+              title="Nejlevnější cena/kus z naindexovaných veřejných kontraktů v regionu stanice">
+        <i class="bi bi-cloud-download me-1"></i>Fetch contract
+      </button>
+    </span>
   </div>
 
   {# Dvě varianty vedle sebe #}
@@ -558,6 +570,49 @@ function switchPlanChar(charId) {
       {% endif %}
     </div>
   </div>
+
+  {# Profit podle zdroje prodejní ceny (client-side přepočet po fetchi) #}
+  {% if result.revenue is not none %}
+  <div style="border-top:1px solid #21262d;padding:.55rem .75rem">
+    <div class="text-uppercase fw-semibold mb-2" style="color:#8b949e;font-size:.68rem;letter-spacing:.07em">
+      <i class="bi bi-graph-up-arrow me-1"></i>Profit by sell price
+    </div>
+    <div class="table-responsive">
+      <table class="w-100" style="font-size:.8rem;border-collapse:separate;border-spacing:0 2px">
+        <thead><tr style="color:#6e7681;font-size:.7rem">
+          <th class="text-start fw-normal">Source</th>
+          <th class="text-end fw-normal">Price/unit</th>
+          <th class="text-end fw-normal">Profit · buy all</th>
+          <th class="text-end fw-normal">Profit · with stock</th>
+        </tr></thead>
+        <tbody id="profit-compare">
+          <tr data-src="jita">
+            <td class="text-muted">Jita sell</td>
+            <td class="text-end price">{% if result.sell_price %}{{ result.sell_price | isk }}{% else %}—{% endif %}</td>
+            <td class="text-end pm">—</td><td class="text-end ps">—</td>
+          </tr>
+          <tr data-src="market">
+            <td class="text-muted">{{ selling_station_name }} <span class="badge bg-secondary" style="font-size:.55rem">market</span></td>
+            <td class="text-end price">—</td><td class="text-end pm">—</td><td class="text-end ps">—</td>
+          </tr>
+          <tr data-src="contract">
+            <td class="text-muted">Contract <span class="compare-badge"></span></td>
+            <td class="text-end price">—</td><td class="text-end pm">—</td><td class="text-end ps">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="text-muted" style="font-size:.68rem">Přepočet z fetchnutých cen × množství − náklady. „Fetch price" / „Fetch contract" nahoře.</div>
+  </div>
+  <script>
+    window._planCalc = {
+      qty: {{ result.quantity or 0 }},
+      mfgCost: {{ mfg_total_cost or 0 }},
+      stockCost: {{ stock_total_cost or 0 }},
+      jitaSell: {{ result.sell_price or 0 }}
+    };
+  </script>
+  {% endif %}
 
   {# Footer — job fee parametry #}
   {% if result.fees %}
@@ -1889,6 +1944,60 @@ function _autoSaveRigs(prefix) {
   });
 }
 
+// Profit srovnání: přepočet řádku podle fetchnuté ceny/kus.
+function _profitCell(price, cost) {
+  const c = window._planCalc;
+  if (!c || !c.qty) return '—';
+  const profit = price * c.qty - cost;
+  const color = profit >= 0 ? '#3fb950' : '#f85149';
+  return `<span style="color:${color}">${profit >= 0 ? '+' : ''}${_isk(profit)}</span>`;
+}
+function _recomputeProfitRow(src, price) {
+  const c = window._planCalc;
+  if (!c || !price || price <= 0) return;
+  const row = document.querySelector(`#profit-compare tr[data-src="${src}"]`);
+  if (!row) return;
+  row.querySelector('.price').textContent = _isk(price);
+  row.querySelector('.pm').innerHTML = _profitCell(price, c.mfgCost);
+  row.querySelector('.ps').innerHTML = _profitCell(price, c.stockCost);
+}
+document.addEventListener('DOMContentLoaded', () => {
+  if (window._planCalc && window._planCalc.jitaSell)
+    _recomputeProfitRow('jita', window._planCalc.jitaSell);
+});
+
+async function fetchContractPrice(btn) {
+  const locationId = btn.dataset.locationId, typeId = btn.dataset.typeId;
+  if (!locationId || !typeId) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.8em;height:.8em;border-width:2px"></span>';
+  const valEl = document.getElementById('contract-price-val');
+  const badgeEl = document.getElementById('contract-price-badge');
+  const cmpBadge = document.querySelector('#profit-compare tr[data-src="contract"] .compare-badge');
+  try {
+    const r = await fetch(`/api/plan/contract-price?location_id=${locationId}&type_id=${typeId}`);
+    const d = await r.json();
+    if (d.ok && d.price) {
+      const badge = d.is_bundle
+        ? '<span class="badge bg-warning text-dark" style="font-size:.55rem" title="Cena z balíčkového kontraktu — orientační (obsahuje i jiné itemy)">bundle</span>'
+        : '<span class="badge bg-success" style="font-size:.55rem" title="Čistě jen tento item">single</span>';
+      if (valEl) { valEl.textContent = _isk(d.price) + ' ISK/unit'; valEl.classList.remove('d-none'); valEl.style.color = ''; valEl.style.fontSize = ''; }
+      if (badgeEl) badgeEl.innerHTML = badge;
+      if (cmpBadge) cmpBadge.innerHTML = badge;
+      _recomputeProfitRow('contract', d.price);
+      btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+      btn.className = 'btn btn-link p-0';
+      btn.setAttribute('style', 'font-size:.75rem;color:#8b949e;line-height:1');
+      btn.title = 'Refresh';
+    } else {
+      if (valEl) { valEl.textContent = d.error || 'N/A'; valEl.classList.remove('d-none'); valEl.style.color = '#8b949e'; valEl.style.fontSize = '.75rem'; }
+      btn.innerHTML = orig;
+    }
+  } catch { btn.innerHTML = orig; }
+  btn.disabled = false;
+}
+
 async function fetchStationSellPrice(btn) {
   const locationId = btn.dataset.locationId;
   const typeId     = btn.dataset.typeId;
@@ -1904,6 +2013,7 @@ async function fetchStationSellPrice(btn) {
     const priceEl = document.getElementById('station-sell-price-val');
 
     if (d.ok && d.best_sell) {
+      _recomputeProfitRow('market', d.best_sell);
       if (priceEl) {
         priceEl.textContent = _isk(d.best_sell) + ' ISK/unit';
         priceEl.style.color = '';

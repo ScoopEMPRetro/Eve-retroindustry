@@ -182,6 +182,39 @@ def search_public_contracts(conn: sqlite3.Connection, region_id: int, *,
     return [dict(zip(cols, row)) for row in conn.execute(sql, params).fetchall()]
 
 
+def best_contract_price(conn: sqlite3.Connection, region_id: int, type_id: int) -> dict | None:
+    """Nejlevnější cena/kus produktu z veřejných item_exchange kontraktů v regionu.
+    Preferuje single-item kontrakty (čistá cena/kus); když žádný není, vezme
+    balíček (víc položek) a označí is_bundle=True (cena/kus je pak jen orientační
+    — pokrývá i ostatní položky v balíku). Vrací None, když produkt nikde není."""
+    ensure_public_contract_tables(conn)
+    rows = conn.execute("""
+        SELECT c.contract_id, c.price, pi.quantity,
+               (SELECT COUNT(*) FROM public_contract_items x
+                 WHERE x.contract_id = c.contract_id AND x.is_included = 1) AS incl
+        FROM public_contracts c
+        JOIN public_contract_items pi ON pi.contract_id = c.contract_id
+        WHERE c.region_id = ? AND c.type = 'item_exchange' AND c.price > 0
+          AND pi.type_id = ? AND pi.is_included = 1
+    """, (region_id, type_id)).fetchall()
+    singles: list[tuple[float, int]] = []
+    bundles: list[tuple[float, int]] = []
+    for cid, price, qty, incl in rows:
+        if not qty or qty <= 0:
+            continue
+        per_unit = price / qty
+        (singles if incl == 1 else bundles).append((per_unit, cid))
+    if singles:
+        per_unit, cid = min(singles)
+        return {"price": per_unit, "is_bundle": False, "contract_id": cid,
+                "single_count": len(singles), "bundle_count": len(bundles)}
+    if bundles:
+        per_unit, cid = min(bundles)
+        return {"price": per_unit, "is_bundle": True, "contract_id": cid,
+                "single_count": 0, "bundle_count": len(bundles)}
+    return None
+
+
 def get_contract_items(conn: sqlite3.Connection, contract_id: int) -> list[dict]:
     ensure_public_contract_tables(conn)
     rows = conn.execute(

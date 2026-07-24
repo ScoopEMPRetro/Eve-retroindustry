@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.31"
+APP_VERSION = "0.8.32"
 
 import asyncio
 import datetime
@@ -3582,6 +3582,30 @@ async def fetch_plan_sell_price(request: Request, location_id: int, type_id: int
     conn.close()
     best_sell = result.get(type_id, (None, None, None))[1] if result else None
     return {"ok": True, "best_sell": best_sell}
+
+
+@app.get("/api/plan/contract-price")
+async def api_plan_contract_price(request: Request, location_id: int, type_id: int):
+    """Nejlevnější cena/kus produktu z naindexovaných veřejných kontraktů v
+    regionu dané stanice. Vyžaduje předchozí index regionu (Public browser)."""
+    conn = get_conn()
+    try:
+        token = get_active_token(request, conn)
+        region_id = await get_region_for_location(conn, location_id, token)
+        if not region_id:
+            return {"ok": False, "error": "Nepodařilo se určit region stanice."}
+        status = contracts_helper.get_index_status(conn, region_id)
+        if not status:
+            return {"ok": False, "not_indexed": True, "region_id": region_id,
+                    "error": "Region kontraktů není naindexovaný — naindexuj ho v Public browseru."}
+        best = contracts_helper.best_contract_price(conn, region_id, type_id)
+        if not best:
+            return {"ok": False, "error": "Žádný veřejný kontrakt s tímto produktem v regionu."}
+        best["ok"] = True
+        best["region_id"] = region_id
+        return best
+    finally:
+        conn.close()
 
 
 # ── Projects ────────────────────────────────────────────────────────────────
