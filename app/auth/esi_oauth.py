@@ -67,6 +67,7 @@ SCOPES = [
     "esi-markets.read_corporation_orders.v1",  # market ordery korporace
     "esi-markets.structure_markets.v1",        # trh v player strukturách (citadely)
     "esi-contracts.read_character_contracts.v1",   # kontrakty postavy
+    "esi-contracts.read_corporation_contracts.v1", # kontrakty korporace
 
     # --- Dovednosti ---
     "esi-skills.read_skills.v1",               # natrénované skilly (vliv na výrobu)

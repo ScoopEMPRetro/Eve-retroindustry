@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Contracts — EVE Retroindustry{% endblock %}
+{% block content %}
+
+<div class="row mb-3 align-items-center">
+  <div class="col">
+    <h4 class="mb-0"><i class="bi bi-file-earmark-ruled me-2 text-primary"></i>Contracts</h4>
+  </div>
+  {% if all_characters %}
+  <div class="col-auto d-flex align-items-center gap-2">
+    <span class="text-muted small">Character:</span>
+    <div class="btn-group btn-group-sm" role="group">
+      <a href="/contracts?char=all&scope={{ scope }}"
+         class="btn d-inline-flex align-items-center gap-1
+                {% if all_chars %}btn-eve{% else %}btn-outline-secondary{% endif %}">
+        <i class="bi bi-people"></i>All
+      </a>
+      {% for c in all_characters %}
+      {% set is_active = (not all_chars) and contracts_char_id == c[0] %}
+      <a href="/contracts?char={{ c[0] }}&scope={{ scope }}"
+         class="btn d-inline-flex align-items-center gap-2
+                {% if is_active %}btn-eve{% else %}btn-outline-secondary{% endif %}">
+        <img src="https://images.evetech.net/characters/{{ c[0] }}/portrait?size=32"
+             width="18" height="18" class="rounded-circle">
+        {{ c[1] }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% if error %}
+<div class="alert alert-danger"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
+{% endif %}
+
+{% set char_param = 'all' if all_chars else contracts_char_id %}
+<ul class="nav nav-pills mb-3" style="gap:.5rem">
+  <li class="nav-item">
+    <a class="nav-link {% if scope != 'corp' %}active{% endif %}"
+       href="/contracts?char={{ char_param }}&scope=personal"><i class="bi bi-person me-1"></i>Personal</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if scope == 'corp' %}active{% endif %}"
+       href="/contracts?char={{ char_param }}&scope=corp"><i class="bi bi-building me-1"></i>Corporation</a>
+  </li>
+</ul>
+
+{% if scope == 'corp' and corp_error %}
+<div class="alert alert-warning"><i class="bi bi-shield-lock me-2"></i>{{ corp_error }}</div>
+{% endif %}
+
+{% if not contracts %}
+<div class="card"><div class="text-muted text-center py-4">No contracts.</div></div>
+{% else %}
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle" style="font-size:.85rem">
+      <thead>
+        <tr>
+          {% if all_chars %}<th>{{ 'Corp' if scope == 'corp' else 'Character' }}</th>{% endif %}
+          <th>Type</th>
+          <th>Contract</th>
+          <th>Location</th>
+          <th class="text-end">Price</th>
+          <th class="text-end">Reward</th>
+          <th class="text-end">Collateral</th>
+          <th>Issuer</th>
+          <th class="text-end">Expires</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in contracts %}
+        <tr>
+          {% if all_chars %}<td class="text-truncate" style="max-width:130px;font-size:.78rem">{{ c.party_label }}</td>{% endif %}
+          <td>
+            <span class="badge" style="font-size:.65rem;background:
+              {%- if c.type_raw == 'courier' %}#0b2d4a;color:#79c0ff
+              {%- elif c.type_raw == 'auction' %}#2d2200;color:#b392f0
+              {%- elif c.type_raw == 'loan' %}#21262d;color:#8b949e
+              {%- else %}#3d2c00;color:#e3b341{% endif %}">{{ c.type }}</span>
+          </td>
+          <td style="max-width:260px">
+            {% if c.title %}<div class="text-truncate" title="{{ c.title }}">{{ c.title }}</div>{% endif %}
+            {% if c.type_raw in ('item_exchange', 'auction') %}
+            <button class="btn btn-link p-0 text-decoration-none" style="font-size:.72rem"
+                    onclick="loadItems(this, {{ c.contract_id }}, {{ c.char_id }}, {{ c.corp_id }})">
+              <i class="bi bi-box me-1"></i>show items
+            </button>
+            <div class="contract-items text-muted" style="font-size:.75rem"></div>
+            {% elif not c.title %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-muted text-truncate" style="max-width:220px;font-size:.75rem">
+            {% if c.courier %}{{ c.start }} <i class="bi bi-arrow-right"></i> {{ c.end }}
+            {% else %}{{ c.start }}{% endif %}
+          </td>
+          <td class="text-end" style="white-space:nowrap">{% if c.price %}{{ c.price | isk }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end" style="white-space:nowrap">{% if c.reward %}{{ c.reward | isk }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end" style="white-space:nowrap">{% if c.collateral %}{{ c.collateral | isk }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-muted text-truncate" style="max-width:130px;font-size:.78rem">{{ c.issuer }}</td>
+          <td class="text-end text-muted" style="white-space:nowrap;font-size:.75rem">{{ c.date_expired | replace('T',' ') | replace('Z','') | truncate(10,true,'') }}</td>
+          <td>
+            <span class="badge {% if c.status_raw == 'outstanding' %}bg-success{% elif c.status_raw in ('in_progress',) %}bg-info{% elif c.status_raw.startswith('finished') %}bg-secondary{% else %}bg-danger{% endif %}" style="font-size:.6rem">{{ c.status | upper }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<div class="text-muted small mt-2">{{ contracts | length }} contract{{ 's' if contracts | length != 1 }}</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadItems(btn, contractId, charId, corpId) {
+  const box = btn.parentElement.querySelector('.contract-items');
+  if (btn.dataset.loaded) { box.classList.toggle('d-none'); return; }
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const p = new URLSearchParams({contract_id: contractId, char_id: charId, corp_id: corpId});
+    const r = await fetch('/api/contracts/items?' + p);
+    const d = await r.json();
+    if (!d.items || !d.items.length) {
+      box.innerHTML = '<span class="text-muted">(no items)</span>';
+    } else {
+      box.innerHTML = d.items.map(it =>
+        `<div class="${it.included ? '' : 'text-danger'}">`
+        + `${it.included ? '' : '↩ '}${it.quantity.toLocaleString()}× ${it.name}</div>`
+      ).join('');
+    }
+    btn.dataset.loaded = '1';
+    btn.innerHTML = '<i class="bi bi-box me-1"></i>items';
+  } catch (e) {
+    box.innerHTML = '<span class="text-danger">load failed</span>';
+    btn.innerHTML = orig;
+  }
+  btn.disabled = false;
+}
+</script>
+{% endblock %}

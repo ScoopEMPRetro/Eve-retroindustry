@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.28"
+APP_VERSION = "0.8.29"
 
 import asyncio
 import datetime
@@ -35,6 +35,7 @@ from app.character.blueprints import fetch_blueprints, ensure_bp_table
 from app.character import wallet as wallet_api
 from app.character import orders as orders_api
 from app.character import jobs as jobs_api
+from app.character import contracts as contracts_api
 from app.character.assets import (
     fetch_assets, ensure_assets_table, assets_at_location,
     fetch_corp_assets, ensure_corp_assets_table,
@@ -4491,6 +4492,199 @@ async def _finalize_orders(conn, raw_orders: list[dict], type_names_fn, token: s
         except Exception:
             loc_names = load_location_names_from_db(conn)
     return _decorate_orders(raw_orders, type_names, loc_names)
+
+
+# ── Kontrakty (osobní / korporační) ───────────────────────────────────────────
+
+def _decorate_contracts(raw: list[dict], party_names: dict[int, str],
+                        loc_names: dict[int, str]) -> list[dict]:
+    out = []
+    for c in raw:
+        ctype = c.get("type", "")
+        iid, aid, acc = c.get("issuer_id"), c.get("assignee_id"), c.get("acceptor_id")
+        start_id, end_id = c.get("start_location_id"), c.get("end_location_id")
+        out.append({
+            "contract_id":  c.get("contract_id"),
+            "type":         contracts_api.type_label(ctype),
+            "type_raw":     ctype,
+            "status":       contracts_api.status_label(c.get("status", "")),
+            "status_raw":   c.get("status", ""),
+            "title":        c.get("title") or "",
+            "price":        c.get("price") or 0.0,
+            "reward":       c.get("reward") or 0.0,
+            "collateral":   c.get("collateral") or 0.0,
+            "volume":       c.get("volume") or 0.0,
+            "issuer":       party_names.get(iid, str(iid) if iid else ""),
+            "assignee":     party_names.get(aid, "") if aid else "",
+            "acceptor":     party_names.get(acc, "") if acc else "",
+            "start":        loc_names.get(start_id, "") if start_id else "",
+            "end":          loc_names.get(end_id, "") if end_id else "",
+            "courier":      ctype == "courier",
+            "date_issued":  c.get("date_issued", ""),
+            "date_expired": c.get("date_expired", ""),
+            "for_corp":     c.get("for_corporation", False),
+            "char_id":      c.get("_char_id") or 0,
+            "corp_id":      c.get("_corp_id") or 0,
+            "party_label":  c.get("_party_label") or "",
+        })
+    out.sort(key=lambda x: x["date_issued"], reverse=True)
+    return out
+
+
+async def _finalize_contracts(conn, raw: list[dict], token: str | None) -> list[dict]:
+    party_ids: set[int] = set()
+    loc_ids: set[int] = set()
+    for c in raw:
+        for k in ("issuer_id", "assignee_id", "acceptor_id"):
+            if c.get(k):
+                party_ids.add(c[k])
+        for k in ("start_location_id", "end_location_id"):
+            if c.get(k):
+                loc_ids.add(c[k])
+    party_names = await _resolve_party_names(party_ids) if party_ids else {}
+    loc_names: dict[int, str] = {}
+    if loc_ids:
+        try:
+            loc_names = await resolve_station_names_bulk(list(loc_ids), token=token, conn=conn)
+        except Exception:
+            loc_names = load_location_names_from_db(conn)
+    return _decorate_contracts(raw, party_names, loc_names)
+
+
+@app.get("/contracts", response_class=HTMLResponse)
+async def contracts_page(request: Request, char: str = "", scope: str = "personal"):
+    conn = get_conn()
+    all_chars = (char == "all")
+    ctx: dict = {
+        "scope": scope, "contracts_char_id": None, "all_chars": all_chars,
+        "contracts": [], "error": None, "corp_error": None,
+    }
+
+    chars = list_characters(conn)
+    if not chars:
+        ctx["error"] = "Nejsi přihlášen."
+        conn.close()
+        return _tr("contracts.html", request, ctx)
+
+    try:
+        if all_chars:
+            raw: list[dict] = []
+            if scope == "corp":
+                corp_token: dict[int, str] = {}
+                for cid, _cn in chars:
+                    tok = _get_valid_token_for(conn, cid)
+                    if not tok:
+                        continue
+                    corp_id = (get_character_row(conn, cid) or {}).get("corporation_id")
+                    if corp_id and corp_id not in corp_token:
+                        corp_token[corp_id] = tok
+                corp_names = await _resolve_party_names(set(corp_token)) if corp_token else {}
+                async with esi_client() as client:
+                    for corp_id, tok in corp_token.items():
+                        lst, _err = await contracts_api.fetch_corp_contracts(client, corp_id, tok)
+                        for c in (lst or []):
+                            c["_corp_id"] = corp_id
+                            c["_party_label"] = corp_names.get(corp_id, str(corp_id))
+                            raw.append(c)
+            else:
+                async with esi_client() as client:
+                    for cid, cname in chars:
+                        tok = _get_valid_token_for(conn, cid)
+                        if not tok:
+                            continue
+                        for c in await contracts_api.fetch_character_contracts(client, cid, tok):
+                            c["_char_id"] = cid
+                            c["_party_label"] = cname
+                            raw.append(c)
+            # dedup dle contract_id (stejný kontrakt může vidět víc postav)
+            seen: set[int] = set()
+            raw = [c for c in raw if not (c.get("contract_id") in seen or seen.add(c.get("contract_id")))]
+            any_tok = next((_get_valid_token_for(conn, c) for c, _ in chars
+                            if _get_valid_token_for(conn, c)), None)
+            ctx["contracts"] = await _finalize_contracts(conn, raw, any_tok)
+            conn.close()
+            return _tr("contracts.html", request, ctx)
+
+        # jedna postava
+        plan_char_id = int(char) if char.isdigit() and get_character_row(conn, int(char)) else None
+        if plan_char_id is None:
+            plan_char_id = get_active_character_id(request, conn)
+        ctx["contracts_char_id"] = plan_char_id
+        token = _get_valid_token_for(conn, plan_char_id) if plan_char_id else None
+        row = get_character_row(conn, plan_char_id) if plan_char_id else None
+        if not token or not row:
+            ctx["error"] = "Token postavy vypršel — přihlas se znovu."
+            conn.close()
+            return _tr("contracts.html", request, ctx)
+
+        async with esi_client() as client:
+            if scope == "corp":
+                corp_id = row.get("corporation_id")
+                if not corp_id:
+                    cr = await client.get(
+                        f"https://esi.evetech.net/latest/characters/{plan_char_id}/", timeout=10)
+                    if cr.status_code == 200:
+                        corp_id = cr.json().get("corporation_id")
+                        if corp_id:
+                            update_corporation_id(conn, plan_char_id, corp_id)
+                if not corp_id:
+                    ctx["corp_error"] = "Nepodařilo se zjistit korporaci postavy."
+                    raw = []
+                else:
+                    lst, err = await contracts_api.fetch_corp_contracts(client, corp_id, token)
+                    ctx["corp_error"] = err
+                    raw = lst or []
+                    for c in raw:
+                        c["_corp_id"] = corp_id
+            else:
+                raw = await contracts_api.fetch_character_contracts(client, plan_char_id, token)
+                for c in raw:
+                    c["_char_id"] = plan_char_id
+        ctx["contracts"] = await _finalize_contracts(conn, raw, token)
+    except Exception as exc:
+        ctx["error"] = f"Chyba při načítání kontraktů: {exc}"
+
+    conn.close()
+    return _tr("contracts.html", request, ctx)
+
+
+@app.get("/api/contracts/items")
+async def api_contract_items(request: Request, contract_id: int,
+                             char_id: int = 0, corp_id: int = 0):
+    """Lazy dotažení položek kontraktu (rozklik). Vrátí resolved jména z SDE."""
+    conn = get_conn()
+    try:
+        items: list[dict] = []
+        async with esi_client() as client:
+            if corp_id:
+                tok = None
+                for cid, _ in list_characters(conn):
+                    if (get_character_row(conn, cid) or {}).get("corporation_id") == corp_id:
+                        tok = _get_valid_token_for(conn, cid)
+                        if tok:
+                            break
+                if tok:
+                    items = await contracts_api.fetch_corp_contract_items(client, corp_id, contract_id, tok)
+            elif char_id:
+                tok = _get_valid_token_for(conn, char_id)
+                if tok:
+                    items = await contracts_api.fetch_character_contract_items(client, char_id, contract_id, tok)
+        tids = {it.get("type_id") for it in items if it.get("type_id")}
+        names: dict[int, str] = {}
+        if tids:
+            ph = ",".join("?" * len(tids))
+            names = {r[0]: r[1] for r in conn.execute(
+                f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(tids)
+            ).fetchall()}
+        out = [{
+            "type_id":  it.get("type_id"),
+            "name":     names.get(it.get("type_id"), f"#{it.get('type_id')}"),
+            "quantity": it.get("quantity", 0),
+            "included": it.get("is_included", True),
+        } for it in items]
+        return {"items": out}
+    finally:
+        conn.close()
 
 
 # ── Industry Jobs ─────────────────────────────────────────────────────────────

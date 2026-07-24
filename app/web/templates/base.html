@@ -118,6 +118,9 @@
           <a class="nav-link {% if request.url.path.startswith('/orders') %}active{% endif %}" href="/orders"><i class="bi bi-bag me-1"></i>Market Orders</a>
         </li>
         <li class="nav-item">
+          <a class="nav-link {% if request.url.path.startswith('/contracts') %}active{% endif %}" href="/contracts"><i class="bi bi-file-earmark-ruled me-1"></i>Contracts</a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.url.path.startswith('/jobs') %}active{% endif %}" href="/jobs"><i class="bi bi-gear-wide-connected me-1"></i>Jobs</a>
         </li>
       </ul>
