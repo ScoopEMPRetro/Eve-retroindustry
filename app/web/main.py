@@ -1,7 +1,7 @@
 """FastAPI web aplikace pro EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.30"
+APP_VERSION = "0.8.31"
 
 import asyncio
 import datetime
@@ -4690,6 +4690,35 @@ async def api_contract_items(request: Request, contract_id: int,
 
 # ── Veřejné kontrakty (per-region index + lokální search) ─────────────────────
 
+_REGIONS_CACHE: list[tuple[int, str]] | None = None
+
+
+async def _get_all_regions() -> list[tuple[int, str]]:
+    """Všechny regiony (id, jméno) z ESI, seřazené dle jména. Cache na proces
+    (regiony se prakticky nemění). Vynechá wormhole/abyssal (>= 11000000) —
+    tam veřejné kontrakty nejsou."""
+    global _REGIONS_CACHE
+    if _REGIONS_CACHE is not None:
+        return _REGIONS_CACHE
+    try:
+        async with esi_client(timeout=15) as client:
+            r = await client.get("https://esi.evetech.net/latest/universe/regions/")
+            ids = [i for i in (r.json() if r.status_code == 200 else []) if i < 11000000]
+            names: dict[int, str] = {}
+            for i in range(0, len(ids), 1000):
+                rr = await client.post("https://esi.evetech.net/latest/universe/names/",
+                                      json=ids[i:i + 1000], headers={"Accept": "application/json"})
+                if rr.status_code == 200:
+                    for it in rr.json():
+                        names[it["id"]] = it["name"]
+        regs = sorted(((rid, names.get(rid, str(rid))) for rid in ids), key=lambda x: x[1])
+        if regs:
+            _REGIONS_CACHE = regs
+        return regs
+    except Exception:
+        return _REGIONS_CACHE or []
+
+
 async def _resolve_region_id(name_or_id: str) -> tuple[int | None, str]:
     """Vrátí (region_id, region_name) z názvu nebo ID. (None,'') když nenalezeno."""
     s = name_or_id.strip()
@@ -4717,6 +4746,7 @@ async def public_contracts_page(request: Request, region: str = "", item: str = 
     ctx: dict = {
         "region_name": region, "region_id": None, "status": None, "results": [],
         "item": item, "ctype": ctype, "max_price": max_price, "error": None,
+        "regions": await _get_all_regions(),
     }
     region_id, region_name = await _resolve_region_id(region)
     ctx["region_id"] = region_id

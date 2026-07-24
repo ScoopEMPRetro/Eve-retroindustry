@@ -19,8 +19,7 @@
       <input type="text" name="region" value="{{ region_name }}" class="form-control form-control-sm"
              placeholder="např. The Forge, Domain, Delve…" list="region-hints" autocomplete="off">
       <datalist id="region-hints">
-        <option value="The Forge"><option value="Domain"><option value="Sinq Laison">
-        <option value="Heimatar"><option value="Metropolis"><option value="Delve">
+        {% for rid, rname in regions %}<option value="{{ rname }}">{% endfor %}
       </datalist>
     </div>
     <button class="btn btn-sm btn-eve"><i class="bi bi-search me-1"></i>Vybrat region</button>
