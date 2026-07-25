@@ -145,7 +145,7 @@ Nothing is sent to any third-party server other than the official EVE Online ESI
 
 I develop this in my spare time, primarily for my own EVE career, and share it publicly as-is. If it saves you ISK or time and you'd like to support continued development, you can buy me a coffee — entirely optional, and much appreciated:
 
-[![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20the%20project-ff5e5b?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/retrovisor)
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/retrovisor)
 
 ---
 
