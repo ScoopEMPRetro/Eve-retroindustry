@@ -177,16 +177,21 @@ def _smoke_test() -> int:
         return 1
 
     # Import the GUI backend the way main() does — surfaces bundling gaps
-    # without needing a display (import only, no widgets created).
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    try:
-        import PyQt6.QtCore  # noqa: F401
-        import PyQt6.QtWebEngineWidgets  # noqa: F401
-        import webview  # noqa: F401
-        import webview.platforms.qt  # noqa: F401
-    except Exception as exc:
-        print(f"SMOKE FAIL: Qt/pywebview backend import failed: {exc!r}", file=sys.stderr)
-        return 1
+    # without needing a display (import only, no widgets created). Skippable via
+    # EVE_SMOKE_NO_GUI, because importing QtWebEngine on a headless Linux CI
+    # runner pulls system Qt libs that aren't present there.
+    if not os.environ.get("EVE_SMOKE_NO_GUI"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        try:
+            import PyQt6.QtCore  # noqa: F401
+            import PyQt6.QtWebEngineWidgets  # noqa: F401
+            import webview  # noqa: F401
+            import webview.platforms.qt  # noqa: F401
+        except Exception as exc:
+            print(f"SMOKE FAIL: Qt/pywebview backend import failed: {exc!r}", file=sys.stderr)
+            return 1
+    else:
+        print("SMOKE: skipping GUI-backend import (EVE_SMOKE_NO_GUI)", flush=True)
 
     print("SMOKE OK", flush=True)
     return 0
