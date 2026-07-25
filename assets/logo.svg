@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- EVE Retroindustry logo — master vector (matches the app favicon and the
+     Android launcher icon). Hexagon + golden bars on the app's dark #0d1117. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108">
+  <rect x="0" y="0" width="108" height="108" fill="#0d1117"/>
+  <g transform="translate(22,22) scale(2)">
+    <path d="M16,2 L29,9.5 L29,22.5 L16,30 L3,22.5 L3,9.5 Z"
+          fill="none" stroke="#e3b341" stroke-width="1.5"
+          stroke-linejoin="round"/>
+    <path d="M10,11 L14,11 L14,22 L10,22 Z" fill="#e3b341"/>
+    <path d="M19,14 L23,14 L23,22 L19,22 Z" fill="#e3b341"/>
+    <path d="M6,20 L26,20 L26,27 L6,27 Z"  fill="#e3b341"/>
+    <path d="M13,22 L19,22 L19,27 L13,27 Z" fill="#0d1117"/>
+  </g>
+</svg>
