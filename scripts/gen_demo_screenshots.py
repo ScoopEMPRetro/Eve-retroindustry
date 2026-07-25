@@ -24,6 +24,8 @@ import tempfile
 import threading
 import time
 
+from fastapi import Request  # module-level so FastAPI can resolve the route annotation
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DB = os.path.join(REPO, "eve_cache.db")
 OUT_DIR = os.path.join(REPO, "docs", "screenshots")
@@ -169,6 +171,32 @@ def main() -> None:
     m.fetch_location = fake_location
     m.fetch_skill_queue = fake_skill_queue
 
+    @m.app.get("/demo/assetsshot")
+    async def _assetsshot(request: Request):
+        # Render the real assets page, then expand the first station + its hangar
+        # so the screenshot shows the container/ship drill-down.
+        resp = await m.assets_page(request, view="all")
+        html = resp.template.render(resp.context)   # TemplateResponse isn't rendered yet
+        # Pick the first station that holds a container (i.e. has ships), move it
+        # to the top, expand it so the Hangar + ship/container rows show, and open
+        # one ship's contents. Only open the hangar table if it's small (avoids
+        # rendering a several-hundred-row table that would blow the screenshot).
+        inject = (
+            "<script>addEventListener('load',function(){setTimeout(function(){"
+            "var list=document.getElementById('stations-list'); if(!list)return;"
+            "var cards=[].slice.call(list.children);"
+            "var pick=null;"
+            "for(var i=0;i<cards.length;i++){if(cards[i].querySelector&&cards[i].querySelector('.collapse[id^=\"cont-\"]')){pick=cards[i];break;}}"
+            "if(!pick)pick=cards[0]; if(!pick)return;"
+            "list.insertBefore(pick,list.firstChild);"
+            "var st=pick.querySelector('.collapse[id^=\"st-\"]'); if(st)st.classList.add('show');"
+            "var cont=pick.querySelector('.collapse[id^=\"cont-\"]'); if(cont)cont.classList.add('show');"
+            "var hng=pick.querySelector('.collapse[id^=\"hng-\"]');"
+            "if(hng){var hd=hng.previousElementSibling;var b=hd&&hd.querySelector('.badge');"
+            "var n=b?parseInt(b.textContent):999; if(n<=40)hng.classList.add('show');}"
+            "},350);});</script>")
+        return HTMLResponse(html.replace("</body>", inject + "</body>"))
+
     @m.app.get("/demo/planshot")
     async def _planshot():
         return HTMLResponse(
@@ -195,15 +223,18 @@ def main() -> None:
     shots = {
         "dashboard":       f"http://127.0.0.1:{PORT}/",
         "production-plan": f"http://127.0.0.1:{PORT}/demo/planshot",
-        "assets":          f"http://127.0.0.1:{PORT}/assets?view=all",
+        "assets":          f"http://127.0.0.1:{PORT}/demo/assetsshot",
     }
     for name, url in shots.items():
         out = os.path.join(OUT_DIR, f"{name}.png")
         h = 1750 if name == "assets" else 1500
+        vtb = 13000 if name == "assets" else 9000
+        prof = os.path.join(tmp, f"chrome-{name}")
         subprocess.run(
             ["chromium", "--headless=new", "--disable-gpu", "--no-sandbox",
+             "--no-first-run", f"--user-data-dir={prof}",
              "--hide-scrollbars", "--force-device-scale-factor=2",
-             "--virtual-time-budget=9000", f"--window-size=1600,{h}",
+             f"--virtual-time-budget={vtb}", f"--window-size=1600,{h}",
              f"--screenshot={out}", url],
             check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["magick", out, "-fuzz", "3%", "-trim", "+repage", out],
