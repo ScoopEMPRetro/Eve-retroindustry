@@ -163,10 +163,14 @@ a = Analysis(
 import re
 
 _qt_lib_keep = re.compile(
-    r"(lib)?Qt6(Core|DBus|Gui|Network|OpenGL|Widgets|"
+    r"(lib)?Qt6(Core|DBus|Gui|Network|OpenGL|Widgets|PrintSupport|"
     r"WebEngineCore|WebEngineWidgets|WebChannel|Positioning|"
-    r"Quick|Qml|QmlMeta|QmlModels|QmlWorkerScript)\."
+    r"QuickWidgets|Quick|Qml|QmlMeta|QmlModels|QmlWorkerScript)\."
 )
+# NB: QtWebEngineWidgets pulls in QtPrintSupport (web page printing) and
+# QtQuickWidgets. Both must stay or the bundle only runs on machines that
+# happen to have system Qt installed. QuickWidgets must precede Quick in the
+# alternation is not required (regex backtracks), but keep it explicit.
 _qt_other_lib_keep = re.compile(
     r"^(lib)?(icu|avcodec|avformat|avutil|swresample|webp|"
     r"minizip|xslt|xml2|lcms2|ssl|crypto|"

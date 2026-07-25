@@ -76,10 +76,12 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller eve_retroindustry.spec --noconfirm
 
-      - name: Smoke-test the built app (headless, server only)
+      - name: Smoke-test the built app (headless)
         timeout-minutes: 3
         env:
-          EVE_SMOKE_NO_GUI: "1"   # QtWebEngine import needs system Qt libs absent on the runner
+          QT_QPA_PLATFORM: offscreen
+        # Full smoke incl. QtWebEngine import. The runner has no system Qt, so a
+        # successful import proves the bundle is self-contained.
         run: ./dist/EVE_Retroindustry/EVE_Retroindustry --smoke
 
       - name: Create ZIP
