@@ -150,6 +150,48 @@ def _patch_qt_clipboard() -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+def _smoke_test() -> int:
+    """Headless self-test of the *packaged* binary (no GUI window).
+
+    Boots the bundled server, confirms a page renders, and imports the Qt /
+    pywebview backend — catching PyInstaller packaging failures (missing hidden
+    imports, data files, DLLs) that source-level tests can't see. Returns a
+    process exit code. Triggered by ``--smoke`` or ``EVE_SMOKE=1``.
+    """
+    import urllib.request
+
+    port = 8000
+    srv = _ServerThread(port)
+    srv.start()
+    if not _wait_for_server(port):
+        print("SMOKE FAIL: server did not start within 15 s", file=sys.stderr)
+        return 1
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/about", timeout=10) as r:
+            code = r.getcode()
+        if code != 200:
+            print(f"SMOKE FAIL: /about returned {code}", file=sys.stderr)
+            return 1
+    except Exception as exc:
+        print(f"SMOKE FAIL: request failed: {exc!r}", file=sys.stderr)
+        return 1
+
+    # Import the GUI backend the way main() does — surfaces bundling gaps
+    # without needing a display (import only, no widgets created).
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        import PyQt6.QtCore  # noqa: F401
+        import PyQt6.QtWebEngineWidgets  # noqa: F401
+        import webview  # noqa: F401
+        import webview.platforms.qt  # noqa: F401
+    except Exception as exc:
+        print(f"SMOKE FAIL: Qt/pywebview backend import failed: {exc!r}", file=sys.stderr)
+        return 1
+
+    print("SMOKE OK", flush=True)
+    return 0
+
+
 def main() -> None:
     port = 8000
     srv = _ServerThread(port)
@@ -217,4 +259,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    if os.environ.get("EVE_SMOKE") or "--smoke" in sys.argv:
+        os._exit(_smoke_test())
     main()

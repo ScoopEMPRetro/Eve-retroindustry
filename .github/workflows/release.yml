@@ -35,6 +35,12 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller eve_retroindustry.spec --noconfirm
 
+      - name: Smoke-test the built app (headless)
+        timeout-minutes: 3
+        run: |
+          & "./dist/EVE_Retroindustry/EVE_Retroindustry.exe" --smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Create ZIP
         shell: pwsh
         run: Compress-Archive -Path dist/EVE_Retroindustry -DestinationPath EVE_Retroindustry-${{ github.ref_name }}-win64.zip
@@ -69,6 +75,12 @@ jobs:
 
       - name: Build with PyInstaller
         run: pyinstaller eve_retroindustry.spec --noconfirm
+
+      - name: Smoke-test the built app (headless)
+        timeout-minutes: 3
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./dist/EVE_Retroindustry/EVE_Retroindustry --smoke
 
       - name: Create ZIP
         run: cd dist && zip -r ../EVE_Retroindustry-${{ github.ref_name }}-linux.zip EVE_Retroindustry
