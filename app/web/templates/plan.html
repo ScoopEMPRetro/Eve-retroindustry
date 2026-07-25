@@ -1611,6 +1611,9 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
         html += `<div class="px-3 py-2 text-muted small">No stations found — try a system name (e.g. "Jita") or paste a station ID below.</div>`;
       }
     }
+    html += `<div class="px-3 py-2 text-muted" style="font-size:.72rem;line-height:1.4;border-top:1px solid #30363d">
+      <i class="bi bi-info-circle me-1"></i>Shows NPC stations, and only player structures your character has docking access to.
+    </div>`;
     html += buildAddStructureHtml();
     _renderBox(html);
   }
