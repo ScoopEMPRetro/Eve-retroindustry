@@ -895,6 +895,26 @@ async def auth_login(request: Request):
 
 SUPPORT_URL = "https://ko-fi.com/retrovisor"
 
+# Hosts that the app may open in the system browser. A plain target=_blank link
+# does not open inside the Android WebView, so external links are routed through
+# _open_in_external_browser — restricted to these hosts.
+_EXTERNAL_HOST_ALLOWLIST = (
+    "ko-fi.com", "github.com", "esi.evetech.net",
+    "developers.eveonline.com", "evetech.net",
+)
+
+
+def _external_host_allowed(url: str) -> bool:
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https"):
+        return False
+    host = (p.hostname or "").lower()
+    return any(host == d or host.endswith("." + d) for d in _EXTERNAL_HOST_ALLOWLIST)
+
 
 @app.get("/api/support/open")
 async def api_support_open():
@@ -903,6 +923,17 @@ async def api_support_open():
     target=_blank link would not open in the Android WebView."""
     opened = _open_in_external_browser(SUPPORT_URL)
     return {"ok": opened, "url": SUPPORT_URL}
+
+
+@app.get("/api/open-external")
+async def api_open_external(url: str):
+    """Open an allowlisted external URL in the system default browser (desktop +
+    Android). Used for informational links (source code, ESI docs) that a plain
+    target=_blank cannot open inside the Android WebView."""
+    if not _external_host_allowed(url):
+        return {"ok": False, "error": "URL not allowed"}
+    opened = _open_in_external_browser(url)
+    return {"ok": opened, "url": url}
 
 
 @app.post("/auth/cancel")
