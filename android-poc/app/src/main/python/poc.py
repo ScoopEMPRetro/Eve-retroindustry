@@ -1,9 +1,9 @@
 """
 Chaquopy dependency proof-of-concept.
 
-Cíl: ověřit, že se na Androidu naimportuje celý závislostní stack
-EVE Retroindustry — hlavně nativně kompilovaný pydantic-core (Rust),
-který je make-or-break. Vrací textový report, který MainActivity zobrazí.
+Goal: verify that the entire EVE Retroindustry dependency stack imports on
+Android — mainly the natively compiled pydantic-core (Rust), which is the
+make-or-break. Returns a text report that MainActivity displays.
 """
 import io
 import platform
@@ -13,7 +13,7 @@ import traceback
 def _try_import(label: str, modname: str, version_attr: str = "__version__") -> str:
     try:
         mod = __import__(modname)
-        # projdi tečkovou cestu
+        # walk the dotted path
         for part in modname.split(".")[1:]:
             mod = getattr(mod, part)
         ver = getattr(mod, version_attr, "?")
@@ -32,7 +32,7 @@ def run_checks() -> str:
         ("fastapi", "fastapi"),
         ("starlette", "starlette"),
         ("pydantic", "pydantic"),
-        ("pydantic_core", "pydantic_core"),   # ← Rust binary, klíčové
+        ("pydantic_core", "pydantic_core"),   # ← Rust binary, the key one
         ("sqlalchemy", "sqlalchemy"),
         ("httpx", "httpx"),
         ("httpcore", "httpcore"),
@@ -47,7 +47,7 @@ def run_checks() -> str:
     for label, mod in checks:
         out.write(_try_import(label, mod) + "\n")
 
-    # Ověř, že FastAPI + pydantic spolu reálně fungují (vytvoř model + app)
+    # Verify that FastAPI + pydantic actually work together (build a model + app)
     out.write("-" * 44 + "\n")
     try:
         from fastapi import FastAPI
@@ -63,7 +63,7 @@ def run_checks() -> str:
         def root() -> Item:
             return Item(type_id=34, name="Tritanium")
 
-        # validace přes pydantic-core
+        # validation via pydantic-core
         item = Item(type_id="34", name="Tritanium")  # coercion test
         assert item.type_id == 34
         out.write("  OK   FastAPI + pydantic model/validate works\n")
@@ -71,7 +71,7 @@ def run_checks() -> str:
         out.write("  FAIL FastAPI/pydantic runtime:\n")
         out.write(traceback.format_exc())
 
-    # Ověř sqlite3 read/write (datová vrstva appky)
+    # Verify sqlite3 read/write (the app's data layer)
     try:
         import sqlite3
         c = sqlite3.connect(":memory:")

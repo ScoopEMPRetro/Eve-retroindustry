@@ -1,11 +1,11 @@
 """
-Market orders — aktivní i historické, pro postavu i korporaci.
+Market orders — active and historical, for character and corporation.
 
-ESI endpointy:
-  Postava:
-    GET /characters/{id}/orders/           → aktivní ordery
-    GET /characters/{id}/orders/history/   → posledních ~90 dní (paginated)
-  Korporace (vyžaduje roli Accountant/Trader → jinak 403):
+ESI endpoints:
+  Character:
+    GET /characters/{id}/orders/           → active orders
+    GET /characters/{id}/orders/history/   → last ~90 days (paginated)
+  Corporation (requires role Accountant/Trader → otherwise 403):
     GET /corporations/{id}/orders/
     GET /corporations/{id}/orders/history/
 
@@ -40,7 +40,7 @@ async def _get_all(client: httpx.AsyncClient, url: str, token: str, pages: int =
 
 
 async def fetch_orders(client, char_id: int, token: str) -> list[dict]:
-    """Aktivní ordery postavy (jednostránkové)."""
+    """Active orders of a character (single page)."""
     try:
         r = await client.get(f"{ESI_BASE}/characters/{char_id}/orders/",
                              headers=_auth(token), timeout=15)
@@ -70,8 +70,8 @@ async def fetch_corp_orders(client, corp_id: int, token: str
                 out.extend(rp.json())
             return out, None
         if r.status_code == 403:
-            return None, "Tato postava nemá v korporaci roli pro čtení market orderů (Accountant / Trader)."
-        return None, f"ESI vrátilo HTTP {r.status_code}."
+            return None, "This character lacks the corporation role to read market orders (Accountant / Trader)."
+        return None, f"ESI returned HTTP {r.status_code}."
     except Exception as exc:
         return None, str(exc)
 

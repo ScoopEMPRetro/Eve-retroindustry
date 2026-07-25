@@ -1,8 +1,8 @@
 """
 Multi-character token storage.
 
-Tokens (refresh_token, access_token) jsou uloženy v DB tabulce `characters`.
-client_id zůstává v .eve_config.json (jediná aplikační hodnota, ne per-char).
+Tokens (refresh_token, access_token) are stored in the DB table `characters`.
+client_id stays in .eve_config.json (the only application-level value, not per-char).
 
 Public API:
 - ensure_characters_table(conn)
@@ -234,7 +234,7 @@ def update_last_sync(conn: sqlite3.Connection, character_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 def get_valid_token(conn: sqlite3.Connection, character_id: int) -> str | None:
-    """Vrátí platný access_token pro daný char — auto-refresh při expiraci."""
+    """Return a valid access_token for the given char — auto-refresh on expiry."""
     row = get_character_row(conn, character_id)
     if not row:
         return None

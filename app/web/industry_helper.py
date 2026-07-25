@@ -1,4 +1,4 @@
-"""Pomůcky pro výpočet výrobních poplatků EVE Online."""
+"""Helpers for computing EVE Online manufacturing fees."""
 from __future__ import annotations
 import sqlite3
 import time
@@ -7,7 +7,7 @@ from app.esi.client import esi_client
 
 ESI_BASE = "https://esi.evetech.net/latest"
 
-# SCC Surcharge — zvýšen 1. 2. 2024 z 1.5 % na 4.0 % (třetí navýšení od Viridian 2023)
+# SCC Surcharge — raised on 2024-02-01 from 1.5 % to 4.0 % (third increase since Viridian 2023)
 _SCC = 0.04
 
 
@@ -113,8 +113,8 @@ _product_cat_cache: dict[int, frozenset[str]] = {}
 
 
 def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
-    """Klasifikuje skupinu produktů podle názvu — vrátí množinu rig category tagů,
-    pro které se rig bonus aplikuje na tento produkt.
+    """Classify a product group by name — return the set of rig category tags
+    for which the rig bonus applies to this product.
     """
     if group_id in _product_cat_cache:
         return _product_cat_cache[group_id]
@@ -279,11 +279,11 @@ def rig_applies_to_product(
     rig_type_id: int,
     product_type_id: int,
 ) -> bool:
-    """Vrátí True pokud daný rig poskytuje bonus na výrobu daného produktu.
+    """Return True if the given rig provides a bonus to manufacturing the given product.
 
-    Filtruje rig bonusy podle EVE pravidel (Equipment rig se neaplikuje na lodě atd.).
-    Pro neznámou kombinaci defaultuje na False (bezpečně neaplikovat) — raději drobné
-    podhodnocení úspor než falešné nadhodnocení.
+    Filters rig bonuses by EVE rules (an Equipment rig does not apply to ships, etc.).
+    For an unknown combination it defaults to False (safe not to apply) — better a slight
+    underestimate of savings than a false overestimate.
     """
     rig_group_row = conn.execute(
         "SELECT group_id FROM sde_types WHERE type_id=?", (rig_type_id,)
@@ -482,10 +482,10 @@ def get_station_rigs_full(conn: sqlite3.Connection, location_id: int) -> dict:
 
 
 def get_station_te_multiplier(conn: sqlite3.Connection, location_id: int) -> float:
-    """[DEPRECATED pro výpočet] Vrátí "globální" TE multiplikátor stanice — aplikuje
-    všechny rigy bez ohledu na kategorii produktu. Použije se jen pro souhrnný
-    display % v hlavičce (kde stejně nemáme konkrétní produkt). Pro per-job
-    výpočet použij `get_product_te_multiplier(...)`.
+    """[DEPRECATED for calculation] Return the station's "global" TE multiplier — applies
+    all rigs regardless of product category. Used only for the summary
+    display % in the header (where we don't have a specific product anyway). For per-job
+    calculation use `get_product_te_multiplier(...)`.
     """
     from app.web.location_resolver import get_station_security_multiplier
 
@@ -517,12 +517,12 @@ def get_station_te_multiplier(conn: sqlite3.Connection, location_id: int) -> flo
             te_b = rig_te_map.get(rid, 0.0) * sec_mult / 100
             multiplier *= (1.0 - te_b)
 
-    return max(0.01, multiplier)  # nikdy nezáporné
+    return max(0.01, multiplier)  # never negative
 
 
 def get_product_te_multiplier(conn: sqlite3.Connection, facility, product_type_id: int) -> float:
-    """Per-product TE multiplikátor — uplatní jen rigy aplikovatelné na kategorii
-    produktu (Equipment TE rig nezrychluje stavbu lodi atd.).
+    """Per-product TE multiplier — applies only rigs relevant to the product's
+    category (an Equipment TE rig does not speed up ship construction, etc.).
 
     facility: StationFacility z app.bom.resolver (passed in to avoid circular import).
     """
@@ -536,9 +536,9 @@ def get_product_te_multiplier(conn: sqlite3.Connection, facility, product_type_i
 
 
 def get_station_facility(conn: sqlite3.Connection, location_id: int):
-    """Vrátí StationFacility pro daný location_id — structure role bonus,
-    rig list (s ME/TE bonusy), a security multiplier.
-    Pro NPC stanice / neznámé struktury vrací prázdnou facility (1.0 multiplier).
+    """Return the StationFacility for the given location_id — structure role bonus,
+    rig list (with ME/TE bonuses), and security multiplier.
+    For NPC stations / unknown structures it returns an empty facility (1.0 multiplier).
     """
     from app.bom.resolver import StationFacility
     from app.web.location_resolver import get_station_security_multiplier
@@ -580,12 +580,12 @@ def get_station_facility(conn: sqlite3.Connection, location_id: int):
 
 
 def get_station_me_multiplier(conn: sqlite3.Connection, location_id: int) -> float:
-    """Vrátí kombinovaný ME multiplikátor stanice (např. 0.87 = 13 % úspora).
+    """Return the station's combined ME multiplier (e.g. 0.87 = 13 % savings).
 
-    Bonusy jsou stackované multiplikativně (per CCP):
+    Bonuses stack multiplicatively (per CCP):
         m = (1 − struct_role/100) × (1 − rig1×sec/100) × (1 − rig2×sec/100) × …
-    kde struct_role je 1 % pro engineering complexes a 0 % pro rafinerie,
-    a sec je 1.0 / 1.9 / 2.1 podle security statusu systému.
+    where struct_role is 1 % for engineering complexes and 0 % for refineries,
+    and sec is 1.0 / 1.9 / 2.1 depending on the system's security status.
     """
     from app.web.location_resolver import get_station_security_multiplier
 
@@ -621,15 +621,15 @@ def get_station_me_multiplier(conn: sqlite3.Connection, location_id: int) -> flo
 
 
 def get_station_me_bonus_pct(conn: sqlite3.Connection, location_id: int) -> float:
-    """Efektivní ME úspora v procentech pro UI: (1 - multiplier) × 100.
+    """Effective ME savings as a percentage for the UI: (1 - multiplier) × 100.
 
-    Tj. multiplikativně sloučená úspora, ne aritmetická suma bonusů.
+    I.e. the multiplicatively combined savings, not the arithmetic sum of bonuses.
     """
     return round((1.0 - get_station_me_multiplier(conn, location_id)) * 100, 4)
 
 
 def get_station_me_bonus(conn: sqlite3.Connection, location_id: int) -> float:
-    """Vrátí uložený ME bonus (%) pro danou stanici/strukturu, nebo 0.0."""
+    """Return the stored ME bonus (%) for the given station/structure, or 0.0."""
     ensure_industry_tables(conn)
     row = conn.execute(
         "SELECT me_bonus_pct FROM station_rigs WHERE location_id=?", (location_id,)
@@ -664,7 +664,7 @@ def _sci_is_fresh(conn: sqlite3.Connection, solar_system_id: int, activity: str)
 
 
 async def get_adjusted_prices(conn: sqlite3.Connection) -> dict[int, float]:
-    """Vrátí {type_id: adjusted_price} z cache nebo ESI (GET /markets/prices/)."""
+    """Return {type_id: adjusted_price} from cache or ESI (GET /markets/prices/)."""
     ensure_industry_tables(conn)
     if _adj_is_fresh(conn):
         rows = conn.execute("SELECT type_id, adjusted FROM adjusted_price_cache").fetchall()
@@ -691,7 +691,7 @@ async def get_adjusted_prices(conn: sqlite3.Connection) -> dict[int, float]:
             return {e[0]: e[1] for e in entries}
     except Exception:
         pass
-    # Vrátí stale cache pokud ESI selže
+    # Return stale cache if ESI fails
     rows = conn.execute("SELECT type_id, adjusted FROM adjusted_price_cache").fetchall()
     return {r[0]: r[1] for r in rows}
 
@@ -702,9 +702,9 @@ async def get_sci_for_system(
     activity: str,
 ) -> float:
     """
-    Vrátí System Cost Index pro daný systém a aktivitu.
-    Při chybějící/expirované cache stáhne celý GET /industry/systems/ endpoint
-    a uloží všechny hodnoty najednou.
+    Return the System Cost Index for the given system and activity.
+    On a missing/expired cache it fetches the entire GET /industry/systems/ endpoint
+    and stores all values at once.
     """
     ensure_industry_tables(conn)
     if _sci_is_fresh(conn, solar_system_id, activity):

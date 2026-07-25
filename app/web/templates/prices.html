@@ -364,9 +364,9 @@
         const r = await fetch('/api/prices/search?q=' + encodeURIComponent(q));
         const data = await r.json();
 
-        // V obou módech (group / name) renderujeme výsledky z API.
-        // Initial render obsahuje jen user items (~1.8k), takže client-side filter
-        // by nezobrazil ostatní z 19k cache.
+        // In both modes (group / name) we render the results from the API.
+        // The initial render contains only user items (~1.8k), so a client-side filter
+        // would not show the rest of the 19k cache.
         if (data.items && data.items.length) {
           data_group_name = data.group_name || '';
           tbody.innerHTML = data.items.map(makeGroupRow).join('');
@@ -391,7 +391,7 @@
             }, 6000);
           }
         } else {
-          // Žádný výsledek z API — fallback na client-side filter
+          // No result from the API — fall back to the client-side filter
           restoreOriginal();
           applyNameFilter(q);
         }
@@ -402,7 +402,7 @@
     }, 350);
   });
 
-  // --- Custom price (event delegation — přežije nahrazení tbody) ---
+  // --- Custom price (event delegation — survives tbody replacement) ---
   async function saveCustomPrice(typeId, price) {
     const resp = await fetch('/api/prices/custom', {
       method: 'POST',
@@ -619,12 +619,12 @@
       stationVolProgText.textContent = json.cached ? 'Data from cache (< 30 min).' : 'Done.';
       setTimeout(() => stationVolProgress.classList.add('d-none'), 2500);
 
-      // Zobraz sloupce a nastav jméno stanice
+      // Show the columns and set the station name
       const stationShortName = stationDisplay.value.split(' - ')[0];
       document.querySelectorAll('.stn-name').forEach(el => el.textContent = stationShortName);
       document.querySelectorAll('.station-col').forEach(el => el.style.display = '');
 
-      // Naplň buňky — vždy čti tbody znovu (může být null při první inicializaci)
+      // Fill the cells — always re-read tbody (may be null on first initialization)
       const liveTable = document.getElementById('price-table');
       const liveTbody = liveTable?.querySelector('tbody');
       loadedStationData = json.data;

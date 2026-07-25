@@ -94,7 +94,7 @@
         </div>
 
         <div class="mb-3">
-          {# Poloha — docknutá stanice/struktura, nebo systém + undocked #}
+          {# Location — docked station/structure, or system + undocked #}
           <div class="d-flex align-items-center gap-2 mb-1" style="font-size:.82rem">
             <i class="bi bi-geo-alt {% if c.location_state == 'docked' %}text-success{% elif c.location_state == 'undocked' %}text-warning{% else %}text-muted{% endif %}" style="flex-shrink:0"></i>
             {% if c.location_name %}
@@ -106,7 +106,7 @@
               <span class="text-muted">Location unknown</span>
             {% endif %}
           </div>
-          {# Aktivní skillování + zbývající čas #}
+          {# Active training + remaining time #}
           <div class="d-flex align-items-center gap-2" style="font-size:.82rem">
             <i class="bi bi-mortarboard text-info" style="flex-shrink:0"></i>
             {% if c.training %}
@@ -203,10 +203,10 @@
 {% block scripts %}
 {# syncAll() is defined globally in base.html #}
 <script>
-// Živý odpočet zbývajícího času skillování (per karta postavy).
+// Live countdown of remaining training time (per character card).
 (function () {
   function fmt(ms) {
-    if (ms <= 0) return 'hotovo';
+    if (ms <= 0) return 'done';
     let s = Math.floor(ms / 1000);
     const d = Math.floor(s / 86400); s -= d * 86400;
     const h = Math.floor(s / 3600);  s -= h * 3600;

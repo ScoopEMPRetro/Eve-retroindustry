@@ -1,35 +1,35 @@
 """
-Android entry point. Spouští reálnou FastAPI appku (app.web.main) přes uvicorn
-na 127.0.0.1, stejně jako launcher.py na desktopu — ale bez pywebview/PyQt.
-Java (MainActivity) zavolá start_server(files_dir) na pozadí; UI vlákno pak
-počká na port a načte WebView na http://127.0.0.1:<port>.
+Android entry point. Runs the real FastAPI app (app.web.main) via uvicorn
+on 127.0.0.1, just like launcher.py on desktop — but without pywebview/PyQt.
+Java (MainActivity) calls start_server(files_dir) in the background; the UI
+thread then waits for the port and loads a WebView at http://127.0.0.1:<port>.
 """
 import os
 import socket
 
 PORT = 8000
 
-# Reference na Android Activity — předaná z Javy přes set_context().
-# Potřebná pro otevření systémového browseru (ESI SSO login) přes Intent.
+# Reference to the Android Activity — passed in from Java via set_context().
+# Needed to open the system browser (ESI SSO login) via an Intent.
 _activity = None
 
 
 def _log(msg):
-    # Jde do logcat (python.stdout) — užitečné při ladění na zařízení.
+    # Goes to logcat (python.stdout) — useful when debugging on the device.
     print(f"[android_main] {msg}", flush=True)
 
 
 def set_context(activity):
-    """Java MainActivity sem předá `this` po startu Pythonu."""
+    """Java MainActivity passes `this` here after Python starts."""
     global _activity
     _activity = activity
 
 
 def _open_url_intent(url):
-    """Otevře URL v systémovém browseru přes Android Intent (ACTION_VIEW).
-    Náhrada za webbrowser/xdg-open, které na Chaquopy nefungují.
-    EVE SSO pak po loginu přesměruje na http://localhost:5173/callback —
-    loopback je na zařízení sdílený, takže callback server appky to chytne.
+    """Opens a URL in the system browser via an Android Intent (ACTION_VIEW).
+    Replacement for webbrowser/xdg-open, which don't work on Chaquopy.
+    After login, EVE SSO then redirects to http://localhost:5173/callback —
+    loopback is shared on the device, so the app's callback server catches it.
     """
     from android.content import Intent
     from android.net import Uri
@@ -40,19 +40,19 @@ def _open_url_intent(url):
 
 
 def start_server(files_dir, port=PORT):
-    """Blokující — běží v Java background vlákně po celou dobu života appky.
+    """Blocking — runs in a Java background thread for the whole app lifetime.
 
-    files_dir = app-private úložiště (Context.getFilesDir()). Sem MainActivity
-    předtím rozbalil sde_base.db + app/web/templates. Slouží zároveň jako
-    writable adresář pro eve_cache.db (EVE_APP_DIR) i jako read zdroj
-    bundlovaných dat (EVE_BUNDLE_DIR).
+    files_dir = app-private storage (Context.getFilesDir()). MainActivity has
+    unpacked sde_base.db + app/web/templates here beforehand. It serves both as
+    the writable directory for eve_cache.db (EVE_APP_DIR) and as the read source
+    for bundled data (EVE_BUNDLE_DIR).
     """
     os.environ.setdefault("EVE_APP_DIR", files_dir)
     os.environ.setdefault("EVE_BUNDLE_DIR", files_dir)
-    os.environ["EVE_ANDROID"] = "1"   # UI: nativní updater místo desktopového
+    os.environ["EVE_ANDROID"] = "1"   # UI: native updater instead of the desktop one
 
-    # Přesměruj veškerý Python výstup (uvicorn logy + app tracebacky) do souboru,
-    # aby šla chyba zobrazit v appce i bez adb (viz get_log / MainActivity).
+    # Redirect all Python output (uvicorn logs + app tracebacks) to a file,
+    # so an error can be shown in the app even without adb (see get_log / MainActivity).
     try:
         _f = open(os.path.join(files_dir, "server.log"), "w", buffering=1, encoding="utf-8")
         sys.stdout = _f
@@ -62,10 +62,10 @@ def start_server(files_dir, port=PORT):
     _log(f"EVE_APP_DIR=EVE_BUNDLE_DIR={files_dir}")
 
     try:
-        # Import až po nastavení env (app.web.main čte cesty při importu —
-        # SDE bootstrap z EVE_BUNDLE_DIR/sde_base.db do EVE_APP_DIR/eve_cache.db).
+        # Import only after setting env (app.web.main reads paths at import time —
+        # SDE bootstrap from EVE_BUNDLE_DIR/sde_base.db into EVE_APP_DIR/eve_cache.db).
         from app.web import main as webmain
-        # Zaregistruj Android Intent-opener pro SSO login (místo xdg-open/webbrowser).
+        # Register the Android Intent opener for SSO login (instead of xdg-open/webbrowser).
         webmain.set_browser_opener(_open_url_intent)
         app = webmain.app
         import uvicorn
@@ -76,8 +76,8 @@ def start_server(files_dir, port=PORT):
             host="127.0.0.1",
             port=port,
             log_level="info",
-            # uvicorn instaluje signal handlery jen na main threadu — na background
-            # threadu je sám přeskočí, takže běh ve vlákně je v pořádku.
+            # uvicorn installs signal handlers only on the main thread — on a background
+            # thread it skips them itself, so running in a thread is fine.
         )
         server = uvicorn.Server(config)
 
@@ -91,18 +91,18 @@ def start_server(files_dir, port=PORT):
 
 
 def get_log(files_dir, max_chars=6000):
-    """Vrátí konec server.log (pro zobrazení chyby v appce bez adb)."""
+    """Returns the tail of server.log (to show an error in the app without adb)."""
     try:
         with open(os.path.join(files_dir, "server.log"), "r",
                   encoding="utf-8", errors="replace") as f:
             data = f.read()
-        return data[-max_chars:] if data else "(server.log je prázdný)"
+        return data[-max_chars:] if data else "(server.log is empty)"
     except Exception as exc:
-        return f"(server.log nelze načíst: {exc})"
+        return f"(cannot read server.log: {exc})"
 
 
 def is_up(port=PORT):
-    """Pomocná: vrátí True, když server na portu přijímá spojení."""
+    """Helper: returns True when the server on the port accepts connections."""
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=0.5):
             return True

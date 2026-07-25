@@ -1,6 +1,6 @@
 """
-Resolvování type_id → název.
-Priorita: lokální SDE → ESI (s uložením do sde_types pro příště).
+Resolving type_id → name.
+Priority: local SDE → ESI (storing into sde_types for next time).
 """
 import asyncio
 import sqlite3
@@ -11,7 +11,7 @@ _ESI_SEM = asyncio.Semaphore(10)
 
 
 def resolve_name_sync(conn: sqlite3.Connection, type_id: int) -> str | None:
-    """Vrátí jméno z lokální SDE. None pokud chybí."""
+    """Return the name from the local SDE. None if missing."""
     row = conn.execute("SELECT name FROM sde_types WHERE type_id=?", (type_id,)).fetchone()
     return row[0] if row else None
 
@@ -41,7 +41,7 @@ async def resolve_name(
     client: httpx.AsyncClient,
 ) -> str:
     """
-    Vrátí jméno typu. Pokud chybí v SDE, dotáže se ESI a výsledek uloží.
+    Return the type name. If missing from the SDE, query ESI and store the result.
     """
     name = resolve_name_sync(conn, type_id)
     if name:
@@ -61,7 +61,7 @@ async def resolve_names_bulk(
     type_ids: list[int],
     client: httpx.AsyncClient,
 ) -> dict[int, str]:
-    """Přeloží seznam type_id na jména paralelně (SDE + ESI fallback)."""
+    """Translate a list of type_ids to names in parallel (SDE + ESI fallback)."""
     tasks = [resolve_name(conn, tid, client) for tid in type_ids]
     names = await asyncio.gather(*tasks)
     return dict(zip(type_ids, names))

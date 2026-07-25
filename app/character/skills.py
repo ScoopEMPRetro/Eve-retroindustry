@@ -1,4 +1,4 @@
-"""Načítání a cache skillů postavy z ESI."""
+"""Loading and caching character skills from ESI."""
 from __future__ import annotations
 import json
 import sqlite3
@@ -6,22 +6,23 @@ import time
 import httpx
 
 ESI_BASE  = "https://esi.evetech.net/latest"
-CACHE_TTL = 3600  # 1 hodina
+CACHE_TTL = 3600  # 1 hour
 
-# Industry a AdvIndustry jsou aplikovány zvlášť v calc_job_time,
-# ale musíme je vždy fetchovat pro zobrazení v UI.
+# Industry and AdvIndustry are applied separately in calc_job_time,
+# but we must always fetch them for display in the UI.
 _GENERAL_SKILL_IDS = {3380, 3388}
 
-# Cache schema version — bumpni při změně formátu pro vynucení refreshe.
-# v2: ukládáme všechny skilly z ESI (předtím se ukládal jen filtrovaný subset
-# výrobních + science skillů, takže blueprint-required skilly jako Capital Ship
-# Construction chyběly a v UI se ukazovaly červeně i pro postavu, která je má).
+# Cache schema version — bump it when the format changes to force a refresh.
+# v2: we store all skills from ESI (previously only a filtered subset of
+# manufacturing + science skills was stored, so blueprint-required skills like
+# Capital Ship Construction were missing and showed up red in the UI even for a
+# character who had them).
 _CACHE_VERSION = 2
 
 
 async def fetch_skill_queue(client: httpx.AsyncClient, character_id: int, access_token: str) -> list[dict]:
-    """Vrátí frontu skillů z ESI (seřazeno dle queue_position). Prázdný list =
-    žádné aktivní skillování. Vyžaduje scope esi-skills.read_skillqueue.v1."""
+    """Returns the skill queue from ESI (sorted by queue_position). Empty list =
+    no active skill training. Requires scope esi-skills.read_skillqueue.v1."""
     try:
         r = await client.get(
             f"{ESI_BASE}/characters/{character_id}/skillqueue/",
@@ -38,8 +39,9 @@ async def fetch_skill_queue(client: httpx.AsyncClient, character_id: int, access
 
 
 async def fetch_location(client: httpx.AsyncClient, character_id: int, access_token: str) -> dict:
-    """Vrátí aktuální polohu postavy z ESI: {solar_system_id, station_id?,
-    structure_id?}. Prázdný dict při chybě. Scope esi-location.read_location.v1."""
+    """Returns the character's current location from ESI: {solar_system_id,
+    station_id?, structure_id?}. Empty dict on error. Scope
+    esi-location.read_location.v1."""
     try:
         r = await client.get(
             f"{ESI_BASE}/characters/{character_id}/location/",
@@ -55,7 +57,7 @@ async def fetch_location(client: httpx.AsyncClient, character_id: int, access_to
 
 
 def get_mfg_skill_ids(conn: sqlite3.Connection) -> set[int]:
-    """Vrátí set type_id všech skillů relevantních pro výrobu (science + Industry/AdvIndustry)."""
+    """Returns the set of type_ids of all skills relevant to manufacturing (science + Industry/AdvIndustry)."""
     try:
         rows = conn.execute("SELECT skill_type_id FROM sde_skill_time_bonus").fetchall()
         science_ids = {r[0] for r in rows}
@@ -76,7 +78,7 @@ def ensure_skills_table(conn: sqlite3.Connection):
 
 
 def _parse_blob(raw: str) -> tuple[int, dict[int, int]]:
-    """Vrátí (version, skills_dict). Verze 0 = staré ploché schéma (filtrovaný subset)."""
+    """Returns (version, skills_dict). Version 0 = old flat schema (filtered subset)."""
     try:
         data = json.loads(raw)
     except Exception:
@@ -90,7 +92,7 @@ def _parse_blob(raw: str) -> tuple[int, dict[int, int]]:
 
 
 def _load_cache_fresh(conn: sqlite3.Connection, character_id: int) -> dict[int, int] | None:
-    """Vrátí cached skilly pokud je cache čerstvá A v aktuální verzi schématu."""
+    """Returns cached skills if the cache is fresh AND in the current schema version."""
     row = conn.execute(
         "SELECT data_json, cached_at FROM char_skills_cache WHERE character_id=?",
         (character_id,)
@@ -101,7 +103,7 @@ def _load_cache_fresh(conn: sqlite3.Connection, character_id: int) -> dict[int, 
         return None
     version, skills = _parse_blob(row[0])
     if version != _CACHE_VERSION:
-        return None  # staré schéma → vynutíme refresh
+        return None  # old schema → force a refresh
     return skills
 
 
@@ -124,7 +126,7 @@ async def fetch_skills(
     conn: sqlite3.Connection,
     force_refresh: bool = False,
 ) -> dict[int, int]:
-    """Vrátí {skill_type_id: trained_level} pro všechny trénované skilly postavy."""
+    """Returns {skill_type_id: trained_level} for all of the character's trained skills."""
     if not force_refresh:
         cached = _load_cache_fresh(conn, character_id)
         if cached is not None:
@@ -138,7 +140,7 @@ async def fetch_skills(
             timeout=10,
         )
         if r.status_code != 200:
-            # Fallback — pokud máme něco v cache (i staré), použij to.
+            # Fallback — if we have anything cached (even stale), use it.
             return get_cached_skills(conn, character_id)
         all_skills = {int(s["skill_id"]): int(s["trained_skill_level"])
                       for s in r.json().get("skills", [])}
@@ -149,7 +151,7 @@ async def fetch_skills(
 
 
 def get_cached_skills(conn: sqlite3.Connection, character_id: int) -> dict[int, int]:
-    """Načte skilly z DB bez ESI volání. Vrátí prázdný dict pokud cache neexistuje."""
+    """Loads skills from the DB without an ESI call. Returns an empty dict if the cache doesn't exist."""
     row = conn.execute(
         "SELECT data_json FROM char_skills_cache WHERE character_id=?", (character_id,)
     ).fetchone()

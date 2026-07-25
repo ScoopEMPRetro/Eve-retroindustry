@@ -1,5 +1,5 @@
 """
-Industry jobs — běžící výrobní/reakční/výzkumné joby postavy.
+Industry jobs — a character's running manufacturing/reaction/research jobs.
 
 ESI: GET /characters/{id}/industry/jobs/?include_completed=true
 Scope: esi-industry.read_character_jobs.v1
@@ -27,8 +27,8 @@ def activity_label(activity_id: int) -> str:
 
 async def fetch_industry_jobs(client: httpx.AsyncClient, char_id: int, token: str,
                               include_completed: bool = True) -> list[dict]:
-    """Vrátí industry joby postavy. include_completed=true vrátí i ready/
-    delivered z posledního období; aktivní filtrujeme až ve view."""
+    """Return a character's industry jobs. include_completed=true also returns
+    ready/delivered from the recent period; active ones are filtered in the view."""
     try:
         r = await client.get(
             f"{ESI_BASE}/characters/{char_id}/industry/jobs/",

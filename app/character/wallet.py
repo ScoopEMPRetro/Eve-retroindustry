@@ -1,18 +1,18 @@
 """
-Wallet — ISK balance, journal a market transactions pro postavu i korporaci.
+Wallet — ISK balance, journal and market transactions for both character and corporation.
 
-ESI endpointy:
-  Postava:
+ESI endpoints:
+  Character:
     GET /characters/{id}/wallet/                 → float (balance)
-    GET /characters/{id}/wallet/journal/         → list (paginated, ~2500/strana)
+    GET /characters/{id}/wallet/journal/         → list (paginated, ~2500/page)
     GET /characters/{id}/wallet/transactions/    → list (max 2500, from_id paging)
-  Korporace (vyžaduje Accountant / Junior Accountant role → jinak 403):
+  Corporation (requires Accountant / Junior Accountant role → otherwise 403):
     GET /corporations/{id}/wallets/              → [{division, balance}]
     GET /corporations/{id}/wallets/{div}/journal/
     GET /corporations/{id}/wallets/{div}/transactions/
 
-Scopy: esi-wallet.read_character_wallet.v1, esi-wallet.read_corporation_wallets.v1
-(role v korporaci: esi-characters? — ne, jen wallet scope + in-game role).
+Scopes: esi-wallet.read_character_wallet.v1, esi-wallet.read_corporation_wallets.v1
+(corporation role: esi-characters? — no, just the wallet scope + in-game role).
 """
 from __future__ import annotations
 import httpx
@@ -37,7 +37,7 @@ async def fetch_balance(client: httpx.AsyncClient, char_id: int, token: str) -> 
 
 async def fetch_journal(client: httpx.AsyncClient, char_id: int, token: str,
                         pages: int = 1) -> list[dict]:
-    """Wallet journal — nejnovější transakce první. Stáhne `pages` stránek."""
+    """Wallet journal — newest transactions first. Fetches `pages` pages."""
     out: list[dict] = []
     for page in range(1, pages + 1):
         try:
@@ -60,7 +60,7 @@ async def fetch_journal(client: httpx.AsyncClient, char_id: int, token: str,
 
 
 async def fetch_transactions(client: httpx.AsyncClient, char_id: int, token: str) -> list[dict]:
-    """Market transakce postavy (ESI vrací posledních ~2500)."""
+    """The character's market transactions (ESI returns the last ~2500)."""
     try:
         r = await client.get(
             f"{ESI_BASE}/characters/{char_id}/wallet/transactions/",
@@ -73,12 +73,12 @@ async def fetch_transactions(client: httpx.AsyncClient, char_id: int, token: str
     return []
 
 
-# ── Korporace ───────────────────────────────────────────────────────────────
+# ── Corporation ─────────────────────────────────────────────────────────────
 
 async def fetch_corp_wallets(client: httpx.AsyncClient, corp_id: int, token: str
                              ) -> tuple[list[dict] | None, str | None]:
-    """Vrátí ([{division, balance}], None) nebo (None, error_message).
-    403 = postava nemá roli Accountant/Junior Accountant.
+    """Returns ([{division, balance}], None) or (None, error_message).
+    403 = the character lacks the Accountant/Junior Accountant role.
     """
     try:
         r = await client.get(f"{ESI_BASE}/corporations/{corp_id}/wallets/",
@@ -86,8 +86,8 @@ async def fetch_corp_wallets(client: httpx.AsyncClient, corp_id: int, token: str
         if r.status_code == 200:
             return r.json(), None
         if r.status_code == 403:
-            return None, "Tato postava nemá roli Accountant / Junior Accountant pro čtení korporátní peněženky."
-        return None, f"ESI vrátilo HTTP {r.status_code}."
+            return None, "This character lacks the Accountant / Junior Accountant role required to read the corporation wallet."
+        return None, f"ESI returned HTTP {r.status_code}."
     except Exception as exc:
         return None, str(exc)
 
@@ -128,7 +128,7 @@ async def fetch_corp_transactions(client: httpx.AsyncClient, corp_id: int, divis
     return []
 
 
-# ── Humanizace ref_type ──────────────────────────────────────────────────────
+# ── ref_type humanization ─────────────────────────────────────────────────────
 
 _REF_TYPE_LABELS: dict[str, str] = {
     "player_trading": "Player Trading",

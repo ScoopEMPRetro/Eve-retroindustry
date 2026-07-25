@@ -32,7 +32,7 @@
     {% if g.slots %}
     <span class="ms-auto d-flex flex-wrap gap-1">
       {% for s in g.slots %}
-      <span class="badge" title="{{ s.label }}: obsazené / dostupné sloty (dle skillů)"
+      <span class="badge" title="{{ s.label }}: used / available slots (by skills)"
             style="font-size:.62rem;background:#161b22;border:1px solid {% if s.max and s.used >= s.max %}#e36341{% else %}#30363d{% endif %};color:{% if s.max and s.used >= s.max %}#f0a090{% else %}#8b949e{% endif %}">
         {{ s.label }} {{ s.used }}/{{ s.max if s.max is not none else '?' }}
       </span>

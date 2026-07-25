@@ -2,7 +2,7 @@
 {% block title %}Blueprints — EVE Retroindustry{% endblock %}
 {% block content %}
 
-{# === Makro pro tabulku blueprintů === #}
+{# === Macro for the blueprint table === #}
 {% macro bp_table(bps, table_id, show_badge=False) %}
 <div class="table-responsive">
   <table class="table table-hover mb-0 align-middle" id="tbl-{{ table_id }}" style="font-size:.875rem">
@@ -120,7 +120,7 @@
 {% for station in stations %}
 {% set sid = station.loc_id | string %}
 <div class="card mb-3">
-  {# === Hlavička stanice === #}
+  {# === Station header === #}
   <div class="card-header d-flex justify-content-between align-items-center py-2"
        data-bs-toggle="collapse" data-bs-target="#st-{{ sid }}" style="cursor:pointer">
     <span class="d-flex align-items-center gap-2">
@@ -159,7 +159,7 @@
 
   <div class="collapse" id="st-{{ sid }}">
 
-    {# === Blueprinty přímo v hangáru (ne v kontejnerech) === #}
+    {# === Blueprints directly in the hangar (not in containers) === #}
     {% if station.hangar %}
     {% set h_bpo = station.hangar | selectattr('is_original') | list | length %}
     {% set h_bpc = station.hangar | rejectattr('is_original') | list | length %}

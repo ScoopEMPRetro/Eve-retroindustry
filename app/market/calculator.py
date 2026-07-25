@@ -1,5 +1,5 @@
 """
-Výpočet nákladů výroby z BOM stromu a tržních cen.
+Compute manufacturing costs from the BOM tree and market prices.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ class MaterialCost:
     type_id: int
     name: str
     quantity: int
-    unit_price: float | None    # ISK za kus
+    unit_price: float | None    # ISK per unit
     total_price: float | None   # unit_price * quantity
 
     @property
@@ -33,8 +33,8 @@ class BOMCostSummary:
     product_name: str
     quantity: int
     materials: list[MaterialCost]
-    product_sell_price: float | None    # co dostaneme prodejem hotového produktu
-    product_buy_price: float | None     # co zaplatíme kdybychom koupili hotový produkt
+    product_sell_price: float | None    # what we get from selling the finished product
+    product_buy_price: float | None     # what we pay if we buy the finished product
 
     @property
     def total_material_cost(self) -> float | None:
@@ -43,21 +43,21 @@ class BOMCostSummary:
 
     @property
     def profit_vs_buy(self) -> float | None:
-        """Úspora oproti nákupu hotového produktu (kladné = výroba je levnější)."""
+        """Savings versus buying the finished product (positive = making is cheaper)."""
         if self.product_buy_price is None or self.total_material_cost is None:
             return None
         return (self.product_buy_price * self.quantity) - self.total_material_cost
 
     @property
     def profit_vs_sell(self) -> float | None:
-        """Zisk po prodeji vyrobeného produktu (kladné = výroba se vyplatí)."""
+        """Profit after selling the manufactured product (positive = making is worth it)."""
         if self.product_sell_price is None or self.total_material_cost is None:
             return None
         return (self.product_sell_price * self.quantity) - self.total_material_cost
 
     @property
     def margin_pct(self) -> float | None:
-        """Marže v % (zisk / náklady * 100)."""
+        """Margin in % (profit / cost * 100)."""
         p = self.profit_vs_sell
         c = self.total_material_cost
         if p is None or c is None or c == 0:
@@ -70,19 +70,19 @@ def build_cost_summary(
     prices: dict[int, tuple[float | None, float | None]],  # {type_id: (sell, buy)}
 ) -> BOMCostSummary:
     """
-    Sestaví cenový souhrn z BOM stromu a slovníku cen.
-    prices: výstup fetch_jita_prices_bulk nebo adjusted prices
+    Build a price summary from the BOM tree and a price dictionary.
+    prices: output of fetch_jita_prices_bulk or adjusted prices
     """
     leaves = root.aggregate_leaves()
 
     materials = []
     for type_id, (name, qty) in sorted(leaves.items(), key=lambda x: x[1][0]):
         sell_p, _ = prices.get(type_id, (None, None))
-        unit = sell_p  # nakupujeme materiály → platíme sell cenu
+        unit = sell_p  # we buy materials → we pay the sell price
         total = unit * qty if unit is not None else None
         materials.append(MaterialCost(type_id, name, qty, unit, total))
 
-    # Cena hotového produktu
+    # Price of the finished product
     prod_sell, prod_buy = prices.get(root.type_id, (None, None))
 
     return BOMCostSummary(

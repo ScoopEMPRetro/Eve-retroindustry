@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Logo EVE Retroindustry (shodné s favicon v base.html): šestiúhelník +
-     zlaté sloupce. Kresleno v 32-unit prostoru, škálované do bezpečné zóny
-     adaptivní ikony (108x108). -->
+<!-- EVE Retroindustry logo (matches the favicon in base.html): hexagon +
+     golden bars. Drawn in a 32-unit space, scaled into the safe zone of the
+     adaptive icon (108x108). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">

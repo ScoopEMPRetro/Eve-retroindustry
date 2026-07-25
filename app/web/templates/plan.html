@@ -25,7 +25,7 @@
   {% endif %}
 </div>
 
-{# Formulář — compact layout #}
+{# Form — compact layout #}
 <style>
   .plan-form .form-label { font-size: .7rem; color: #8b949e; margin-bottom: .15rem; }
   .plan-form .station-input { background: #0d1117; }
@@ -265,7 +265,7 @@
       </div>
     </div>
 
-    {# ──── Stock sources — z kterých stanic počítat zboží které už mám ──── #}
+    {# ──── Stock sources — which stations to count goods I already have from ──── #}
     {% if stock_station_options %}
     <div class="row g-2 mt-1">
       <div class="col-12">
@@ -324,9 +324,10 @@ const _PLAN_STATION_ID = {{ form_station or 0 }};
 const _PLAN_STATION_NAME = {{ (form_station_name or '') | tojson }};
 const _PLAN_FACILITY_TAX = {{ (result.fees.facility_tax if result.fees else 0) or 0 }};
 
-// Switch character: pokud má formulář vyplněný produkt, resubmitni s novým charem
-// (zachová všechna pole). Jinak jen přejdi na čistý /plan?char=X.
-// ME/TE override mažeme — jiný char má jiné blueprinty, ať se dohledají znovu.
+// Switch character: if the form has a product filled in, resubmit with the new
+// character (keeps all fields). Otherwise just go to a clean /plan?char=X.
+// We clear the ME/TE override — a different character has different blueprints,
+// so let them be looked up again.
 function switchPlanChar(charId) {
   const form = document.getElementById('plan-form');
   const product = form && form.querySelector('[name=product]');
@@ -344,7 +345,7 @@ function switchPlanChar(charId) {
 }
 </script>
 {% set full_cost = (result.fees.full_mat_cost if result.fees else result.total_buy) or 0 %}
-{# Záhlaví plánu #}
+{# Plan header #}
 <div class="card mb-3 p-3">
   <div class="row g-3 align-items-center">
     <div class="col-auto">
@@ -425,7 +426,7 @@ function switchPlanChar(charId) {
   </div>
 </div>
 
-{# ──── Finanční souhrn ──── #}
+{# ──── Financial summary ──── #}
 {% if result.total_buy is not none %}
 {% set mfg_total_cost  = full_cost + (result.fees.total_job_fee if result.fees else 0) %}
 {% set stock_total_cost = (result.total_buy or 0) + (result.fees.total_job_fee if result.fees else 0) %}
@@ -433,7 +434,7 @@ function switchPlanChar(charId) {
 {% set s_profit = result.fees.profit_stock  if result.fees else result.profit %}
 <div class="card mb-3" style="overflow:hidden">
 
-  {# Header — sell cena + cena na stanici #}
+  {# Header — sell price + station price #}
   <div class="card-header py-2 d-flex flex-wrap gap-3 align-items-center" style="font-size:.85rem;background:#161b22">
     {% if result.sell_price %}
     <span>
@@ -473,16 +474,16 @@ function switchPlanChar(charId) {
       <button type="button" data-location-id="{{ _sell_loc_id }}" data-type-id="{{ result.product_type_id }}"
               onclick="fetchContractPrice(this)"
               class="btn btn-sm" style="background:#21262d;border-color:#30363d;color:#8b949e;font-size:.75rem;padding:1px 7px"
-              title="Nejlevnější cena/kus z naindexovaných veřejných kontraktů v regionu stanice">
+              title="Cheapest price/unit from indexed public contracts in the station's region">
         <i class="bi bi-cloud-download me-1"></i>Fetch contract
       </button>
     </span>
   </div>
 
-  {# Dvě varianty vedle sebe #}
+  {# Two variants side by side #}
   <div class="row g-0">
 
-    {# Tržní — vše nakoupit #}
+    {# Market — buy all #}
     <div class="col-sm-6 p-3" style="border-right:1px solid #21262d">
       <div class="mb-2 text-uppercase fw-semibold" style="color:#8b949e;font-size:.68rem;letter-spacing:.07em">
         <i class="bi bi-shop me-1"></i>Market — buy all
@@ -526,7 +527,7 @@ function switchPlanChar(charId) {
       {% endif %}
     </div>
 
-    {# Se zásobami #}
+    {# With stock #}
     <div class="col-sm-6 p-3">
       <div class="mb-2 text-uppercase fw-semibold" style="color:#8b949e;font-size:.68rem;letter-spacing:.07em">
         <i class="bi bi-box-seam me-1"></i>With stock
@@ -571,7 +572,7 @@ function switchPlanChar(charId) {
     </div>
   </div>
 
-  {# Profit podle zdroje prodejní ceny (client-side přepočet po fetchi) #}
+  {# Profit by sell price source (client-side recompute after fetch) #}
   {% if result.revenue is not none %}
   <div style="border-top:1px solid #21262d;padding:.55rem .75rem">
     <div class="text-uppercase fw-semibold mb-2" style="color:#8b949e;font-size:.68rem;letter-spacing:.07em">
@@ -602,7 +603,7 @@ function switchPlanChar(charId) {
         </tbody>
       </table>
     </div>
-    <div class="text-muted" style="font-size:.68rem">Přepočet z fetchnutých cen × množství − náklady. „Fetch price" / „Fetch contract" nahoře.</div>
+    <div class="text-muted" style="font-size:.68rem">Computed from fetched prices × quantity − costs. Use "Fetch price" / "Fetch contract" above.</div>
   </div>
   <script>
     window._planCalc = {
@@ -614,7 +615,7 @@ function switchPlanChar(charId) {
   </script>
   {% endif %}
 
-  {# Footer — job fee parametry #}
+  {# Footer — job fee parameters #}
   {% if result.fees %}
   <div style="border-top:1px solid #21262d;padding:.4rem .75rem;font-size:.68rem;color:#6e7681">
     <i class="bi bi-info-circle me-1"></i>
@@ -631,7 +632,7 @@ function switchPlanChar(charId) {
 </div>
 {% endif %}
 
-{# Tabnav #}
+{# Tab nav #}
 <ul class="nav nav-tabs mb-0" id="planTabs" role="tablist" style="border-bottom:1px solid #30363d">
   <li class="nav-item">
     <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-materials" type="button">
@@ -660,7 +661,7 @@ function switchPlanChar(charId) {
 </ul>
 <div class="tab-content mb-3">
 
-{# === TAB: Materiály === #}
+{# === TAB: Materials === #}
 <div class="tab-pane fade show active" id="tab-materials">
 <div class="card" style="border-top:none;border-radius:0 0 6px 6px">
   <div class="card-header d-flex justify-content-between align-items-center py-2">
@@ -748,7 +749,7 @@ function switchPlanChar(charId) {
         </tr>
         {% endfor %}
       </tbody>
-      {# Součtový řádek #}
+      {# Total row #}
       <tfoot>
         <tr class="fw-semibold" style="border-top:2px solid #30363d;">
           <td colspan="4" class="text-muted">Total to purchase</td>
@@ -768,8 +769,8 @@ function switchPlanChar(charId) {
   </div>
 </div>
 
-{# Nákupní seznam — s/bez zásob #}
-{# (uzavírá se tab-pane materials níže) #}
+{# Shopping list — with/without stock #}
+{# (tab-pane materials closes below) #}
 {% set shop_items = result.materials | selectattr('required', '>', 0) | sort(attribute='total_price', reverse=True) | list %}
 {% set missing_count = result.materials | selectattr('missing', '>', 0) | list | length %}
 {% if shop_items %}
@@ -780,7 +781,7 @@ function switchPlanChar(charId) {
     </span>
     <button type="button" class="btn btn-sm btn-outline-secondary" id="shop-copy-btn"
             onclick="copyShoppingList(this)"
-            title="Kopírovat seznam pro in-game Multibuy (název ⇥ počet)">
+            title="Copy list for in-game Multibuy (name ⇥ quantity)">
       <i class="bi bi-clipboard me-1"></i>Copy
     </button>
   </div>
@@ -826,7 +827,7 @@ function switchPlanChar(charId) {
 {% endif %}
 </div>{# end tab-pane materials #}
 
-{# === TAB: Výrobní postup === #}
+{# === TAB: Manufacturing steps === #}
 <div class="tab-pane fade" id="tab-process" style="padding-top:1rem">
 {% if result.manufacturing_steps %}
 <div class="mb-3">
@@ -837,7 +838,7 @@ function switchPlanChar(charId) {
 
 {% for step in result.manufacturing_steps %}
 <div class="mb-3">
-  {# Hlavička kroku #}
+  {# Step header #}
   <div class="d-flex align-items-center gap-2 mb-2">
     <span class="badge {% if step.is_final %}bg-primary{% else %}bg-secondary{% endif %} fs-6 px-3 py-2">
       Step {{ step.step }}
@@ -850,7 +851,7 @@ function switchPlanChar(charId) {
     {% endif %}
   </div>
 
-  {# Joby v tomto kroku — accordion #}
+  {# Jobs in this step — accordion #}
   <div class="accordion" id="step{{ step.step }}acc">
     {% for job in step.jobs %}
     {% set job_id = "step" ~ step.step ~ "job" ~ loop.index %}
@@ -869,12 +870,12 @@ function switchPlanChar(charId) {
           <span class="fw-semibold me-1">{{ job.name }}</span>
           {% if job.me is defined %}
           <span class="text-success small me-1" style="font-size:.7rem;flex-shrink:0"
-                title="ME zjištěné z tvého blueprintu pro tento mezikrok (0 = blueprint nemáš)">
+                title="ME read from your blueprint for this intermediate step (0 = you don't own the blueprint)">
             ME&nbsp;{{ job.me }}
           </span>
           {% endif %}
           <span style="flex:1"></span>
-          {# Pevně zarovnané sloupce vpravo — gap odděluje hodnoty #}
+          {# Fixed-aligned columns on the right — gap separates the values #}
           <span style="display:flex;gap:2rem;align-items:center;flex-shrink:0;margin-right:1.5rem;font-variant-numeric:tabular-nums;font-size:.875rem">
             <span class="text-muted" style="width:8ch;text-align:right;white-space:nowrap">
               ×{{ job.quantity | int | format_number }}
@@ -1002,7 +1003,7 @@ function switchPlanChar(charId) {
 {% endif %}
 </div>{# end tab-pane process #}
 
-{# === TAB: Make vs Buy (jen optimal mode) === #}
+{# === TAB: Make vs Buy (optimal mode only) === #}
 {% if result.opt_decisions %}
 <div class="tab-pane fade" id="tab-makebuy" style="padding-top:1rem">
 <div class="card">
@@ -1092,7 +1093,7 @@ function switchPlanChar(charId) {
 
 </div>{# end tab-content #}
 
-{# Modal: Uložit do projektu #}
+{# Modal: Save to project #}
 <div class="modal fade" id="saveToProjectModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content" style="background:#1c2128;border-color:#30363d">
@@ -1126,7 +1127,7 @@ function switchPlanChar(charId) {
 
 {% block scripts %}
 <script>
-// === Stock sources — výběr stanic pro počítání zásob ===
+// === Stock sources — station selection for counting stock ===
 function _refreshStockSummary() {
   const cbs = document.querySelectorAll('.stock-station-cb');
   const sel = document.querySelectorAll('.stock-station-cb:checked').length;
@@ -1136,9 +1137,9 @@ function _refreshStockSummary() {
   }
 }
 function updateStockStations() {
-  // Voláno jen při změně checkboxu uživatelem — od té chvíle je výběr
-  // EXPLICITNÍ. Sentinel "0" = záměrně nic (jinak by prázdná hodnota
-  // spadla zpět na default = výrobní stanice).
+  // Called only when the user changes a checkbox — from that point the selection
+  // is EXPLICIT. Sentinel "0" = intentionally nothing (otherwise an empty value
+  // would fall back to the default = manufacturing station).
   const ids = [];
   document.querySelectorAll('.stock-station-cb:checked').forEach(cb => ids.push(cb.value));
   const input = document.getElementById('stock-stations-input');
@@ -1149,9 +1150,10 @@ function setAllStockStations(on) {
   document.querySelectorAll('.stock-station-cb').forEach(cb => { cb.checked = on; });
   updateStockStations();
 }
-// Auto-zaškrtne stock source odpovídající vybrané výrobní/reakční stanici, aby
-// se zásoba automaticky brala z místa výroby. No-op, pokud daná stanice není
-// mezi zdroji (uživatel tam nemá žádné assety) nebo už je zaškrtnutá.
+// Auto-checks the stock source matching the selected manufacturing/reaction
+// station, so stock is automatically taken from the production location. No-op
+// if the station is not among the sources (the user has no assets there) or is
+// already checked.
 function autoSelectStockSource(locationId) {
   if (!locationId) return;
   const cb = document.querySelector('.stock-station-cb[value="' + String(locationId) + '"]');
@@ -1162,13 +1164,13 @@ function autoSelectStockSource(locationId) {
 }
 document.addEventListener('DOMContentLoaded', _refreshStockSummary);
 
-// === Obnova posledního plánu ===
+// === Restore last plan ===
 const _FORM_FIELD_NAMES = [
   'product','qty','form_me','form_te','mode',
   'station','reaction_station','selling_station',
   'facility_tax','reaction_facility_tax',
   'facility_me_bonus','reaction_me_bonus',
-  'stock_stations',   // výběr stock source stanic (hidden input) — ať zůstává zachovaný
+  'stock_stations',   // stock source station selection (hidden input) — keep it preserved
 ];
 
 function savePlanState() {
@@ -1199,14 +1201,14 @@ function restoreUiState() {
   let ui;
   try { ui = JSON.parse(raw); } catch { return; }
 
-  // Zásoby toggle
+  // Stock toggle
   const toggle = document.getElementById('stock-toggle');
   if (toggle && ui.stock_checked === false) {
     toggle.checked = false;
     if (typeof toggleStockMode === 'function') toggleStockMode(false);
   }
 
-  // Aktivní záložka
+  // Active tab
   if (ui.active_tab && ui.active_tab !== '#tab-materials') {
     const btn = document.querySelector(`#planTabs [data-bs-target="${ui.active_tab}"]`);
     if (btn) bootstrap.Tab.getOrCreateInstance(btn).show();
@@ -1245,13 +1247,13 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.addEventListener('shown.bs.tab', saveUiState)
     );
   } else if (prefilledProduct) {
-    // Přišli jsme z blueprintů — produkt je předvyplněn, zobraz formulář bez restore
+    // We came from blueprints — the product is pre-filled, show the form without restore
   } else {
     restoreAndSubmitPlan();
   }
 });
 
-// === localStorage: naposledy použité ===
+// === localStorage: recently used ===
 function _saveRecent(key, item, max = 10) {
   let list = JSON.parse(localStorage.getItem(key) || '[]');
   list = list.filter(x => x.id !== item.id);
@@ -1287,9 +1289,9 @@ function saveRecentStation(item) {
   });
 
   input.addEventListener('focus', () => {
-    // Recents se ukážou i nad před-vyplněným polem — uživatel tak může
-    // rychle přepnout na jiný nedávný blueprint bez mazání textu.
-    // Psaní (input event, ≥2 znaky) dropdown přepne na vyhledávání.
+    // Recents show even over a pre-filled field — so the user can quickly
+    // switch to another recent blueprint without clearing the text.
+    // Typing (input event, ≥2 chars) switches the dropdown to search.
     showRecentBPs();
   });
 
@@ -1428,7 +1430,7 @@ function saveRecentStation(item) {
 </style>
 
 <script>
-// Generický tovární selector stanice — použit pro výrobní i reakční stanici
+// Generic factory station selector — used for both manufacturing and reaction stations
 function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
   const display = document.getElementById(displayId);
   const hidden  = document.getElementById(hiddenId);
@@ -1436,7 +1438,7 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
   if (!display) return;
 
   let timer, activeIdx = -1, items = [];
-  const pfx = displayId; // unikátní prefix pro DOM elementy uvnitř dropdownu
+  const pfx = displayId; // unique prefix for DOM elements inside the dropdown
 
   display.addEventListener('input', () => {
     clearTimeout(timer);
@@ -1447,8 +1449,8 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
   });
 
   display.addEventListener('focus', () => {
-    // Recents i nad před-vyplněným polem — rychlé přepnutí stanice bez
-    // mazání. Psaní (≥2 znaky) přepne dropdown na vyhledávání.
+    // Recents even over a pre-filled field — quick station switch without
+    // clearing. Typing (≥2 chars) switches the dropdown to search.
     showRecentStations();
   });
 
@@ -1614,7 +1616,7 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
   }
 }
 
-// === Výrobní stanice ===
+// === Manufacturing station ===
 makeStationSelector({
   displayId: 'station-display', hiddenId: 'station-id', boxId: 'station-suggestions',
   onSelect(item) {
@@ -1628,7 +1630,7 @@ makeStationSelector({
   },
 });
 
-// Submit fallback — pokud hidden je prázdné a display obsahuje číslo
+// Submit fallback — if hidden is empty and display contains a number
 document.getElementById('plan-form')?.addEventListener('submit', () => {
   ['station-display|station-id', 'rxn-station-display|rxn-station-id', 'sell-station-display|sell-station-id'].forEach(pair => {
     const [dId, hId] = pair.split('|');
@@ -1637,12 +1639,12 @@ document.getElementById('plan-form')?.addEventListener('submit', () => {
   });
 });
 
-// === Prodejní stanice ===
+// === Sell station ===
 makeStationSelector({
   displayId: 'sell-station-display', hiddenId: 'sell-station-id', boxId: 'sell-station-suggestions',
 });
 
-// === Reakční stanice ===
+// === Reaction station ===
 makeStationSelector({
   displayId: 'rxn-station-display', hiddenId: 'rxn-station-id', boxId: 'rxn-station-suggestions',
   onSelect(item) {
@@ -1656,7 +1658,7 @@ makeStationSelector({
   },
 });
 
-// === Přepínač zásoby / bez zásob ===
+// === Stock / no-stock toggle ===
 let _stockMode = 'with';
 
 function _isk(n) {
@@ -1670,9 +1672,9 @@ function _fmtInt(n) {
   return v.toLocaleString('en-US').replace(/,/g, ' ');
 }
 
-// Zkopíruje shopping list ve formátu pro in-game Multibuy: "Název<TAB>počet"
-// na řádek. Respektuje aktuální stock režim (with = jen chybějící, without =
-// vše). Clipboard API + fallback přes execCommand (spolehlivé v Android WebView).
+// Copies the shopping list in in-game Multibuy format: "Name<TAB>quantity"
+// per line. Respects the current stock mode (with = missing only, without =
+// all). Clipboard API + execCommand fallback (reliable in Android WebView).
 function copyShoppingList(btn) {
   const withMode = (typeof _stockMode === 'undefined') || _stockMode !== 'without';
   const lines = [];
@@ -1688,9 +1690,9 @@ function copyShoppingList(btn) {
     if (name) lines.push(name + '\t' + qty);
   });
   const text = lines.join('\n');
-  if (!text) { _shopCopyFeedback(btn, 'Nic k nákupu', false); return; }
+  if (!text) { _shopCopyFeedback(btn, 'Nothing to buy', false); return; }
 
-  const done = () => _shopCopyFeedback(btn, 'Zkopírováno', true);
+  const done = () => _shopCopyFeedback(btn, 'Copied', true);
   const fallback = () => {
     const ta = document.createElement('textarea');
     ta.value = text;
@@ -1701,7 +1703,7 @@ function copyShoppingList(btn) {
     let ok = false;
     try { ok = document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(ta);
-    _shopCopyFeedback(btn, ok ? 'Zkopírováno' : 'Kopírování selhalo', ok);
+    _shopCopyFeedback(btn, ok ? 'Copied' : 'Copy failed', ok);
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done).catch(fallback);
@@ -1821,7 +1823,7 @@ function toggleStockMode(checked) {
   }
 }
 
-// Validní typy struktur per sekce
+// Valid structure types per section
 const _MFG_STRUCTURES = new Set(['raitaru', 'azbel', 'sotiyo']);
 const _RXN_STRUCTURES = new Set(['athanor', 'tatara']);
 
@@ -1831,8 +1833,8 @@ function _isValidStructureForPrefix(structureType, prefix) {
   return false;
 }
 
-// Načte SCI + rig info pro stanici. Facility tax je vždy ruční vstup
-// (auto-detection z předchozích jobů byla nepřesná → odstraněna).
+// Loads SCI + rig info for a station. Facility tax is always manual input
+// (auto-detection from previous jobs was inaccurate → removed).
 async function loadStationInfo(locationId, { taxId, sciDivId, sciMfgId, sciRxnId, rigPrefix }) {
   try {
     const r    = await fetch(`/api/station-industry-info?location_id=${locationId}`);
@@ -1860,7 +1862,7 @@ async function loadStationInfo(locationId, { taxId, sciDivId, sciMfgId, sciRxnId
   } catch {}
 }
 
-// Načte dostupné rigy pro daný typ struktury a naplní selecty
+// Loads available rigs for the given structure type and fills the selects
 async function _loadRigOptions(prefix, structureType, selectedRigs = [null, null, null]) {
   const container = document.getElementById(`${prefix}-rig-container`);
   const bonusInput = document.getElementById(`${prefix}-me-bonus-input`);
@@ -1944,7 +1946,7 @@ function _autoSaveRigs(prefix) {
   });
 }
 
-// Profit srovnání: přepočet řádku podle fetchnuté ceny/kus.
+// Profit comparison: recompute the row from the fetched price/unit.
 function _profitCell(price, cost) {
   const c = window._planCalc;
   if (!c || !c.qty) return '—';
@@ -1980,8 +1982,8 @@ async function fetchContractPrice(btn) {
     const d = await r.json();
     if (d.ok && d.price) {
       const badge = d.is_bundle
-        ? '<span class="badge bg-warning text-dark" style="font-size:.55rem" title="Cena z balíčkového kontraktu — orientační (obsahuje i jiné itemy)">bundle</span>'
-        : '<span class="badge bg-success" style="font-size:.55rem" title="Čistě jen tento item">single</span>';
+        ? '<span class="badge bg-warning text-dark" style="font-size:.55rem" title="Price from a bundle contract — approximate (also includes other items)">bundle</span>'
+        : '<span class="badge bg-success" style="font-size:.55rem" title="Only this item">single</span>';
       if (valEl) { valEl.textContent = _isk(d.price) + ' ISK/unit'; valEl.classList.remove('d-none'); valEl.style.color = ''; valEl.style.fontSize = ''; }
       if (badgeEl) badgeEl.innerHTML = badge;
       if (cmpBadge) cmpBadge.innerHTML = badge;
@@ -2051,9 +2053,9 @@ function saveDefaultTax(prefix) {
   setTimeout(() => { btn.textContent = orig; }, 1200);
 }
 
-// Auto-load při page load (pokud je stanice již vybrána)
+// Auto-load on page load (if a station is already selected)
 document.addEventListener('DOMContentLoaded', () => {
-  // Aplikuj uložené výchozí hodnoty, jen pokud formulář ještě nebyl odeslán
+  // Apply saved default values only if the form hasn't been submitted yet
   if (!document.getElementById('has-result')?.value) {
     const mfgDef = localStorage.getItem('eve_default_mfg_tax');
     const rxnDef = localStorage.getItem('eve_default_rxn_tax');

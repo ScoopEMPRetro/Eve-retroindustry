@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Pro in-app update: nainstalovat stažený APK přes systémový instalátor. -->
+    <!-- For in-app update: install the downloaded APK via the system installer. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
@@ -21,7 +21,7 @@
             </intent-filter>
         </activity>
 
-        <!-- FileProvider: content:// URI pro stažený APK předaný instalátoru. -->
+        <!-- FileProvider: content:// URI for the downloaded APK passed to the installer. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

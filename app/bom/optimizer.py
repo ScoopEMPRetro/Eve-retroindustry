@@ -1,14 +1,14 @@
 """
-Make vs. Buy optimalizátor.
+Make vs. Buy optimizer.
 
-Algoritmus (bottom-up):
-  Pro každý uzel stromu spočítáme optimální cenu:
+Algorithm (bottom-up):
+  For each node in the tree we compute the optimal cost:
   - leaf:     sell_price × quantity
   - non-leaf: min(make_cost, buy_cost)
-              make_cost = součet optimálních cen potomků
+              make_cost = sum of children's optimal costs
               buy_cost  = Jita sell_price × quantity
 
-  Výsledkem je minimální celková cena a seznam rozhodnutí pro každý meziprodukt.
+  The result is the minimum total cost and a list of decisions for each intermediate.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -21,16 +21,16 @@ class Decision:
     type_id: int
     name: str
     quantity: int
-    make_cost: float | None     # cena výroby (s optimálními dětmi)
-    buy_cost: float | None      # Jita sell cena × qty
+    make_cost: float | None     # manufacturing cost (with optimal children)
+    buy_cost: float | None      # Jita sell price × qty
     action: Literal["make", "buy", "unknown"]
-    savings: float | None       # kladné = výroba levnější, záporné = nákup levnější
+    savings: float | None       # positive = cheaper to make, negative = cheaper to buy
 
 
 @dataclass
 class OptimizationResult:
     total_cost: float | None
-    naive_cost: float | None            # bez optimalizace (vše vyrábět)
+    naive_cost: float | None            # without optimization (make everything)
     total_savings: float | None         # naive - optimized
     decisions: list[Decision] = field(default_factory=list)
 
@@ -48,14 +48,14 @@ def optimize(
     prices: dict[int, tuple[float | None, float | None]],
 ) -> OptimizationResult:
     """
-    Spustí make vs. buy optimalizaci na BOM stromu.
+    Run make vs. buy optimization on the BOM tree.
     prices: {type_id: (sell_price, buy_price)}
     """
     raw_decisions: list[Decision] = []
     opt_cost   = _optimize_node(root, prices, raw_decisions, is_root=True)
     naive_cost = _naive_cost(root, prices)
 
-    # Deduplikace: agregujeme přes type_id (stejný komponent v různých větvích)
+    # Deduplication: aggregate by type_id (same component in different branches)
     merged: dict[int, Decision] = {}
     for d in raw_decisions:
         if d.type_id in merged:
@@ -96,7 +96,7 @@ def _optimize_node(
     if node.is_leaf:
         return (sell_p * node.quantity) if sell_p is not None else None
 
-    # Rekurzivně spočítáme optimální cenu výroby (potomci už optimalizovaní)
+    # Recursively compute the optimal manufacturing cost (children already optimized)
     children_costs = [
         _optimize_node(child, prices, decisions)
         for child in node.children
@@ -108,10 +108,10 @@ def _optimize_node(
 
     buy_cost = (sell_p * node.quantity) if sell_p is not None else None
 
-    # Rozhodnutí
+    # Decision
     if make_cost is not None and buy_cost is not None:
         action: Literal["make", "buy", "unknown"] = "buy" if buy_cost < make_cost else "make"
-        savings = make_cost - buy_cost   # kladné = výroba levnější, záporné = koupit levnější
+        savings = make_cost - buy_cost   # positive = cheaper to make, negative = cheaper to buy
     elif buy_cost is None:
         action = "make"
         savings = None
@@ -119,7 +119,7 @@ def _optimize_node(
         action = "buy"
         savings = None
 
-    # Kořen (samotný produkt) do decisions nepřidáváme
+    # The root (the product itself) is not added to decisions
     if not is_root:
         decisions.append(Decision(
             type_id=node.type_id,
@@ -141,12 +141,12 @@ def get_shopping_list(
     decisions: dict[int, Decision],
 ) -> dict[int, tuple[str, int]]:
     """
-    Z výsledků optimalizace sestaví nákupní seznam.
-    Pro každý uzel:
-      - "buy" rozhodnutí → přidej komponent do nákupního seznamu, nesestupuj hlouběji
-      - list (primární surovina) → přidej do nákupního seznamu
-      - "make" → pokračuj do potomků
-    Vrací {type_id: (name, total_quantity)}.
+    Build a shopping list from the optimization results.
+    For each node:
+      - "buy" decision → add the component to the shopping list, don't descend further
+      - leaf (raw material) → add to the shopping list
+      - "make" → continue into the children
+    Returns {type_id: (name, total_quantity)}.
     """
     shopping: dict[int, tuple[str, int]] = {}
 
@@ -162,7 +162,7 @@ def get_shopping_list(
         decision = decisions.get(node.type_id)
         if not is_root and decision and decision.action == "buy":
             _add(node.type_id, node.name, node.quantity)
-            return  # neklesáme hlouběji — kupujeme hotový komponent
+            return  # don't descend further — we buy the finished component
 
         for child in node.children:
             traverse(child)
@@ -175,7 +175,7 @@ def _naive_cost(
     node: BOMNode,
     prices: dict[int, tuple[float | None, float | None]],
 ) -> float | None:
-    """Naivní cena — vše vyrábíme, listy kupujeme."""
+    """Naive cost — make everything, buy the leaves."""
     if node.is_leaf:
         sell_p, _ = prices.get(node.type_id, (None, None))
         return (sell_p * node.quantity) if sell_p is not None else None

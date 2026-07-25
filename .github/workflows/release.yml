@@ -171,7 +171,7 @@ jobs:
           ANDROID_VERSION_NAME: ${{ steps.ver.outputs.name }}
         run: gradle assembleRelease --no-daemon --stacktrace
 
-      - name: Stage APK + version.json (stabilní jména pro releases/latest/download)
+      - name: Stage APK + version.json (stable names for releases/latest/download)
         run: |
           cp android-poc/app/build/outputs/apk/release/app-release.apk EveRetroindustry.apk
           cat > version.json <<EOF

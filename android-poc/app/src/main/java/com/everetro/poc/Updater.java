@@ -21,21 +21,22 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * In-app update pro sideload APK. Stáhne version.json z prerelease
- * "android-latest", porovná versionCode s nainstalovaným (BuildConfig) a když
- * je vzdálený novější, nabídne stažení + instalaci přes systémový instalátor.
+ * In-app update for the sideloaded APK. Downloads version.json from the
+ * "android-latest" prerelease, compares versionCode against the installed one
+ * (BuildConfig), and if the remote is newer, offers to download + install it
+ * via the system installer.
  *
- * Podmínka funkčnosti: všechny buildy podepsané stejným klíčem (CI release
- * keystore) — jinak Android update přes stávající appku odmítne.
+ * Prerequisite: all builds signed with the same key (CI release keystore) —
+ * otherwise Android refuses an update over the existing app.
  */
 public class Updater {
     private static final String TAG = "EveRetroUpdate";
-    // Stabilní URL na NEJNOVĚJŠÍ normální release (ignoruje prerelease jako
-    // android-latest). version.json je asset každého releasu (z release.yml).
+    // Stable URL for the LATEST normal release (ignores prereleases like
+    // android-latest). version.json is an asset of every release (from release.yml).
     private static final String VERSION_URL =
         "https://github.com/ScoopEMPRetro/Eve-retroindustry/releases/latest/download/version.json";
 
-    /** Spustí kontrolu na pozadí; při dostupném updatu ukáže dialog (UI thread). */
+    /** Runs the check in the background; shows a dialog (UI thread) if an update is available. */
     public static void check(Activity act) {
         new Thread(() -> {
             try {
@@ -49,15 +50,15 @@ public class Updater {
                     act.runOnUiThread(() -> promptUpdate(act, name, apkUrl));
                 }
             } catch (Throwable t) {
-                Log.w(TAG, "update check failed", t);  // tiché — offline apod.
+                Log.w(TAG, "update check failed", t);  // silent — offline etc.
             }
         }, "eve-update-check").start();
     }
 
-    /** Ruční kontrola (z tlačítka v UI) — vždy dá zpětnou vazbu, i když je vše aktuální. */
+    /** Manual check (from a UI button) — always gives feedback, even when everything is up to date. */
     public static void checkManual(Activity act) {
         act.runOnUiThread(() ->
-            Toast.makeText(act, "Kontroluji aktualizace…", Toast.LENGTH_SHORT).show());
+            Toast.makeText(act, "Checking for updates…", Toast.LENGTH_SHORT).show());
         new Thread(() -> {
             try {
                 JSONObject meta = fetchJson(VERSION_URL);
@@ -69,38 +70,38 @@ public class Updater {
                     if (remote > local && !apkUrl.isEmpty()) {
                         promptUpdate(act, name, apkUrl);
                     } else {
-                        Toast.makeText(act, "Máš nejnovější verzi (" + BuildConfig.VERSION_NAME + ").",
+                        Toast.makeText(act, "You have the latest version (" + BuildConfig.VERSION_NAME + ").",
                                 Toast.LENGTH_LONG).show();
                     }
                 });
             } catch (Throwable t) {
                 Log.w(TAG, "manual update check failed", t);
                 act.runOnUiThread(() -> Toast.makeText(act,
-                        "Kontrola aktualizací selhala: " + t.getMessage(), Toast.LENGTH_LONG).show());
+                        "Update check failed: " + t.getMessage(), Toast.LENGTH_LONG).show());
             }
         }, "eve-update-manual").start();
     }
 
     private static void promptUpdate(Activity act, String name, String apkUrl) {
         new AlertDialog.Builder(act)
-            .setTitle("Aktualizace k dispozici")
-            .setMessage("Je dostupná verze " + name + ". Stáhnout a nainstalovat?")
-            .setPositiveButton("Aktualizovat", (d, w) -> startUpdate(act, apkUrl))
-            .setNegativeButton("Později", null)
+            .setTitle("Update available")
+            .setMessage("Version " + name + " is available. Download and install?")
+            .setPositiveButton("Update", (d, w) -> startUpdate(act, apkUrl))
+            .setNegativeButton("Later", null)
             .show();
     }
 
     private static void startUpdate(Activity act, String apkUrl) {
-        // Android 8+: appka musí mít povolenu instalaci z neznámých zdrojů.
+        // Android 8+: the app must be allowed to install from unknown sources.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 && !act.getPackageManager().canRequestPackageInstalls()) {
-            Toast.makeText(act, "Povol instalaci aktualizací pro tuto aplikaci a zkus to znovu.",
+            Toast.makeText(act, "Allow installing updates for this app and try again.",
                     Toast.LENGTH_LONG).show();
             act.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:" + act.getPackageName())));
             return;
         }
-        Toast.makeText(act, "Stahuji aktualizaci…", Toast.LENGTH_SHORT).show();
+        Toast.makeText(act, "Downloading update…", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             try {
                 File dir = new File(act.getExternalFilesDir(null), "updates");
@@ -116,12 +117,12 @@ public class Updater {
             } catch (Throwable t) {
                 Log.e(TAG, "update download/install failed", t);
                 act.runOnUiThread(() -> Toast.makeText(act,
-                        "Aktualizace selhala: " + t.getMessage(), Toast.LENGTH_LONG).show());
+                        "Update failed: " + t.getMessage(), Toast.LENGTH_LONG).show());
             }
         }, "eve-update-dl").start();
     }
 
-    // ── HTTP helpers (sledují GitHub redirecty na objects.githubusercontent.com) ──
+    // ── HTTP helpers (follow GitHub redirects to objects.githubusercontent.com) ──
 
     private static JSONObject fetchJson(String url) throws Exception {
         HttpURLConnection c = open(url);
@@ -148,7 +149,7 @@ public class Updater {
         }
     }
 
-    /** Otevře spojení a ručně dosleduje až 5 redirectů (i cross-host https). */
+    /** Opens the connection and manually follows up to 5 redirects (incl. cross-host https). */
     private static HttpURLConnection open(String url) throws Exception {
         for (int hop = 0; hop < 5; hop++) {
             HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
@@ -160,16 +161,16 @@ public class Updater {
             if (code >= 300 && code < 400) {
                 String loc = c.getHeaderField("Location");
                 c.disconnect();
-                if (loc == null) throw new Exception("redirect bez Location");
+                if (loc == null) throw new Exception("redirect without Location");
                 url = loc;
                 continue;
             }
             if (code != 200) {
                 c.disconnect();
-                throw new Exception("HTTP " + code + " pro " + url);
+                throw new Exception("HTTP " + code + " for " + url);
             }
             return c;
         }
-        throw new Exception("příliš mnoho redirectů");
+        throw new Exception("too many redirects");
     }
 }

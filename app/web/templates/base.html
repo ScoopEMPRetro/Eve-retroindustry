@@ -233,8 +233,8 @@ async function syncAll(btn) {
 }
 
 // Version check — once per session, show dot if update available.
-// Desktop-only: na Androidu řeší update nativní updater (About → Zkontrolovat
-// aktualizace), tenhle endpoint porovnává desktop release tagy.
+// Desktop-only: on Android the native updater handles updates (About → Check for
+// updates); this endpoint compares desktop release tags.
 {% if not IS_ANDROID %}
 (function() {
   try {

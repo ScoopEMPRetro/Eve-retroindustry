@@ -1,6 +1,6 @@
 """
-Načítání assetů postavy z ESI (stránkovaně).
-Vrací materiály dostupné na dané stanici/struktuře.
+Loading character assets from ESI (paginated).
+Returns materials available at a given station/structure.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -10,7 +10,7 @@ import json
 import httpx
 
 ESI_BASE  = "https://esi.evetech.net/latest"
-CACHE_TTL = 60 * 10  # 10 minut (assety se mění)
+CACHE_TTL = 60 * 10  # 10 minutes (assets change)
 
 
 @dataclass
@@ -20,8 +20,8 @@ class CharAsset:
     location_id:        int
     location_flag:      str
     quantity:           int
-    is_singleton:       bool   # True = jedinečný předmět (loď, fitted module…)
-    is_blueprint_copy:  bool   # True = BPC (kopie blueprintu bez tržní ceny)
+    is_singleton:       bool   # True = unique item (ship, fitted module…)
+    is_blueprint_copy:  bool   # True = BPC (blueprint copy with no market price)
 
 
 def ensure_assets_table(conn: sqlite3.Connection):
@@ -61,7 +61,7 @@ async def fetch_assets(
     conn: sqlite3.Connection,
     force_refresh: bool = False,
 ) -> list[CharAsset]:
-    """Načte všechny assety postavy (stránkovaně), s cache."""
+    """Loads all of the character's assets (paginated), with caching."""
     if not force_refresh:
         cached = _load_cache(conn, character_id)
         if cached is not None:
@@ -186,8 +186,8 @@ async def fetch_corp_assets(
 
 def assets_at_location(assets: list[CharAsset], location_id: int) -> dict[int, int]:
     """
-    Vrátí {type_id: total_quantity} pro danou stanici/strukturu.
-    Ignoruje singletony (lodě, unikátní předměty).
+    Returns {type_id: total_quantity} for a given station/structure.
+    Ignores singletons (ships, unique items).
     """
     result: dict[int, int] = {}
     for a in assets:
@@ -201,9 +201,9 @@ def assets_at_locations(
     assets: list[CharAsset], location_ids: "set[int] | list[int]"
 ) -> dict[int, int]:
     """
-    Vrátí {type_id: total_quantity} agregované přes VÍCE stanic/struktur.
-    Ignoruje singletony. Slouží pro výběr zdrojů zásob ve výrobním plánu
-    (uživatel zaškrtne, ze kterých stanic se má stav zboží počítat).
+    Returns {type_id: total_quantity} aggregated across MULTIPLE stations/structures.
+    Ignores singletons. Used for selecting stock sources in the production plan
+    (the user checks which stations the inventory should be counted from).
     """
     wanted = set(location_ids)
     result: dict[int, int] = {}

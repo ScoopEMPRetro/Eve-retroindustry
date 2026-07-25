@@ -2,7 +2,7 @@
 {% block title %}Assets — EVE Retroindustry{% endblock %}
 {% block content %}
 
-{# === Makro pro tabulku assetů === #}
+{# === Macro for the assets table === #}
 {% macro asset_table(items, table_id, show_badge=False) %}
 <div class="table-responsive">
   <table class="table table-hover mb-0 align-middle loc-table" id="tbl-{{ table_id }}" style="font-size:.875rem">
@@ -453,7 +453,7 @@ document.querySelectorAll('.sort-col').forEach(th => {
   });
 });
 
-// ── Řazení stanic ──────────────────────────────────────────────────────────
+// ── Station sorting ─────────────────────────────────────────────────────────
 
 function sortStations(key, dir = 'desc') {
   const list = document.getElementById('stations-list');
@@ -467,11 +467,11 @@ function sortStations(key, dir = 'desc') {
     if (key === 'jumps') {
       const va = parseInt(a.dataset.jumps ?? '-1');
       const vb = parseInt(b.dataset.jumps ?? '-1');
-      // Neznámé (-1) jdou vždy na konec
+      // Unknown (-1) always go to the end
       if (va < 0 && vb < 0) return 0;
       if (va < 0) return 1;
       if (vb < 0) return -1;
-      return va - vb;  // jumps: vždy ascending (nejbližší první)
+      return va - vb;  // jumps: always ascending (nearest first)
     }
     const va = parseFloat(a.dataset[key] ?? '0');
     const vb = parseFloat(b.dataset[key] ?? '0');
@@ -498,7 +498,7 @@ sortBtns.forEach(btn => {
     if (key === 'jumps') {
       const jumpBtn = document.getElementById('sort-jumps-btn');
       const cards = document.querySelectorAll('.station-card[data-jumps=""]');
-      // Načti vzdálenosti jen pokud ještě nejsou
+      // Load distances only if not present yet
       if (cards.length > 0) {
         jumpBtn.disabled = true;
         jumpBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Distance';
@@ -514,7 +514,7 @@ sortBtns.forEach(btn => {
               const badge = card.querySelector('.jumps-badge');
               if (badge) {
                 if (jumps === 0) {
-                  badge.textContent = '📍 zde';
+                  badge.textContent = '📍 here';
                 } else if (jumps > 0) {
                   badge.textContent = `${jumps} j`;
                 }
@@ -532,8 +532,8 @@ sortBtns.forEach(btn => {
   });
 });
 
-// Ikony kontejnerů/lodí — nastavení src přes JS fetchne obrázek i v display:none.
-// (Oproti HTML atributu src, který Chromium v display:none odkládá.)
+// Container/ship icons — setting src via JS fetches the image even in display:none.
+// (Unlike the HTML src attribute, which Chromium defers while display:none.)
 document.querySelectorAll('img.eve-icon[data-render]').forEach(img => {
   img.onerror = () => {
     img.onerror = () => { img.style.visibility = 'hidden'; };
@@ -542,7 +542,7 @@ document.querySelectorAll('img.eve-icon[data-render]').forEach(img => {
   img.src = img.dataset.render;
 });
 
-// Lazy item ikony v tabulkách — force-reload po rozbalení sekce.
+// Lazy item icons in tables — force-reload after a section is expanded.
 document.addEventListener('shown.bs.collapse', e => {
   e.target.querySelectorAll('img[loading="lazy"]').forEach(img => {
     const src = img.src;

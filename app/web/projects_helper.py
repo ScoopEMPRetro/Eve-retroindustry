@@ -181,7 +181,7 @@ def get_project_detail(conn: sqlite3.Connection, project_id: int) -> dict | None
         ).fetchall()
     ]
 
-    # Načti vstupy každého jobu z uloženého plan_json (agreguj přes plány)
+    # Load each job's inputs from the stored plan_json (aggregate across plans)
     # (step, type_id) -> {input_type_id: {name, quantity, is_leaf, activity}}
     plan_input_map: dict = {}
     for plan_id_row, plan_json_str in conn.execute(
@@ -236,7 +236,7 @@ def get_project_detail(conn: sqlite3.Connection, project_id: int) -> dict | None
             if jd["status"] != "completed":
                 merged[key]["completed"] = False
 
-    # Přidej inputs ke každému merged jobu
+    # Add inputs to each merged job
     for key, job in merged.items():
         inputs = plan_input_map.get(key, {})
         job["inputs"] = sorted(inputs.values(), key=lambda x: x["name"])

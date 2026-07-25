@@ -1,4 +1,4 @@
-"""Překlad location_id na jméno stanice/struktury (sdíleno mezi plan.py a web)."""
+"""Resolve a location_id to a station/structure name (shared between plan.py and web)."""
 from __future__ import annotations
 import asyncio
 import sqlite3
@@ -10,14 +10,15 @@ _cache: dict[int, str] = {}
 _sys_cache: dict[int, int] = {}   # location_id → solar_system_id
 _SEM = asyncio.Semaphore(10)
 
-# location_id → True pokud ESI vrátilo 403 (no docking access). Drží se v
-# paměti po dobu běhu procesu, aby se tatáž nepřístupná struktura neresolvovala
-# znovu a znovu — flood 403 odpovědí jinak vyčerpá ESI error-limit (HTTP 420).
+# location_id → True if ESI returned 403 (no docking access). Kept in memory
+# for the lifetime of the process so the same inaccessible structure isn't
+# resolved over and over — a flood of 403 responses would otherwise exhaust the
+# ESI error limit (HTTP 420).
 _forbidden: set[int] = set()
 
-# Když ESI vrátí 420 ("error limited"), zastavíme VŠECHNY další pokusy o
-# resolvování jmen do tohoto času (monotonic seconds). Chrání before
-# kaskádovým banem ostatních endpointů (např. /universe/ids/).
+# When ESI returns 420 ("error limited"), stop ALL further name-resolution
+# attempts until this time (monotonic seconds). Protects against a cascading
+# ban of other endpoints (e.g. /universe/ids/).
 _error_limited_until: float = 0.0
 
 
@@ -59,8 +60,8 @@ async def get_security_status(
     conn: sqlite3.Connection,
     system_id: int,
 ) -> float | None:
-    """Vrátí security_status pro daný systém. Cachuje výsledek napevno
-    (sec status se nemění běžně — jen FW state, který ignorujeme)."""
+    """Return the security_status for the given system. Caches the result
+    permanently (sec status doesn't normally change — only FW state, which we ignore)."""
     ensure_location_name_table(conn)
     row = conn.execute(
         "SELECT security_status FROM solar_system_cache WHERE system_id=?",
@@ -91,7 +92,7 @@ async def get_security_status(
 
 
 def get_cached_security(conn: sqlite3.Connection, system_id: int) -> float | None:
-    """Synchronní čtení security z cache. Vrátí None pokud není cached."""
+    """Synchronously read security from cache. Returns None if not cached."""
     row = conn.execute(
         "SELECT security_status FROM solar_system_cache WHERE system_id=?",
         (system_id,),
@@ -100,16 +101,16 @@ def get_cached_security(conn: sqlite3.Connection, system_id: int) -> float | Non
 
 
 def security_multiplier(sec_status: float | None, is_reaction: bool = False) -> float:
-    """Per CCP: rig bonusy škálují podle security, ale JINAK pro výrobu
-    a pro reakce:
+    """Per CCP: rig bonuses scale with security, but DIFFERENTLY for
+    manufacturing and for reactions:
 
       manufacturing: highsec ×1.0, lowsec ×1.9, null/WH ×2.1
-      reaction:      lowsec ×1.0, null/WH ×1.1  (v highsec reakce neběží)
+      reaction:      lowsec ×1.0, null/WH ×1.1  (reactions don't run in highsec)
 
-    Ověřeno proti EVE Ref API: Titanium Carbide v null Tatara s T2 ME
-    rigem → 2.4 % × 1.1 = 2.64 % (ne ×2.1), v lowsec ×1.0.
+    Verified against the EVE Ref API: Titanium Carbide in a null Tatara with a
+    T2 ME rig → 2.4 % × 1.1 = 2.64 % (not ×2.1), in lowsec ×1.0.
 
-    None → highsec fallback (1.0), aby se sběr ESI dat neblokoval výpočet.
+    None → highsec fallback (1.0), so gathering ESI data doesn't block the calculation.
     """
     if sec_status is None:
         return 1.0
@@ -125,9 +126,9 @@ def get_station_security_multiplier(
     location_id: int,
     is_reaction: bool = False,
 ) -> float:
-    """Synchronně vrátí rig security multiplier pro stanici.
+    """Synchronously return the rig security multiplier for a station.
 
-    Předpokládá, že solar_system_cache byla naplněna z /api/station-industry-info.
+    Assumes solar_system_cache has been populated from /api/station-industry-info.
     """
     row = conn.execute(
         "SELECT solar_system_id FROM location_name_cache WHERE location_id=?",
@@ -139,7 +140,7 @@ def get_station_security_multiplier(
 
 
 async def get_region_for_location(conn: sqlite3.Connection, location_id: int, token: str | None = None) -> int | None:
-    """Vrátí region_id pro daný location_id. Cachuje výsledek v DB."""
+    """Return the region_id for the given location_id. Caches the result in the DB."""
     ensure_location_name_table(conn)
     row = conn.execute(
         "SELECT solar_system_id, region_id FROM location_name_cache WHERE location_id=?",
@@ -151,7 +152,7 @@ async def get_region_for_location(conn: sqlite3.Connection, location_id: int, to
 
     sys_id = row[0] if row else None
 
-    # Pokud nemáme system_id, resolve stanici
+    # If we don't have a system_id, resolve the station
     if not sys_id:
         async with esi_client() as client:
             _, sys_id = await resolve_station_name(client, location_id, token)
@@ -165,7 +166,7 @@ async def get_region_for_location(conn: sqlite3.Connection, location_id: int, to
     if not sys_id:
         return None
 
-    # system → constellation → region (2 ESI volání)
+    # system → constellation → region (2 ESI calls)
     try:
         async with esi_client() as client:
             sys_r = await client.get(
@@ -203,7 +204,7 @@ def load_location_names_from_db(conn: sqlite3.Connection) -> dict[int, str]:
 
 
 def load_location_sys_from_db(conn: sqlite3.Connection) -> dict[int, int]:
-    """Vrátí {location_id: solar_system_id} pro záznamy kde solar_system_id není NULL."""
+    """Return {location_id: solar_system_id} for records where solar_system_id is not NULL."""
     rows = conn.execute(
         "SELECT location_id, solar_system_id FROM location_name_cache WHERE solar_system_id IS NOT NULL"
     ).fetchall()
@@ -232,7 +233,7 @@ async def resolve_station_name(
     location_id: int,
     token: str | None = None,
 ) -> tuple[str, int | None]:
-    """Vrátí (name, solar_system_id)."""
+    """Return (name, solar_system_id)."""
     if location_id in _cache:
         return _cache[location_id], _sys_cache.get(location_id)
 
@@ -240,10 +241,10 @@ async def resolve_station_name(
     sys_id: int | None = None
     forbidden = False
 
-    # Struktura už dříve vrátila 403 → nepokoušej se znovu (šetří error-limit).
+    # Structure previously returned 403 → don't try again (saves error limit).
     if location_id in _forbidden:
-        return f"[Privátní struktura {location_id}]", None
-    # ESI nás dočasně error-limitnul (420) → vrať placeholder bez requestu.
+        return f"[Private structure {location_id}]", None
+    # ESI temporarily error-limited us (420) → return a placeholder without a request.
     if _is_error_limited():
         return name, None
 
@@ -274,7 +275,7 @@ async def resolve_station_name(
                         name = data.get("name", name)
                         sys_id = data.get("solar_system_id")
                     elif r.status_code == 403:
-                        name = f"[Privátní struktura {location_id}]"
+                        name = f"[Private structure {location_id}]"
                         forbidden = True
                         _forbidden.add(location_id)
                     elif r.status_code == 420:
@@ -282,8 +283,8 @@ async def resolve_station_name(
         except Exception:
             pass
 
-    # Player struktury bez rozlišeného jména se necachují v paměti —
-    # po re-loginu s esi-universe.read_structures.v1 se zkusí znovu.
+    # Player structures without a resolved name aren't cached in memory —
+    # after re-login with esi-universe.read_structures.v1 they're retried.
     if not forbidden and (sys_id is not None or location_id < 1_000_000_000_000):
         _cache[location_id] = name
         if sys_id:
@@ -316,11 +317,11 @@ async def resolve_station_names_bulk(
         for lid, (name, sys_id) in zip(location_ids, results):
             stored = db_names.get(lid)
             got_real = name != str(lid)
-            is_forbidden = name == f"[Privátní struktura {lid}]"
-            stored_stale = stored is None or stored == str(lid) or stored == f"[Privátní struktura {lid}]"
+            is_forbidden = name == f"[Private structure {lid}]"
+            stored_stale = stored is None or stored == str(lid) or stored == f"[Private structure {lid}]"
             upgrading = got_real and not name.startswith("[") and stored is not None and stored.startswith("[")
             if got_real and not is_forbidden and (stored_stale or upgrading):
-                # Uložíme jen reálné jméno — 403 fallbacky se necachují do DB
+                # Store only the real name — 403 fallbacks aren't cached in the DB
                 new_entries[lid] = (name, sys_id)
             elif stored and not is_forbidden and sys_id and db_sys.get(lid) != sys_id:
                 new_entries[lid] = (stored, sys_id)

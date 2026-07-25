@@ -30,11 +30,11 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView web;
     private TextView status;
-    private View statusScroll;   // obal status textu — musí se skrýt celý, jinak žere doteky
+    private View statusScroll;   // wrapper for the status text — must be hidden entirely, otherwise it eats touches
     private String url;
-    // Server běží jednou za proces (Android proces přežívá relaunch Activity).
-    // sPort = port NAŠEHO serveru pro tento proces (0 = ještě nespuštěn). Volíme
-    // volný port dynamicky — natvrdo 8000 může držet zombie z minula.
+    // The server runs once per process (the Android process survives an Activity relaunch).
+    // sPort = the port of OUR server for this process (0 = not started yet). We pick a
+    // free port dynamically — a hardcoded 8000 could be held by a zombie from last time.
     private static volatile boolean sServerLaunched = false;
     private static volatile int sPort = 0;
 
@@ -50,30 +50,30 @@ public class MainActivity extends AppCompatActivity {
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);            // localStorage (poslední stanice/blueprinty)
+        s.setDomStorageEnabled(true);            // localStorage (last stations/blueprints)
         s.setDatabaseEnabled(true);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
         s.setSupportZoom(true);
         s.setBuiltInZoomControls(true);
         s.setDisplayZoomControls(false);
-        // Stránka je http (localhost), ale tahá Bootstrap z https CDN → povolit mix.
+        // The page is http (localhost), but pulls Bootstrap from an https CDN → allow mixing.
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         web.setWebViewClient(new WebViewClient() {
-            // Když se hlavní rámec (náš lokální server) nenačte, ukaž Python
-            // server.log v appce — ať jde chyba diagnostikovat i bez adb.
+            // When the main frame (our local server) fails to load, show the Python
+            // server.log in the app — so the error can be diagnosed even without adb.
             @Override
             public void onReceivedError(WebView view, android.webkit.WebResourceRequest req,
                                         android.webkit.WebResourceError err) {
                 if (req != null && req.isForMainFrame()) {
-                    showServerLog("Načtení selhalo: " + err.getErrorCode()
+                    showServerLog("Load failed: " + err.getErrorCode()
                             + " " + err.getDescription());
                 }
             }
         });
-        // WebChromeClient: bez něj nefungují window.alert/confirm/prompt (např.
-        // potvrzení smazání postavy) a ztrácí se console.* logy. Forwardujeme
-        // je do logcatu (tag EveRetro) pro diagnostiku.
+        // WebChromeClient: without it window.alert/confirm/prompt don't work (e.g.
+        // confirming character deletion) and console.* logs get lost. We forward
+        // them to logcat (tag EveRetro) for diagnostics.
         web.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onConsoleMessage(ConsoleMessage m) {
                 Log.i(TAG, "console: " + m.message()
@@ -81,7 +81,7 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
         });
-        // JS most: webové UI (About → Zkontrolovat aktualizace) spustí nativní
+        // JS bridge: the web UI (About → Check for updates) triggers the native
         // updater. window.AndroidApp.checkForUpdate()
         web.addJavascriptInterface(new Object() {
             @JavascriptInterface
@@ -90,7 +90,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }, "AndroidApp");
 
-        // Hardwarové tlačítko zpět = historie WebView.
+        // Hardware back button = WebView history.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
                 if (web.canGoBack()) web.goBack();
@@ -101,29 +101,29 @@ public class MainActivity extends AppCompatActivity {
         new Thread(this::boot, "eve-boot").start();
     }
 
-    /** Běží na pozadí: rozbalí assety, nastartuje Python server, počká na port. */
+    /** Runs in the background: unpacks assets, starts the Python server, waits for the port. */
     private void boot() {
         try {
             File filesDir = getFilesDir();
-            setStatus("Rozbaluji data…");
+            setStatus("Unpacking data…");
             extractBundle(filesDir);
 
-            setStatus("Spouštím Python…");
+            setStatus("Starting Python…");
             if (!Python.isStarted()) {
                 Python.start(new AndroidPlatform(this));
             }
             final Python py = Python.getInstance();
             final PyObject mod = py.getModule("android_main");
-            // Předej Activity Pythonu — potřebné pro otevření SSO loginu přes Intent.
+            // Pass the Activity to Python — needed to open the SSO login via an Intent.
             mod.callAttr("set_context", this);
 
-            // Server spouštěj jen JEDNOU za proces (Android proces přežívá
-            // relaunch Activity). Vezmi si VLASTNÍ volný port — reuse existujícího
-            // listeneru na pevném portu by mohl trefit zaseknutý zombie z minula
-            // (ERR_EMPTY_RESPONSE). V rámci procesu držíme svůj port v sPort.
+            // Start the server only ONCE per process (the Android process survives
+            // an Activity relaunch). Grab OUR OWN free port — reusing an existing
+            // listener on a fixed port could hit a stuck zombie from last time
+            // (ERR_EMPTY_RESPONSE). Within the process we keep our port in sPort.
             final int port;
             if (sServerLaunched && sPort != 0) {
-                port = sPort;   // náš server z dřívějška v tomto procesu
+                port = sPort;   // our server from earlier in this process
             } else {
                 port = findFreePort();
                 sPort = port;
@@ -132,35 +132,35 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         mod.callAttr("start_server", filesDir.getAbsolutePath(), port);
                     } catch (Throwable t) {
-                        sServerLaunched = false;   // umožni retry po pádu
+                        sServerLaunched = false;   // allow a retry after a crash
                         Log.e(TAG, "server crashed", t);
-                        showServerLog("Server spadl: " + t);
+                        showServerLog("Server crashed: " + t);
                     }
                 }, "eve-uvicorn").start();
             }
             url = "http://127.0.0.1:" + port;
 
-            setStatus("Čekám na server…");
+            setStatus("Waiting for server…");
             if (!waitForServer(mod, port, 30_000)) {
-                setStatus("Server nenaběhl do 30 s — viz logcat (python.stdout).");
+                setStatus("Server didn't start within 30 s — see logcat (python.stdout).");
                 return;
             }
 
             runOnUiThread(() -> {
-                statusScroll.setVisibility(View.GONE);   // celý overlay pryč, ať WebView dostává doteky
+                statusScroll.setVisibility(View.GONE);   // hide the whole overlay so the WebView gets touches
                 web.setVisibility(View.VISIBLE);
                 web.loadUrl(url);
             });
 
-            // Po nahození UI zkontroluj dostupnou aktualizaci (tiše, na pozadí).
+            // Once the UI is up, check for an available update (silently, in the background).
             Updater.check(this);
         } catch (Throwable t) {
             Log.e(TAG, "boot failed", t);
-            setStatus("Start selhal:\n" + Log.getStackTraceString(t));
+            setStatus("Start failed:\n" + Log.getStackTraceString(t));
         }
     }
 
-    /** Najde volný TCP port na loopbacku (nový server = nový port, bez konfliktu). */
+    /** Finds a free TCP port on loopback (new server = new port, no conflict). */
     private int findFreePort() {
         try (java.net.ServerSocket ss = new java.net.ServerSocket(
                 0, 1, java.net.InetAddress.getByName("127.0.0.1"))) {
@@ -170,7 +170,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** Poll přes Python helper, dokud server nepřijímá spojení (nebo timeout). */
+    /** Poll via the Python helper until the server accepts connections (or timeout). */
     private boolean waitForServer(PyObject mod, int port, long timeoutMs) {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
@@ -185,9 +185,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Rozbalí assets/bundle/** do filesDir/** (sde_base.db + app/web/templates).
-     * Přepisuje při každém startu — levné a zajistí čerstvé šablony po updatu.
-     * eve_cache.db (uživatelská data) se NEMAŽE — leží vedle, ne v bundle/.
+     * Unpacks assets/bundle/** into filesDir/** (sde_base.db + app/web/templates).
+     * Overwrites on every start — cheap, and guarantees fresh templates after an update.
+     * eve_cache.db (user data) is NOT deleted — it lives alongside, not in bundle/.
      */
     private void extractBundle(File filesDir) throws IOException {
         copyAsset("bundle", filesDir);
@@ -196,7 +196,7 @@ public class MainActivity extends AppCompatActivity {
     private void copyAsset(String path, File outRoot) throws IOException {
         String[] children = getAssets().list(path);
         if (children == null || children.length == 0) {
-            // list je soubor (ne adresář) → zkopíruj. "bundle/" prefix odřízni.
+            // the entry is a file (not a directory) → copy it. Strip the "bundle/" prefix.
             String rel = path.substring("bundle/".length());
             File out = new File(outRoot, rel);
             File parent = out.getParentFile();
@@ -218,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> status.setText(msg));
     }
 
-    /** Zobrazí konec Python server.logu v appce (diagnostika chyby serveru). */
+    /** Shows the tail of the Python server.log in the app (server error diagnostics). */
     private void showServerLog(String header) {
         new Thread(() -> {
             String log;
@@ -226,9 +226,9 @@ public class MainActivity extends AppCompatActivity {
                 PyObject mod = Python.getInstance().getModule("android_main");
                 log = mod.callAttr("get_log", getFilesDir().getAbsolutePath()).toString();
             } catch (Throwable t) {
-                log = "(log nedostupný: " + t + ")";
+                log = "(log unavailable: " + t + ")";
             }
-            final String text = header + "\n\n=== server.log (konec) ===\n" + log;
+            final String text = header + "\n\n=== server.log (tail) ===\n" + log;
             Log.e(TAG, text);
             runOnUiThread(() -> {
                 web.setVisibility(View.GONE);

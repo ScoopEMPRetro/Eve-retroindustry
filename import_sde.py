@@ -1,7 +1,7 @@
 """
-Import CCP SDE dat do SQLite databáze.
-Parsuje fsd/blueprints.yaml a fsd/types.yaml.
-Použití: python import_sde.py
+Import CCP SDE data into a SQLite database.
+Parses fsd/blueprints.yaml and fsd/types.yaml.
+Usage: python import_sde.py
 """
 import re
 import yaml
@@ -22,16 +22,16 @@ _BONUS_RE = re.compile(
 console = Console()
 
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-# Nové CCP SDE (build 3417089+) má soubory v rootu zipu, ne ve fsd/. Podporuj
-# obě rozložení — data/fsd/ (starší) i data/ (nové).
+# The new CCP SDE (build 3417089+) has files in the zip root, not in fsd/. Support
+# both layouts — data/fsd/ (older) and data/ (new).
 SDE_DIR = os.path.join(_DATA_DIR, "fsd") \
     if os.path.exists(os.path.join(_DATA_DIR, "fsd", "types.yaml")) else _DATA_DIR
 DB_PATH = os.path.join(os.path.dirname(__file__), "eve_cache.db")
 
 
 def _yaml_load(f):
-    """Načte YAML přes libyaml C loader, pokud je dostupný (řádově rychlejší
-    na velkém types.yaml ~150 MB), jinak pure-Python SafeLoader."""
+    """Load YAML via the libyaml C loader if available (orders of magnitude faster
+    on the large types.yaml ~150 MB), otherwise the pure-Python SafeLoader."""
     try:
         from yaml import CSafeLoader as _Loader
     except ImportError:
@@ -101,13 +101,13 @@ def init_db(conn: sqlite3.Connection):
 
 def import_types(conn: sqlite3.Connection) -> dict:
     """Returns parsed types_data for reuse in skill bonus import."""
-    console.print("[cyan]Načítám types.yaml (147 MB, chvíli trvá)...[/]")
+    console.print("[cyan]Loading types.yaml (147 MB, this takes a while)...[/]")
     t0 = time.time()
 
     with open(TYPES_YAML, "r", encoding="utf-8") as f:
         data = _yaml_load(f)
 
-    console.print(f"[dim]YAML načten za {time.time()-t0:.1f}s, importuji {len(data):,} typů...[/]")
+    console.print(f"[dim]YAML loaded in {time.time()-t0:.1f}s, importing {len(data):,} types...[/]")
 
     rows = []
     for type_id, info in data.items():
@@ -131,7 +131,7 @@ def import_types(conn: sqlite3.Connection) -> dict:
         rows
     )
     conn.commit()
-    console.print(f"[green]Importováno {len(rows):,} typů[/]")
+    console.print(f"[green]Imported {len(rows):,} types[/]")
     return data
 
 
@@ -140,18 +140,18 @@ _IMPLANT_GROUP  = 743           # Zainou/manufacturing implants — not fetchabl
 
 
 def import_groups(conn: sqlite3.Connection):
-    """Importuje groups.yaml → sde_groups (group_id, name en).
+    """Import groups.yaml → sde_groups (group_id, name en).
 
-    Dřív se sde_groups plnila jednorázově přes ESI (_ensure_groups_populated),
-    což znamenalo že nové groups (např. 5120 Command Carrier z Cradle of War)
-    se existujícím uživatelům nikdy nedoplnily — rig_applies_to_product přes
-    INNER JOIN pak vracel False a žádný rig se na produkty z těchto group
-    neaplikoval.
+    Previously sde_groups was populated once via ESI (_ensure_groups_populated),
+    which meant new groups (e.g. 5120 Command Carrier from Cradle of War)
+    were never backfilled for existing users — rig_applies_to_product then
+    returned False through its INNER JOIN and no rig applied to products from
+    those groups.
     """
     if not os.path.exists(GROUPS_YAML):
-        console.print(f"[yellow]groups.yaml nenalezen ({GROUPS_YAML}) — přeskakuji[/]")
+        console.print(f"[yellow]groups.yaml not found ({GROUPS_YAML}) — skipping[/]")
         return
-    console.print("Načítám groups.yaml…")
+    console.print("Loading groups.yaml…")
     with open(GROUPS_YAML, "r", encoding="utf-8") as f:
         groups = _yaml_load(f)
     conn.executescript("""
@@ -197,16 +197,16 @@ def import_skill_time_bonuses(conn: sqlite3.Connection, types_data: dict):
         "INSERT OR REPLACE INTO sde_skill_time_bonus VALUES (?,?,?)", rows
     )
     conn.commit()
-    console.print(f"[green]Importováno {len(rows)} skillů s time bonusem[/]")
+    console.print(f"[green]Imported {len(rows)} skills with a time bonus[/]")
 
 
 def import_blueprints(conn: sqlite3.Connection):
-    console.print("[cyan]Načítám blueprints.yaml...[/]")
+    console.print("[cyan]Loading blueprints.yaml...[/]")
 
     with open(BLUEPRINTS_YAML, "r", encoding="utf-8") as f:
         data = _yaml_load(f)
 
-    console.print(f"[dim]Importuji {len(data):,} blueprintů...[/]")
+    console.print(f"[dim]Importing {len(data):,} blueprints...[/]")
 
     bp_rows, mat_rows, prod_rows, skill_rows = [], [], [], []
 
@@ -271,20 +271,20 @@ def import_blueprints(conn: sqlite3.Connection):
     )
     conn.commit()
 
-    console.print(f"[green]Importováno: {len(bp_rows):,} blueprintů, "
-                  f"{len(mat_rows):,} materiálových řádků, "
-                  f"{len(prod_rows):,} produktových řádků, "
-                  f"{len(skill_rows):,} skill řádků[/]")
+    console.print(f"[green]Imported: {len(bp_rows):,} blueprints, "
+                  f"{len(mat_rows):,} material rows, "
+                  f"{len(prod_rows):,} product rows, "
+                  f"{len(skill_rows):,} skill rows[/]")
 
 
 def main():
-    console.print("[bold]EVE Retroindustry — Import SDE do SQLite[/]\n")
+    console.print("[bold]EVE Retroindustry — Import SDE into SQLite[/]\n")
 
     if not os.path.exists(BLUEPRINTS_YAML):
-        console.print(f"[red]Nenalezen: {BLUEPRINTS_YAML}[/]")
+        console.print(f"[red]Not found: {BLUEPRINTS_YAML}[/]")
         return
     if not os.path.exists(TYPES_YAML):
-        console.print(f"[red]Nenalezen: {TYPES_YAML}[/]")
+        console.print(f"[red]Not found: {TYPES_YAML}[/]")
         return
 
     conn = sqlite3.connect(DB_PATH)
@@ -297,14 +297,14 @@ def main():
     import_groups(conn)
     conn.close()
 
-    console.print(f"\n[bold green]Hotovo za {time.time()-t_start:.1f}s[/]")
-    console.print(f"Databáze: {DB_PATH}")
+    console.print(f"\n[bold green]Done in {time.time()-t_start:.1f}s[/]")
+    console.print(f"Database: {DB_PATH}")
 
-    # Rychlý test — Nidhoggur
+    # Quick test — Nidhoggur
     console.print("\n[bold]Test — Nidhoggur (24483):[/]")
     conn = sqlite3.connect(DB_PATH)
 
-    # Najdeme blueprint pro Nidhoggur
+    # Find the blueprint for Nidhoggur
     bp = conn.execute(
         "SELECT blueprint_type_id FROM sde_blueprint_products WHERE product_type_id=? AND activity='manufacturing'",
         (24483,)
@@ -323,11 +323,11 @@ def main():
             ORDER BY m.quantity DESC
         """, (bp_id,)).fetchall()
 
-        console.print(f"  Materiály ({len(materials)}):")
+        console.print(f"  Materials ({len(materials)}):")
         for name, qty in materials:
             console.print(f"    - {name}: {qty:,}")
     else:
-        console.print("  [red]Blueprint nenalezen[/]")
+        console.print("  [red]Blueprint not found[/]")
 
     conn.close()
 

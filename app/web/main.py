@@ -1,7 +1,7 @@
-"""FastAPI web aplikace pro EVE Retroindustry."""
+"""FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.32"
+APP_VERSION = "0.8.33"
 
 import asyncio
 import datetime
@@ -125,15 +125,15 @@ _sync_state: dict = {"running": False, "done": False}
 app = FastAPI(title="EVE Retroindustry")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# Vendrované front-end assety (Bootstrap CSS/JS + ikony) servírované lokálně —
-# žádná závislost na CDN (důležité pro Android WebView + offline desktop).
+# Vendored front-end assets (Bootstrap CSS/JS + icons) served locally —
+# no CDN dependency (important for Android WebView + offline desktop).
 if STATIC_DIR.is_dir():
     from fastapi.staticfiles import StaticFiles
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Android shell nastaví EVE_ANDROID=1 — šablony pak skryjí desktopový updater
-# (stahuje desktop zip) a ukážou nativní "Zkontrolovat aktualizace" tlačítko,
-# které přes JS bridge AndroidApp.checkForUpdate() spustí instalaci nového APK.
+# The Android shell sets EVE_ANDROID=1 — templates then hide the desktop updater
+# (which downloads the desktop zip) and show a native "Check for updates" button
+# that, via the JS bridge AndroidApp.checkForUpdate(), triggers installing the new APK.
 templates.env.globals["IS_ANDROID"] = bool(os.environ.get("EVE_ANDROID"))
 
 
@@ -169,26 +169,26 @@ _SDE_TABLES_TO_REFRESH = (
 
 
 def _bundled_sde_path() -> str | None:
-    """Vrátí cestu k sde_base.db bundlované v PyInstaller balíku, nebo None.
+    """Return the path to sde_base.db bundled in the PyInstaller package, or None.
 
-    Bundle dir = sys._MEIPASS (frozen) / projekt root (dev). V dev módu
-    sde_base.db leží přímo v rootu projektu.
+    Bundle dir = sys._MEIPASS (frozen) / project root (dev). In dev mode
+    sde_base.db sits directly in the project root.
     """
     candidate = os.path.join(_BUNDLE_DIR, "sde_base.db")
     return candidate if os.path.isfile(candidate) else None
 
 
 def _refresh_sde_from_bundle(conn: sqlite3.Connection) -> int:
-    """Pokud bundlovaná sde_base.db má víc typů NEBO víc groups než user's
-    eve_cache.db, nahradí SDE tabulky čerstvými daty. Vrátí počet typů PO
-    refreshi (0 = nic se nestalo).
+    """If the bundled sde_base.db has more types OR more groups than the user's
+    eve_cache.db, replace the SDE tables with fresh data. Return the type count
+    AFTER the refresh (0 = nothing happened).
 
-    Groups check: v0.5.3 přidal import groups.yaml ze SDE (1605 groups
-    místo ~857 z ESI); bez group řádku rig_applies_to_product přes INNER
-    JOIN tiše vyřadí všechny rig bonusy daného produktu.
+    Groups check: v0.5.3 added importing groups.yaml from the SDE (1605 groups
+    instead of ~857 from ESI); without a group row, rig_applies_to_product's INNER
+    JOIN silently drops all rig bonuses for that product.
 
-    User data (characters, BP cache, prices, projekty, …) zůstává — měníme
-    jen tabulky z `_SDE_TABLES_TO_REFRESH`.
+    User data (characters, BP cache, prices, projects, …) is preserved — we only
+    change the tables in `_SDE_TABLES_TO_REFRESH`.
     """
     bundled = _bundled_sde_path()
     if not bundled:
@@ -203,16 +203,16 @@ def _refresh_sde_from_bundle(conn: sqlite3.Connection) -> int:
         return types, groups
 
     user_count, user_groups = _counts(conn)
-    # ATTACH-free: čteme z bundlované DB samostatným spojením a kopírujeme řádky
-    # v Pythonu. ATTACH DATABASE nemusí být spolehlivé na Chaquopy (Android) a
-    # navíc dřívější varianta mohla při částečném selhání nechat SDE tabulky
-    # dropnuté. Nejdřív VŠE přečteme (když je bundle nečitelný, uživatelovy
-    # tabulky se ani nedotkneme), pak teprve nahradíme.
+    # ATTACH-free: we read from the bundled DB via a separate connection and copy
+    # rows in Python. ATTACH DATABASE may not be reliable on Chaquopy (Android),
+    # and the earlier variant could leave the SDE tables dropped on a partial
+    # failure. We read EVERYTHING first (if the bundle is unreadable we don't even
+    # touch the user's tables), and only then replace.
     bsrc = sqlite3.connect(bundled)
     try:
         bundled_count, bundled_groups = _counts(bsrc)
         if bundled_count <= user_count and bundled_groups <= user_groups:
-            return user_count  # user má stejně/víc typů i groups → ne-merge
+            return user_count  # user has equal/more types and groups → no merge
 
         print(f"[sde] refreshing SDE tables: user={user_count}, bundled={bundled_count}",
               flush=True)
@@ -242,13 +242,13 @@ def _refresh_sde_from_bundle(conn: sqlite3.Connection) -> int:
 async def _startup_populate_groups():
     """Check SDE readiness, refresh from bundled DB if outdated, then
     load group names and rig bonuses."""
-    # Fresh install — pokud eve_cache.db neexistuje a máme bundlovaný SDE,
-    # zkopírujeme rovnou (bypassuje stará /setup/download stránka).
-    # POZOR: app.db.database už při importu (před spuštěním tohoto handleru)
-    # zavolal create_all, který vytvořil eve_cache.db jen s user tabulkami.
-    # Když tedy DB existuje, ale je prakticky prázdná (žádné SDE tabulky),
-    # nahradíme ji bundlem také. Po nahrazení musíme znovu vytvořit user
-    # tabulky, jinak SQLAlchemy "no such table: type_cache".
+    # Fresh install — if eve_cache.db doesn't exist and we have a bundled SDE,
+    # copy it straight over (bypasses the old /setup/download page).
+    # NOTE: app.db.database already called create_all at import time (before this
+    # handler runs), which created eve_cache.db with only the user tables.
+    # So if the DB exists but is practically empty (no SDE tables), we replace
+    # it with the bundle too. After replacing we must recreate the user tables,
+    # otherwise SQLAlchemy fails with "no such table: type_cache".
     try:
         bundled = _bundled_sde_path()
         if bundled:
@@ -256,7 +256,7 @@ async def _startup_populate_groups():
             if not os.path.exists(DB_ABS):
                 need_copy = True
             else:
-                # Existuje, ale možná je to jen prázdný shell od SQLAlchemy
+                # Exists, but it may be just an empty shell from SQLAlchemy
                 try:
                     probe = sqlite3.connect(DB_ABS)
                     has_sde = probe.execute(
@@ -353,7 +353,7 @@ templates.env.filters["ts_to_str"] = _ts_to_str
 
 
 def _tr(name: str, request: Request, context: dict) -> HTMLResponse:
-    """Starlette nové API: request jako první argument."""
+    """Starlette's new API: request as the first argument."""
     conn = get_conn()
     try:
         active = get_active_character(request, conn)
@@ -596,14 +596,14 @@ def _science_skill_mult(
     skills: dict[int, int],
     preloaded: list[tuple[int, int]] | None = None,
 ) -> tuple[float, list[tuple[str, int, float, int]]]:
-    """Vrátí (multiplier, [(skill_name, char_level, bonus_pct, required_level), ...]).
+    """Return (multiplier, [(skill_name, char_level, bonus_pct, required_level), ...]).
 
-    Každý required skill s time bonusem přispívá (1 - level * bonus_pct/100).
-    Industry a AdvIndustry jsou zpracovány zvlášť — zde je přeskakujeme.
+    Each required skill with a time bonus contributes (1 - level * bonus_pct/100).
+    Industry and AdvIndustry are handled separately — we skip them here.
 
-    `preloaded`: [(skill_id, required_level), …] z bulk fetch v plan_result.
-    Pokud je předán, vyhneme se per-bp DB queries — jen dohledáme názvy
-    a bonus_pct ze (cached na úrovni procesu) lookup tabulek.
+    `preloaded`: [(skill_id, required_level), …] from the bulk fetch in plan_result.
+    If passed, we avoid per-bp DB queries — we only look up names and bonus_pct
+    from (process-level cached) lookup tables.
     """
     if preloaded is not None:
         # Fast path: bulk-prefetched in caller. Resolve names + bonus_pct
@@ -720,26 +720,26 @@ def _collect_type_ids(node) -> list[int]:
 
 
 def _is_real_location(loc_id: int) -> bool:
-    """Vrátí True pokud je ID skutečná stanice/struktura, ne item_id kontejneru/lodi."""
-    # NPC stanice: 60_000_000 – 64_000_000
-    # Player struktury: > 1_000_000_000_000
-    # Solární systémy: 30_000_000 – 34_000_000 (věci ve vesmíru)
-    # Item_id lodí/kontejnerů: typicky miliardová čísla ale < 1 bilion
+    """Return True if the ID is a real station/structure, not a container/ship item_id."""
+    # NPC stations: 60_000_000 – 64_000_000
+    # Player structures: > 1_000_000_000_000
+    # Solar systems: 30_000_000 – 34_000_000 (things in space)
+    # Ship/container item_ids: typically billions but < 1 trillion
     if 60_000_000 <= loc_id < 64_000_000:
         return True
     if loc_id > 1_000_000_000_000:
         return True
     if 30_000_000 <= loc_id < 34_000_000:
-        return True  # sluneční soustava — věci v prostoru
+        return True  # solar system — things in space
     return False
 
 
 def _resolve_root_locations(assets: list) -> dict[int, int]:
     """
-    Vrátí {item_id: root_location_id} kde root_location_id je skutečná stanice/struktura.
-    Prochází řetězec item_id → location_id dokud nedosáhne reálné lokace.
+    Return {item_id: root_location_id} where root_location_id is a real station/structure.
+    Walks the chain item_id → location_id until it reaches a real location.
     """
-    # Mapa item_id → location_id pro rychlé hledání rodiče
+    # Map item_id → location_id for fast parent lookup
     parent: dict[int, int] = {a.item_id: a.location_id for a in assets}
 
     result: dict[int, int] = {}
@@ -763,7 +763,7 @@ def _load_blueprints_from_cache(conn: sqlite3.Connection, char_id: int) -> list[
 
 
 def _load_assets_from_cache(conn: sqlite3.Connection, char_id: int) -> list[dict]:
-    """Načte assety přímo z JSON cache bez ESI volání."""
+    """Load assets straight from the JSON cache without an ESI call."""
     row = conn.execute(
         "SELECT data_json FROM char_assets_cache WHERE character_id=?", (char_id,)
     ).fetchone()
@@ -799,30 +799,30 @@ _CORP_DIV_ORDER = list(_CORP_DIV_LABEL.keys())
 # Auth
 # ---------------------------------------------------------------------------
 
-# Volitelný override pro otevření URL (SSO login) v externím browseru.
-# Android shell (android_main) ho nastaví na funkci, která vystřelí Android
-# Intent — desktop ho nechává None a používá subprocess/xdg-open níže.
+# Optional override for opening a URL (SSO login) in an external browser.
+# The Android shell (android_main) sets it to a function that fires an Android
+# Intent — desktop leaves it None and uses subprocess/xdg-open below.
 _EXTERNAL_BROWSER_OPENER = None
 
 
 def set_browser_opener(fn) -> None:
-    """Zaregistruje platformně specifický opener URL (volá Android shell)."""
+    """Register a platform-specific URL opener (called by the Android shell)."""
     global _EXTERNAL_BROWSER_OPENER
     _EXTERNAL_BROWSER_OPENER = fn
 
 
 def _open_in_external_browser(url: str) -> bool:
-    """Otevře URL v systémovém default browseru bez toho aby
-    zdědil AppImage / PyInstaller env (LD_LIBRARY_PATH, QT_*…),
-    který by jinak crashnul Firefox/Chrome (snažili by se loadnout
-    naše bundlované Qt libs). Vrátí True pokud se daný spawn povedl.
+    """Open a URL in the system default browser without inheriting the
+    AppImage / PyInstaller env (LD_LIBRARY_PATH, QT_*…), which would otherwise
+    crash Firefox/Chrome (they'd try to load our bundled Qt libs). Return True
+    if the spawn succeeded.
 
-    AppImage runtime ukládá originální hodnoty do `APPIMAGE_ORIGINAL_*`
-    a PyInstaller bootloader do `_PYI_*` — vrátíme je tam zpět než
-    voláme xdg-open.
+    The AppImage runtime saves the original values into `APPIMAGE_ORIGINAL_*`
+    and the PyInstaller bootloader into `_PYI_*` — we restore them before
+    calling xdg-open.
     """
-    # Android: otevři přes registrovaný Intent-opener (subprocess/xdg-open
-    # na Androidu neexistuje).
+    # Android: open via the registered Intent opener (subprocess/xdg-open
+    # don't exist on Android).
     if _EXTERNAL_BROWSER_OPENER is not None:
         try:
             _EXTERNAL_BROWSER_OPENER(url)
@@ -876,11 +876,11 @@ def _open_in_external_browser(url: str) -> bool:
 
 @app.get("/auth/login")
 async def auth_login(request: Request):
-    """Spustí OAuth flow + pokusí se otevřít EVE SSO v systémovém
-    default browseru. Webview ukáže waiting page s Cancel buttonem.
+    """Start the OAuth flow + try to open EVE SSO in the system default
+    browser. The webview shows a waiting page with a Cancel button.
 
-    Pokud spawn external browseru selže, waiting page má taky
-    "Open in this window" fallback link (webview se naviguje na SSO).
+    If spawning the external browser fails, the waiting page also has an
+    "Open in this window" fallback link (the webview navigates to SSO).
     """
     _sync_state["done"] = False
     url = start_web_login()
@@ -895,22 +895,22 @@ async def auth_login(request: Request):
 
 @app.post("/auth/cancel")
 async def auth_cancel():
-    """Zruší probíhající login. Server shutdown + lock release."""
+    """Cancel the in-progress login. Server shutdown + lock release."""
     cancelled = cancel_web_login()
     return {"cancelled": cancelled}
 
 
 @app.get("/api/auth/status")
 async def api_auth_status():
-    """Polling endpoint pro waiting page. Vrací stav login flow."""
+    """Polling endpoint for the waiting page. Returns the login flow state."""
     from app.auth.esi_oauth import _login_lock
     conn = get_conn()
     try:
         has_chars = has_any_character(conn)
     finally:
         conn.close()
-    # Pokud lock není acquired → login flow skončil (success nebo cancel).
-    # has_chars rozlišuje úspěch (uloženy tokeny) vs cancel/error.
+    # If the lock isn't acquired → the login flow ended (success or cancel).
+    # has_chars distinguishes success (tokens saved) vs cancel/error.
     in_progress = _login_lock.locked()
     return {"in_progress": in_progress, "has_character": has_chars}
 
@@ -1069,13 +1069,13 @@ def _roman(n: int) -> str:
 
 
 def _fmt_remaining(finish_iso: str, now) -> str:
-    """'2d 3h 15m' do konce; '' při chybě."""
+    """'2d 3h 15m' until the end; '' on error."""
     import datetime as _dt
     try:
         end = _dt.datetime.fromisoformat(finish_iso.replace("Z", "+00:00"))
         secs = int((end - now).total_seconds())
         if secs <= 0:
-            return "hotovo"
+            return "done"
         d, r = divmod(secs, 86400)
         h, r = divmod(r, 3600)
         m = r // 60
@@ -1093,7 +1093,7 @@ async def dashboard(request: Request):
     corp_names: dict[int, str] = {}
     agg_bps = agg_assets = agg_locations = 0
     agg_value: float | None = None
-    agg_wallet: float | None = None   # veškerá hotovost — součet peněženek všech postav
+    agg_wallet: float | None = None   # all cash — sum of every character's wallet
 
     if logged_in:
         chars = list_characters(conn)
@@ -1164,7 +1164,7 @@ async def dashboard(request: Request):
         if _wallets:
             agg_wallet = sum(_wallets)
 
-        # Aktuální poloha + skillování (živě z ESI, souběžně pro všechny postavy).
+        # Current location + skill training (live from ESI, concurrently for all characters).
         import datetime as _dt
         _now_utc = _dt.datetime.now(_dt.timezone.utc)
         _char_ids = [cid for cid, _ in chars]
@@ -1254,7 +1254,7 @@ async def dashboard(request: Request):
             last_sync_at = char_row.get("last_sync_at")
             corp_id = char_row.get("corporation_id")
 
-            # Poloha: docknutá stanice/struktura, nebo systém + "undocked".
+            # Location: docked station/structure, or system + "undocked".
             _loc, _sq = loc_sq.get(cid, ({}, []))
             location_name = None
             location_state = None
@@ -1268,7 +1268,7 @@ async def dashboard(request: Request):
                 location_name = sys_names.get(_loc["solar_system_id"]) or f"#{_loc['solar_system_id']}"
                 location_state = "undocked"
 
-            # Aktivní skillování: první položka fronty s finish_date.
+            # Active training: the first queue entry with a finish_date.
             training = None
             _act = _sq[0] if _sq else None
             if _act and _act.get("skill_id") and _act.get("finish_date"):
@@ -1276,7 +1276,7 @@ async def dashboard(request: Request):
                     "skill":     skill_names.get(_act["skill_id"], f"#{_act['skill_id']}"),
                     "level":     _roman(_act.get("finished_level", 0)),
                     "remaining": _fmt_remaining(_act["finish_date"], _now_utc),
-                    "finish_iso": _act["finish_date"],   # živý odpočet na klientu
+                    "finish_iso": _act["finish_date"],   # live countdown on the client
                 }
 
             char_cards.append({
@@ -1319,7 +1319,7 @@ async def dashboard(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Výrobní plán
+# Manufacturing plan
 # ---------------------------------------------------------------------------
 
 @app.get("/plan", response_class=HTMLResponse)
@@ -1382,13 +1382,13 @@ async def plan_form(request: Request, char: str = "", station: str = ""):
 
 
 def _resolve_product_local(conn: sqlite3.Connection, query: str) -> tuple[int, str] | None:
-    """Najde type_id produktu podle jména v lokálním SDE.
+    """Find a product's type_id by name in the local SDE.
 
-    Strategie: exact → prefix → substring. Mezi kandidáty preferuje
-    vyrobitelné (má manufacturing/reaction recept), pak published, pak
-    nejkratší jméno. Tím "Industrial Jump Portal Generator" trefí
-    "…Generator I" místo jeho blueprintu nebo delší varianty.
-    Vrací None, pokud nic nesedí.
+    Strategy: exact → prefix → substring. Among candidates it prefers
+    producible ones (have a manufacturing/reaction recipe), then published,
+    then the shortest name. That way "Industrial Jump Portal Generator" hits
+    "…Generator I" instead of its blueprint or a longer variant.
+    Returns None if nothing matches.
     """
     q = query.strip()
     if not q:
@@ -1405,7 +1405,7 @@ def _resolve_product_local(conn: sqlite3.Connection, query: str) -> tuple[int, s
                 [r[0] for r in rows],
             ).fetchall()
         }
-        # nejlepší = vyrobitelný > published > kratší jméno > nižší type_id
+        # best = producible > published > shorter name > lower type_id
         rows = sorted(rows, key=lambda r: (
             0 if r[0] in producible else 1,
             0 if r[2] else 1,
@@ -1422,7 +1422,7 @@ def _resolve_product_local(conn: sqlite3.Connection, query: str) -> tuple[int, s
     hit = _pick(exact)
     if hit:
         return hit
-    # 2) prefix (limit aby to neexplodovalo na obecných slovech)
+    # 2) prefix (limited so it doesn't explode on generic words)
     pref = conn.execute(
         "SELECT type_id, name, published FROM sde_types"
         " WHERE name LIKE ? COLLATE NOCASE LIMIT 200",
@@ -1464,15 +1464,15 @@ async def plan_result(
     conn = get_conn()
     error = None
     plan_data = None
-    # Výběr stanic, ze kterých se počítá stav zboží (stock). Prázdné = default
-    # na výrobní stanici (zpětně kompatibilní). CSV location IDs z checkboxů.
+    # Selection of stations the stock level is computed from. Empty = default
+    # to the manufacturing station (backwards compatible). CSV location IDs from checkboxes.
     stock_station_ids: set[int] = {
         int(x) for x in stock_stations.split(",") if x.strip().lstrip("-").isdigit()
     }
     stock_explicit = bool(stock_stations.strip())
-    # Kolik runů má jedna BPC kopie — ME se zaokrouhluje per job.
-    # 1 (default) = paralelní 1-run kopie; K = kopie po K runech;
-    # prázdné/0 = jeden batched job (in-game multi-run okno).
+    # How many runs one BPC copy has — ME is rounded per job.
+    # 1 (default) = parallel 1-run copies; K = copies of K runs each;
+    # empty/0 = one batched job (in-game multi-run window).
     rpj_int: int | None = None
     if runs_per_job.strip().isdigit() and int(runs_per_job.strip()) > 0:
         rpj_int = int(runs_per_job.strip())
@@ -1485,13 +1485,13 @@ async def plan_result(
     if plan_char_id_int is None:
         plan_char_id_int = get_active_character_id(request, conn)
 
-    # Parse station — friendly error místo 422 (pokud chybí, raise ValueError níže)
+    # Parse station — friendly error instead of 422 (if missing, raise ValueError below)
     try:
         station = int(station.strip()) if isinstance(station, str) and station.strip() else 0
     except ValueError:
         station = 0
 
-    # Převeď ME/TE na int pokud zadány
+    # Convert ME/TE to int if provided
     me_override: int | None = int(form_me) if form_me.strip().isdigit() else None
     te_override: int | None = int(form_te) if form_te.strip().isdigit() else None
     # Safe defaults — overwritten inside try block once BP is known
@@ -1513,19 +1513,19 @@ async def plan_result(
         except (ValueError, AttributeError):
             return 0.0
 
-    # facility_me_bonus / reaction_me_bonus z formuláře jsou už jen pro display
-    # (form_facility_me_bonus předáno zpět do šablony). Skutečný ME multiplikátor
-    # se počítá ze station_rigs v get_station_me_multiplier.
+    # facility_me_bonus / reaction_me_bonus from the form are now display-only
+    # (form_facility_me_bonus is passed back to the template). The actual ME
+    # multiplier is computed from station_rigs in get_station_me_multiplier.
 
     try:
         if plan_char_id_int is None:
-            raise ValueError("Nejsi přihlášen.")
+            raise ValueError("You are not signed in.")
         token = _get_valid_token_for(conn, plan_char_id_int)
         row = get_character_row(conn, plan_char_id_int)
         if not token or not row:
-            raise ValueError("Nejsi přihlášen.")
+            raise ValueError("You are not signed in.")
         if not station:
-            raise ValueError("Vyber výrobní stanici.")
+            raise ValueError("Select a manufacturing station.")
         char = (row["character_id"], row["character_name"])
         char_id, _ = char
 
@@ -1535,18 +1535,18 @@ async def plan_result(
                 type_id = int(product.strip())
                 type_name = await resolve_type(client, session, type_id)
             else:
-                # Lokální SDE resolve — exact → prefix → substring; preferuje
-                # vyrobitelné, published, nejkratší jméno (takže "Industrial
-                # Jump Portal Generator" trefí "…Generator I", ne jeho
-                # blueprint). ESI /universe/ids/ jen jako poslední záchrana
-                # (a navíc je čistě exact-match).
+                # Local SDE resolve — exact → prefix → substring; prefers
+                # producible, published, shortest name (so "Industrial
+                # Jump Portal Generator" hits "…Generator I", not its
+                # blueprint). ESI /universe/ids/ only as a last resort
+                # (and it is purely exact-match).
                 local = _resolve_product_local(conn, product.strip())
                 if local:
                     type_id, type_name = local
                 else:
                     results = await search_type_by_name(client, product.strip())
                     if not results:
-                        raise ValueError(f"Produkt '{product}' nenalezen.")
+                        raise ValueError(f"Product '{product}' not found.")
                     type_id = results[0]
                     type_name = await resolve_type(client, session, type_id)
             session.close()
@@ -1558,17 +1558,17 @@ async def plan_result(
                 fetch_skills(client, char_id, token, conn),
             )
 
-        # Industry/AdvIndustry vždy z aktuálních char_skills (form_industry pole
-        # je hidden a může pocházet ze starého characteru při přepnutí).
+        # Industry/AdvIndustry always from current char_skills (the form_industry
+        # field is hidden and may come from an old character after switching).
         industry_level     = max(0, min(5, int(char_skills.get(3380, 0))))
         adv_industry_level = max(0, min(5, int(char_skills.get(3388, 0))))
         form_industry      = str(industry_level)
         form_adv_industry  = str(adv_industry_level)
 
-        # Stock zdroje: pokud uživatel vybral stanice, použij je; jinak default
-        # na výrobní stanici. Roll up kontejnerů na stanici + vyloučení ship
-        # cargo/fittings přes _rollup_stock (selecting a station tak započítá
-        # i obsah kontejnerů, ne ale fit/cargo lodí).
+        # Stock sources: if the user picked stations, use them; otherwise default
+        # to the manufacturing station. Roll up containers to their station +
+        # exclude ship cargo/fittings via _rollup_stock (so selecting a station
+        # also counts container contents, but not a ship's fit/cargo).
         effective_stock_ids = stock_station_ids if stock_explicit else {station}
         _station_types = _rollup_stock_from_charassets(all_assets)
         available = {}
@@ -1580,17 +1580,17 @@ async def plan_result(
         me = float(me_override if me_override is not None else (bp.material_efficiency if bp else 0))
         te = int(te_override if te_override is not None else (bp.time_efficiency if bp else 0))
 
-        # ME multiplikátor stanice — per-product (rig se aplikuje jen na produkty
-        # odpovídající jeho kategorii: Ship rig na lodě, Equipment rig na moduly atd.).
+        # Station ME multiplier — per-product (a rig applies only to products
+        # matching its category: Ship rig to ships, Equipment rig to modules, etc.).
         eff_rxn_station_for_me = reaction_station if reaction_station else station
         mfg_facility = get_station_facility(conn, station)
         rxn_facility = get_station_facility(conn, eff_rxn_station_for_me)
-        # Agregované úspory ROOT produktu (pro display)
+        # Aggregated savings for the ROOT product (for display)
         mfg_me_mult = get_station_me_multiplier(conn, station)
         rxn_me_mult = get_station_me_multiplier(conn, eff_rxn_station_for_me)
 
-        # Resolver dostane všechny blueprinty postavy → per-product ME se lookup-uje
-        # pro každý mezikrok zvlášť (Capital Armor Plates ME může být jiné než root ME).
+        # The resolver gets all of the character's blueprints → per-product ME is
+        # looked up for each intermediate step (Capital Armor Plates ME may differ from root ME).
         resolver = BOMResolver(DB_ABS, blueprints=blueprints, runs_per_job=rpj_int)
         root = resolver.resolve(type_id, qty, me=me,
                                 mfg_facility=mfg_facility,
@@ -1614,7 +1614,7 @@ async def plan_result(
             runs_per_job=rpj_int,
         )
         plan_data = _plan_to_dict(plan, prices, type_name, conn=conn)
-        # Přepis ME/TE v plan_data pokud bylo zadáno ručně
+        # Override ME/TE in plan_data if entered manually
         if plan_data.get("blueprint"):
             plan_data["blueprint"]["me"] = int(me)
             plan_data["blueprint"]["te"] = te
@@ -1660,7 +1660,7 @@ async def plan_result(
 
         plan_data["manufacturing_steps"] = _build_manufacturing_steps(root, prices, available)
 
-        # === Výrobní poplatky ===
+        # === Manufacturing fees ===
         def _safe_pct(s: str, default: float) -> float:
             try:
                 return float(s.replace(",", "."))
@@ -1670,20 +1670,20 @@ async def plan_result(
         fac_tax_pct  = _safe_pct(facility_tax, 2.5)
         fac_tax_rate = fac_tax_pct / 100
 
-        # Reakční stanice — 0 znamená použít stejnou jako výrobní
+        # Reaction station — 0 means use the same one as manufacturing
         eff_rxn_station = reaction_station if reaction_station else station
         sep_rxn_station = eff_rxn_station != station
 
         rxn_fac_tax_pct  = _safe_pct(reaction_facility_tax, fac_tax_pct) if reaction_facility_tax.strip() else fac_tax_pct
         rxn_fac_tax_rate = rxn_fac_tax_pct / 100
 
-        # Solar system ID výrobní stanice
+        # Solar system ID of the manufacturing station
         sys_row = conn.execute(
             "SELECT solar_system_id FROM location_name_cache WHERE location_id=?", (station,)
         ).fetchone()
         solar_system_id: int | None = sys_row[0] if sys_row and sys_row[0] else None
 
-        # Solar system ID reakční stanice
+        # Solar system ID of the reaction station
         if sep_rxn_station:
             rxn_sys_row = conn.execute(
                 "SELECT solar_system_id FROM location_name_cache WHERE location_id=?", (eff_rxn_station,)
@@ -1697,7 +1697,7 @@ async def plan_result(
         mfg_sci = await get_sci_for_system(conn, solar_system_id, "manufacturing") if solar_system_id else 0.0
         rxn_sci = await get_sci_for_system(conn, rxn_solar_system_id, "reaction") if rxn_solar_system_id else 0.0
 
-        # TE multiplikátory pro stanice (struktura + rigy)
+        # TE multipliers for the stations (structure + rigs)
         mfg_te_mult = get_station_te_multiplier(conn, station)
         rxn_te_mult = get_station_te_multiplier(conn, eff_rxn_station) if sep_rxn_station else mfg_te_mult
 
@@ -1706,7 +1706,7 @@ async def plan_result(
         rxn_cost_bonus = get_station_cost_bonus(conn, eff_rxn_station) if sep_rxn_station else mfg_cost_bonus
 
         total_job_fee = 0.0
-        total_mfg_time_s = 0   # čas všech výrobních kroků (sekvenčně)
+        total_mfg_time_s = 0   # time of all manufacturing steps (sequential)
         total_rxn_time_s = 0
 
         # Bulk-fetch all blueprint data referenced by the manufacturing steps,
@@ -1761,8 +1761,8 @@ async def plan_result(
         for step in plan_data["manufacturing_steps"]:
             step_mfg_time = 0
             step_rxn_time = 0
-            # V "components" módu kupujeme 1. úroveň z trhu — instalační poplatky
-            # platíme jen za finální job (sestavení produktu samotného).
+            # In "components" mode we buy the 1st level from the market — we pay
+            # install fees only for the final job (assembling the product itself).
             skip_fee = (mode == "components" and not step.get("is_final"))
             for job in step["jobs"]:
                 is_rxn   = job.get("activity") == "reaction"
@@ -1770,7 +1770,7 @@ async def plan_result(
                 tax_rate = rxn_fac_tax_rate if is_rxn else fac_tax_rate
                 cost_bonus = rxn_cost_bonus if is_rxn else mfg_cost_bonus
 
-                # EIV musí používat BASE množství ze SDE (ne ME-redukovaná)
+                # EIV must use the BASE quantities from the SDE (not ME-reduced)
                 bp_id = job.get("blueprint_type_id")
                 runs  = job.get("runs", 1) or 1
                 if bp_id:
@@ -1791,7 +1791,7 @@ async def plan_result(
                 if not skip_fee:
                     total_job_fee += job_fee
 
-                # Doba jobu
+                # Job duration
                 if bp_id:
                     bp_time_row = bp_time_idx.get(bp_id)
                     base_time = (bp_time_row[1] if is_rxn else bp_time_row[0]) if bp_time_row else None
@@ -1802,7 +1802,7 @@ async def plan_result(
                             preloaded=bp_skills_idx.get((bp_id, activity_name)),
                         )
                         job_te = te if not is_rxn else 0
-                        # Per-product TE multiplier — Equipment TE rig nezrychluje stavbu lodi
+                        # Per-product TE multiplier — an Equipment TE rig doesn't speed up building a ship
                         prod_facility = rxn_facility if is_rxn else mfg_facility
                         prod_te_mult = _te_mult_for(prod_facility, job["type_id"])
                         job_secs = calc_job_time(
@@ -1827,8 +1827,8 @@ async def plan_result(
             total_mfg_time_s += step_mfg_time
             total_rxn_time_s += step_rxn_time
 
-        # Sbírám unikátní science skilly ze všech jobů pro zobrazení v headeru.
-        # Pro stejný skill napříč joby si bereme max required_level.
+        # Collect unique science skills across all jobs for display in the header.
+        # For the same skill across jobs we take the max required_level.
         _seen: dict[str, tuple[int, float, int]] = {}
         for step in plan_data.get("manufacturing_steps", []):
             for job in step.get("jobs", []):
@@ -1842,7 +1842,7 @@ async def plan_result(
             (n, l, p, r) for n, (l, p, r) in sorted(_seen.items())
         ]
 
-        # Required Industry / Adv Industry levels — max across all BPs v plánu
+        # Required Industry / Adv Industry levels — max across all BPs in the plan
         bp_ids_in_plan: set[int] = set()
         for step in plan_data.get("manufacturing_steps", []):
             for job in step.get("jobs", []):
@@ -1867,17 +1867,17 @@ async def plan_result(
         plan_data["industry_required"] = industry_required
         plan_data["adv_industry_required"] = adv_industry_required
 
-        # Tržní cena všech surovin (bez ohledu na sklad)
+        # Market price of all materials (regardless of stock)
         full_mat_cost = sum(
             m.get("total_price") or 0.0 for m in plan_data.get("materials", [])
         )
-        # Cena jen chybějících surovin (co je potřeba dokoupit)
+        # Price of only the missing materials (what needs to be bought)
         buy_cost = plan_data.get("total_buy") or 0.0
         rev = plan_data.get("revenue")
 
-        # Tržní zisk: revenue − všechny suroviny za tržní cenu − job fee
+        # Market profit: revenue − all materials at market price − job fee
         profit_market = (rev - full_mat_cost - total_job_fee) if rev is not None else None
-        # Zisk se zásobami: revenue − jen chybějící suroviny − job fee
+        # Profit with stock: revenue − only missing materials − job fee
         profit_stock  = (rev - buy_cost - total_job_fee) if rev is not None else None
 
         total_time_s = total_mfg_time_s + total_rxn_time_s
@@ -1906,8 +1906,8 @@ async def plan_result(
     except Exception as e:
         error = str(e)
 
-    # Stock-source volby (jména přes ESI, ne holá ID). Default = výrobní
-    # stanice, pokud uživatel nevybral explicitně.
+    # Stock-source options (names via ESI, not bare IDs). Default = manufacturing
+    # station unless the user selected explicitly.
     _stock_token = _get_valid_token_for(conn, plan_char_id_int) if plan_char_id_int else None
     stock_station_options = await _build_stock_station_options(
         conn, plan_char_id_int, _stock_token,
@@ -1915,12 +1915,12 @@ async def plan_result(
     )
     location_ids = [o["location_id"] for o in stock_station_options]
 
-    # Načti jméno stanice pro zobrazení ve formuláři
+    # Load the station name for display in the form
     loc_names = load_location_names_from_db(conn)
     station_name = loc_names.get(station, str(station))
     rxn_station_name = loc_names.get(reaction_station, str(reaction_station)) if reaction_station else ""
 
-    # Best sell cena produktu na prodejní stanici (z station_volume_cache)
+    # Best sell price of the product at the selling station (from station_volume_cache)
     sell_loc = selling_station if selling_station else station
     station_sell_price: float | None = None
     if plan_data and plan_data.get("product_type_id"):
@@ -1947,8 +1947,8 @@ async def plan_result(
         "form_qty": qty,
         "form_mode": mode,
         "form_runs_per_job": runs_per_job,
-        # Po výpočtu vždy zobrazit ROOT BP ME/TE (skutečné hodnoty použité v plánu) —
-        # uživatel uvidí konkrétní číslo místo placeholderu.
+        # After computing, always show the ROOT BP ME/TE (the actual values used in the plan) —
+        # the user sees a concrete number instead of a placeholder.
         "form_me": str(int(me)),
         "form_te": str(int(te)),
         "form_facility_tax": facility_tax,
@@ -1966,10 +1966,10 @@ async def plan_result(
     })
 
 
-# location_flag hodnoty, které znamenají "uvnitř lodi" (fitnuté moduly, cargo,
-# drone/fighter bay, specializované bay). Takové zboží se NEpočítá jako výrobní
-# zásoba — nedává smysl rozebírat fit/cargo jednotlivých lodí. Naopak Hangar,
-# AutoFit/Unlocked/Locked (obsah kontejnerů v hangaru) ano.
+# location_flag values that mean "inside a ship" (fitted modules, cargo,
+# drone/fighter bay, specialized bay). Such items are NOT counted as manufacturing
+# stock — it makes no sense to strip individual ships' fit/cargo. Hangar,
+# AutoFit/Unlocked/Locked (contents of hangar containers), on the other hand, are.
 _SHIP_INTERNAL_FLAGS: frozenset[str] = frozenset({
     "Cargo", "DroneBay", "FleetHangar", "ShipHangar", "FighterBay",
     "FighterTube0", "FighterTube1", "FighterTube2", "FighterTube3", "FighterTube4",
@@ -1989,11 +1989,11 @@ def _is_ship_internal_flag(flag: str) -> bool:
 def _rollup_stock(rows: list[tuple]) -> dict[int, dict[int, int]]:
     """rows: (item_id, location_id, location_flag, type_id, quantity, is_singleton).
 
-    Vrátí {station_id: {type_id: total_qty}} — zboží rolnuté na reálnou
-    stanici/strukturu (obsah kontejnerů se sčítá k jejich stanici), s
-    VYNECHÁNÍM singletonů (lodě, unikáty) a všeho uvnitř lodí (ship cargo /
-    fittings / bays). station_id = první předek v řetězci, který už není
-    vlastněný item (= skutečná stanice nebo struktura).
+    Return {station_id: {type_id: total_qty}} — items rolled up to a real
+    station/structure (container contents are summed onto their station),
+    EXCLUDING singletons (ships, unique items) and everything inside ships
+    (ship cargo / fittings / bays). station_id = the first ancestor in the chain
+    that is no longer an owned item (= a real station or structure).
     """
     by_id = {r[0]: r for r in rows}
     result: dict[int, dict[int, int]] = {}
@@ -2001,8 +2001,8 @@ def _rollup_stock(rows: list[tuple]) -> dict[int, dict[int, int]]:
         item_id, loc_id, flag, type_id, qty, singleton = r
         if singleton:
             continue
-        # Projdi řetězec nahoru; pokud kdekoliv narazíš na ship-internal flag,
-        # je to obsah lodi → vynech.
+        # Walk up the chain; if you hit a ship-internal flag anywhere,
+        # it's ship contents → skip.
         node = r
         seen: set[int] = set()
         station = loc_id
@@ -2014,7 +2014,7 @@ def _rollup_stock(rows: list[tuple]) -> dict[int, dict[int, int]]:
             parent_id = node[1]
             parent = by_id.get(parent_id)
             if parent is None:
-                station = parent_id   # reálná stanice/struktura
+                station = parent_id   # real station/structure
                 break
             if parent_id in seen:
                 station = parent_id
@@ -2050,15 +2050,15 @@ async def _build_stock_station_options(
     default_station: int,
     explicit: bool,
 ) -> list[dict]:
-    """Stanice, kde má plánovací postava ne-singleton zboží — volby pro
-    stock-source picker. Jména resolvuje přes ESI (resolve_station_names_bulk),
-    takže se nezobrazují holá ID. `selected` = explicitní výběr uživatele,
-    jinak default na výrobní stanici.
+    """Stations where the planning character has non-singleton items — options for
+    the stock-source picker. Names are resolved via ESI (resolve_station_names_bulk)
+    so bare IDs aren't shown. `selected` = the user's explicit choice,
+    otherwise default to the manufacturing station.
     """
     if not plan_char_id:
         return []
     raw = _load_assets_from_cache(conn, plan_char_id)
-    # Roll up obsah kontejnerů na jejich stanici a vynech ship cargo/fittings.
+    # Roll up container contents onto their station and skip ship cargo/fittings.
     station_types = _rollup_stock_from_cache(raw)
     if not station_types:
         return []
@@ -2068,16 +2068,16 @@ async def _build_stock_station_options(
     def _is_real(n: str | None, lid: int) -> bool:
         return bool(n) and not n.startswith("[") and n != str(lid)
 
-    # DB cache drží reálná jména naakumulovaná z dřívějška (Assets resolvuje
-    # per-owner tokenem a ukládá je sem) — placeholdery se do DB nikdy
-    # neukládají. Použijeme ji jako primární zdroj BEZ ESI volání.
+    # The DB cache holds real names accumulated earlier (Assets resolves them
+    # per-owner with a token and stores them here) — placeholders are never
+    # stored in the DB. We use it as the primary source WITHOUT an ESI call.
     db_names = load_location_names_from_db(conn)
 
-    # ESI dořeš jen pro stanice, které ještě reálné jméno nemají — a jen
-    # tokenem plánovací postavy. Resolvovat všech ~79 struktur tokeny VŠECH
-    # postav (jak to dělala v0.6.1/0.6.2) generuje záplavu 403 odpovědí a ESI
-    # nás error-limitne (HTTP 420), což pak rozbije i resolvování produktu.
-    # resolve_station_name si navíc 403 a 420 pamatuje, takže se neopakují.
+    # Resolve via ESI only for stations that don't have a real name yet — and only
+    # with the planning character's token. Resolving all ~79 structures with the
+    # tokens of ALL characters (as v0.6.1/0.6.2 did) generates a flood of 403
+    # responses and ESI error-limits us (HTTP 420), which then also breaks product
+    # resolution. resolve_station_name also remembers 403s and 420s so they don't repeat.
     resolved: dict[int, str] = {}
     unresolved = [lid for lid in loc_ids if not _is_real(db_names.get(lid), lid)]
     if unresolved:
@@ -2109,8 +2109,8 @@ async def _build_stock_station_options(
 
 def _build_manufacturing_steps(root, prices: dict, available: dict) -> list[dict]:
     """
-    Výrobní kroky: level 1 = první vyrábět (vše z RAW), level N = poslední.
-    Deduplikuje stejný type_id napříč větvemi, agreguje množství.
+    Manufacturing steps: level 1 = manufactured first (everything from RAW), level N = last.
+    Deduplicates the same type_id across branches, aggregates quantities.
     """
     from collections import defaultdict
 
@@ -2280,7 +2280,7 @@ def _plan_to_dict(plan, prices, type_name: str, conn: sqlite3.Connection | None 
 
 
 # ---------------------------------------------------------------------------
-# Assety
+# Assets
 # ---------------------------------------------------------------------------
 
 @app.get("/assets", response_class=HTMLResponse)
@@ -2568,11 +2568,11 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
             type_map: dict[int, int],
             owner_map: dict[int, tuple[int, str]],
         ) -> None:
-            """Pokud je nějaký kontejner ve skutečnosti loď (jeho item_id má
-            v `type_map` ship type, který odpovídá nějaké položce v hangaru),
-            přesune jednu kopii lodi z hangaru DO toho kontejneru — jako jeho
-            "hull" row. Tak se loď zobrazí jen jednou, jako rozklikávací
-            položka, jejíž celková cena zahrnuje fit + cargo + hull.
+            """If some container is actually a ship (its item_id has a ship type
+            in `type_map` that matches an item in the hangar), move one copy of
+            the ship from the hangar INTO that container — as its "hull" row.
+            That way the ship is shown only once, as an expandable item whose
+            total value includes fit + cargo + hull.
             """
             hangar = sd["hangar"]
             for cid, items in sd["containers"].items():
@@ -2665,8 +2665,8 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                 dv: dict,
                 type_map: dict[int, int],
             ) -> None:
-                """Stejné jako _fold_ships_into_containers, ale corp buckety
-                jsou klíčované jen type_id (žádný owner)."""
+                """Same as _fold_ships_into_containers, but corp buckets
+                are keyed by type_id only (no owner)."""
                 hangar = dv["hangar"]
                 for cid, items in dv["containers"].items():
                     ship_type = type_map.get(cid)
@@ -2782,13 +2782,13 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
 
 @app.get("/api/assets/distances")
 async def assets_distances(request: Request):
-    """Vrátí počet jumpů z aktuální pozice postavy ke každé lokaci v assets."""
+    """Return the jump count from the character's current position to each location in assets."""
     conn = get_conn()
     char = get_active_character(request, conn)
     token = get_active_token(request, conn)
     if not char or not token:
         conn.close()
-        return {"ok": False, "error": "Nepřihlášen"}
+        return {"ok": False, "error": "Not signed in"}
     char_id, _ = char
 
     async with esi_client() as client:
@@ -2800,11 +2800,11 @@ async def assets_distances(request: Request):
         )
     if r.status_code != 200:
         conn.close()
-        return {"ok": False, "error": "Nepodařilo se zjistit lokaci postavy"}
+        return {"ok": False, "error": "Could not determine the character's location"}
     origin_sys = r.json().get("solar_system_id")
     if not origin_sys:
         conn.close()
-        return {"ok": False, "error": "Postava není v solárním systému"}
+        return {"ok": False, "error": "Character is not in a solar system"}
 
     rows = conn.execute(
         "SELECT location_id, solar_system_id FROM location_name_cache WHERE solar_system_id IS NOT NULL"
@@ -2812,7 +2812,7 @@ async def assets_distances(request: Request):
     conn.close()
     loc_to_sys = {row[0]: row[1] for row in rows}
 
-    # Deduplikuj systémy — jeden ESI call na unikátní destinaci
+    # Deduplicate systems — one ESI call per unique destination
     unique_sys = list(set(loc_to_sys.values()))
 
     async def _jumps(client: httpx.AsyncClient, dest: int) -> int:
@@ -2837,7 +2837,7 @@ async def assets_distances(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Blueprinty
+# Blueprints
 # ---------------------------------------------------------------------------
 
 async def _resolve_corp_container_names(
@@ -2892,17 +2892,17 @@ async def _resolve_container_names(
     container_ids: list[int],
     assets: list[dict],
 ) -> dict[int, tuple[str, int]]:
-    """Pro container item_ids vrátí {container_id: (display_name, parent_location_id)}.
+    """For container item_ids, return {container_id: (display_name, parent_location_id)}.
 
-    display_name je custom jméno kontejneru z ESI assets/names,
-    nebo typ kontejneru (Small Secure Container apod.) jako fallback.
-    parent_location_id je location_id kontejneru v assets (stanice/struktura).
+    display_name is the container's custom name from ESI assets/names,
+    or the container type (Small Secure Container etc.) as a fallback.
+    parent_location_id is the container's location_id in assets (station/structure).
     """
     asset_map = {item["item_id"]: item for item in assets}
     result: dict[int, tuple[str, int]] = {}
 
     parent_ids = {asset_map[cid]["location_id"] for cid in container_ids if cid in asset_map}
-    _ = parent_ids  # parent IDs se resolvují zvlášť přes resolve_station_names_bulk
+    _ = parent_ids  # parent IDs are resolved separately via resolve_station_names_bulk
 
     try:
         async with esi_client() as client:
@@ -2937,7 +2937,7 @@ async def _resolve_container_names(
         if raw_name:
             display = raw_name
         else:
-            display = type_names.get(asset["type_id"], f"Kontejner {cid}")
+            display = type_names.get(asset["type_id"], f"Container {cid}")
         result[cid] = (display, parent_loc)
 
     return result
@@ -3034,10 +3034,10 @@ async def blueprints_page(request: Request, search: str = "", view: str = ""):
     container_ids = [lid for lid in all_raw_loc_ids if lid in asset_item_ids]
     structure_ids = [lid for lid in all_raw_loc_ids if lid not in asset_item_ids]
 
-    # Resolvuj jména stanic
+    # Resolve station names
     loc_names = await resolve_station_names_bulk(structure_ids, token, conn) if structure_ids else {}
 
-    # Resolvuj jména kontejnerů + jejich parent stanice (per char)
+    # Resolve container names + their parent stations (per char)
     container_info: dict[int, tuple[str, int]] = {}
     if container_ids:
         for owner_id, _ in selected_chars:
@@ -3056,7 +3056,7 @@ async def blueprints_page(request: Request, search: str = "", view: str = ""):
             parent_names = await resolve_station_names_bulk(parent_ids_to_resolve, token, conn)
             loc_names.update(parent_names)
 
-    # Sestavení hierarchie: {station_id: {"hangar": [...], "containers": {cid: {"name": ..., "bps": [...]}}}}
+    # Build the hierarchy: {station_id: {"hangar": [...], "containers": {cid: {"name": ..., "bps": [...]}}}}
     station_data: dict[int, dict] = {}
 
     def _get_station(sid: int) -> dict:
@@ -3075,7 +3075,7 @@ async def blueprints_page(request: Request, search: str = "", view: str = ""):
         else:
             _get_station(lid)["hangar"].append(bp)
 
-    # Převeď na seznam seřazený podle celkového počtu
+    # Convert to a list sorted by total count
     def _station_total(sd: dict) -> int:
         return len(sd["hangar"]) + sum(len(c["bps"]) for c in sd["containers"].values())
 
@@ -3104,16 +3104,16 @@ async def blueprints_page(request: Request, search: str = "", view: str = ""):
 
 
 # ---------------------------------------------------------------------------
-# Ceny
+# Prices
 # ---------------------------------------------------------------------------
 
 @app.get("/prices", response_class=HTMLResponse)
 async def prices_page(request: Request):
     conn = get_conn()
     stats = get_price_cache_stats(conn)
-    # Default render jen relevantní podmnožinu (user assets + BPs + custom prices).
-    # Plná cache má ~19k itemů → render celé tabulky = 48 MB HTML. Zbytek se
-    # loaduje přes /api/prices/search na vyžádání.
+    # By default render only the relevant subset (user assets + BPs + custom prices).
+    # The full cache has ~19k items → rendering the whole table = 48 MB HTML. The rest
+    # is loaded on demand via /api/prices/search.
     # Aggregate user type-IDs across ALL characters so prices page reflects every alt.
     relevant: set[int] = set()
     for char_id, _name in list_characters(conn):
@@ -3140,8 +3140,8 @@ async def prices_page(request: Request):
 @app.get("/api/station-industry-info")
 async def station_industry_info(request: Request, location_id: int):
     """
-    Vrátí SCI, facility tax, ME bonus a security multiplier pro zadanou stanici/strukturu.
-    Facility tax se odvozuje z nedávných jobů postavy (cost/EIV − SCI).
+    Return SCI, facility tax, ME bonus and security multiplier for the given station/structure.
+    Facility tax is derived from the character's recent jobs (cost/EIV − SCI).
     """
     conn = get_conn()
     sys_row = conn.execute(
@@ -3155,14 +3155,14 @@ async def station_industry_info(request: Request, location_id: int):
     if solar_system_id:
         mfg_sci = await get_sci_for_system(conn, solar_system_id, "manufacturing")
         rxn_sci = await get_sci_for_system(conn, solar_system_id, "reaction")
-        # Pre-fetch security_status do cache, aby synchronní helper get_station_me_bonus_pct
-        # mohl správně škálovat rig bonusy (×1.0 / ×1.9 / ×2.1).
+        # Pre-fetch security_status into the cache so the synchronous helper
+        # get_station_me_bonus_pct can scale rig bonuses correctly (×1.0 / ×1.9 / ×2.1).
         security_status = await get_security_status(conn, solar_system_id)
 
-    # Facility tax neumíme načíst přesně z ESI (derive z průměru jobů byl nepřesný).
-    # Uživatel zadává ručně, hodnotu si může uložit jako default (localStorage).
+    # We can't read facility tax exactly from ESI (deriving it from the job average was inaccurate).
+    # The user enters it manually and can save the value as a default (localStorage).
     rig_info = get_station_rigs_full(conn, location_id)
-    # ME bonus přepočítaný se security multiplierem (přepisuje stale stored value)
+    # ME bonus recomputed with the security multiplier (overrides the stale stored value)
     me_bonus_live = get_station_me_bonus_pct(conn, location_id)
     conn.close()
     return {
@@ -3178,7 +3178,7 @@ async def station_industry_info(request: Request, location_id: int):
 
 @app.post("/api/station-rigs")
 async def save_station_rigs(request: Request):
-    """Uloží konfiguraci rigů pro danou stanici/strukturu."""
+    """Save the rig configuration for the given station/structure."""
     try:
         data = await request.json()
         location_id = int(data.get("location_id", 0))
@@ -3190,7 +3190,7 @@ async def save_station_rigs(request: Request):
         rig3 = int(data["rig3_type_id"]) if data.get("rig3_type_id") else None
         conn = get_conn()
         save_station_rigs_full(conn, location_id, structure_type, rig1, rig2, rig3)
-        # Vrátit security-adjusted ME bonus (helper aplikuje sec multiplier na rigy)
+        # Return the security-adjusted ME bonus (the helper applies the sec multiplier to rigs)
         me_bonus = get_station_me_bonus_pct(conn, location_id)
         conn.close()
         return {"ok": True, "me_bonus_pct": me_bonus}
@@ -3200,7 +3200,7 @@ async def save_station_rigs(request: Request):
 
 @app.get("/api/rig-types")
 async def api_rig_types(structure_type: str = ""):
-    """Vrátí dostupné rigy pro daný typ struktury (raitaru/azbel/sotiyo/athanor/tatara)."""
+    """Return the available rigs for the given structure type (raitaru/azbel/sotiyo/athanor/tatara)."""
     conn = get_conn()
     populate_rig_bonuses(conn)
     rigs = get_rig_types(conn, structure_type)
@@ -3219,7 +3219,7 @@ async def suggest_station(request: Request, q: str = ""):
     token = get_active_token(request, conn)
     pattern = q.strip().lower()
 
-    # Lokace kde má postava assety (osobní + korporátní)
+    # Locations where the character has assets (personal + corporate)
     asset_locs: set[int] = set()
     if char:
         raw = _load_assets_from_cache(conn, char[0])
@@ -3230,7 +3230,7 @@ async def suggest_station(request: Request, q: str = ""):
     all_names = load_location_names_from_db(conn)
     cache_empty = len(all_names) == 0
 
-    # Stanice s assety — filtruj podle jména
+    # Stations with assets — filter by name
     owned_ids: set[int] = set()
     owned = []
     for loc_id in asset_locs:
@@ -3240,7 +3240,7 @@ async def suggest_station(request: Request, q: str = ""):
             owned_ids.add(loc_id)
     owned.sort(key=lambda x: x["name"])
 
-    # Ostatní known stanice z cache bez assetů
+    # Other known stations from the cache without assets
     other = []
     other_ids: set[int] = set()
     for loc_id, name in all_names.items():
@@ -3249,7 +3249,7 @@ async def suggest_station(request: Request, q: str = ""):
             other_ids.add(loc_id)
     other.sort(key=lambda x: x["name"])
 
-    # ESI search — NPC stanice + systémy + player struktury (paralelně)
+    # ESI search — NPC stations + systems + player structures (in parallel)
     try:
         async with esi_client() as client:
             esi_tasks: list = [
@@ -3266,7 +3266,7 @@ async def suggest_station(request: Request, q: str = ""):
                     timeout=5.0,
                 ),
             ]
-            # Autentizovaný search pro player struktury (citadely, engineering complexes…)
+            # Authenticated search for player structures (citadels, engineering complexes…)
             if char and token:
                 esi_tasks.append(
                     client.get(
@@ -3283,7 +3283,7 @@ async def suggest_station(request: Request, q: str = ""):
             system_search = results[1]
             structure_search = results[2] if len(results) > 2 else None
 
-            # NPC stanice — přímý výsledek z ESI search
+            # NPC stations — direct result from the ESI search
             if not isinstance(station_search, Exception) and station_search.status_code == 200:
                 npc_ids = station_search.json().get("station", [])[:20]
                 new_ids = [sid for sid in npc_ids if sid not in all_names]
@@ -3298,7 +3298,7 @@ async def suggest_station(request: Request, q: str = ""):
                         other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
                         other_ids.add(sid)
 
-            # Player struktury — výsledek z autentizovaného character search
+            # Player structures — result from the authenticated character search
             if (structure_search and not isinstance(structure_search, Exception)
                     and structure_search.status_code == 200):
                 struct_ids = structure_search.json().get("structure", [])[:20]
@@ -3314,7 +3314,7 @@ async def suggest_station(request: Request, q: str = ""):
                         other.append({"location_id": sid, "name": all_names.get(sid, str(sid))})
                         other_ids.add(sid)
 
-            # Systémy — najdi struktury v naší cache + NPC stanice v systému
+            # Systems — find structures in our cache + NPC stations in the system
             system_ids: list[int] = []
             if not isinstance(system_search, Exception) and system_search.status_code == 200:
                 system_ids = system_search.json().get("solar_system", [])
@@ -3329,7 +3329,7 @@ async def suggest_station(request: Request, q: str = ""):
                         other.append(entry)
                         other_ids.add(lid)
 
-            # NPC stanice v nalezených systémech
+            # NPC stations in the found systems
             sys_tasks = [
                 client.get(
                     f"https://esi.evetech.net/latest/universe/systems/{sid}/",
@@ -3364,10 +3364,10 @@ async def suggest_station(request: Request, q: str = ""):
 @app.post("/api/add-station")
 async def add_station(request: Request, raw: str = Form(...)):
     """
-    Přidá strukturu do cache. Přijímá:
-    - ID struktury (číslo)
-    - EVE URL formát: <url=showinfo:TYPE//ID>Jméno</url>
-    - ID<mezera>Jméno: např. "1045667241057 C-N4OD - Fortizar"
+    Add a structure to the cache. Accepts:
+    - structure ID (a number)
+    - EVE URL format: <url=showinfo:TYPE//ID>Name</url>
+    - ID<space>Name: e.g. "1045667241057 C-N4OD - Fortizar"
     """
     import re
     conn = get_conn()
@@ -3378,12 +3378,12 @@ async def add_station(request: Request, raw: str = Form(...)):
     structure_id: int | None = None
     hint_name: str | None = None
 
-    # EVE URL format: showinfo:TYPE//ID nebo showinfo:TYPE//ID>Jméno
+    # EVE URL format: showinfo:TYPE//ID or showinfo:TYPE//ID>Name
     m = re.search(r'showinfo:\d+//(\d+)(?:[^>]*>([^<]+))?', raw)
     if m:
         structure_id = int(m.group(1))
         hint_name = m.group(2).strip() if m.group(2) else None
-    # Jen číslo, nebo "ID jméno"
+    # Just a number, or "ID name"
     elif raw:
         parts = raw.split(None, 1)
         if parts[0].isdigit():
@@ -3391,12 +3391,12 @@ async def add_station(request: Request, raw: str = Form(...)):
             hint_name = parts[1].strip() if len(parts) > 1 else None
 
     if not structure_id:
-        return {"error": "Nelze rozpoznat ID struktury"}, 400
+        return {"error": "Could not recognize the structure ID"}, 400
 
     resolved_name = hint_name
     sys_id: int | None = None
 
-    # Zkus ESI
+    # Try ESI
     try:
         async with esi_client() as client:
             if structure_id < 1_000_000_000_000:
@@ -3418,7 +3418,7 @@ async def add_station(request: Request, raw: str = Form(...)):
         pass
 
     if not resolved_name:
-        resolved_name = f"[Struktura {structure_id}]"
+        resolved_name = f"[Structure {structure_id}]"
 
     conn.execute(
         "INSERT OR REPLACE INTO location_name_cache (location_id, name, solar_system_id) VALUES (?,?,?)",
@@ -3431,12 +3431,12 @@ async def add_station(request: Request, raw: str = Form(...)):
 
 @app.post("/api/location/rename")
 async def location_rename(request: Request):
-    """Uloží uživatelem zadaný název lokace do cache."""
+    """Save a user-entered location name to the cache."""
     body = await request.json()
     location_id = int(body["location_id"])
     name = str(body.get("name", "")).strip()
     if not name:
-        return {"ok": False, "error": "Prázdný název"}
+        return {"ok": False, "error": "Empty name"}
     conn = get_conn()
     ensure_location_name_table(conn)
     conn.execute(
@@ -3452,17 +3452,17 @@ async def location_rename(request: Request):
 
 @app.get("/api/location/resolve")
 async def location_resolve(request: Request, location_id: int):
-    """Pokusí se dohledat jméno struktury přes ESI s aktuálním tokenem."""
+    """Try to look up the structure name via ESI with the current token."""
     conn = get_conn()
     token = get_active_token(request, conn)
     if not token:
         conn.close()
-        return {"ok": False, "error": "Nepřihlášen"}
+        return {"ok": False, "error": "Not signed in"}
     from app.web.location_resolver import resolve_station_name, _cache
-    _cache.pop(location_id, None)  # vynutí čerstvé ESI volání
+    _cache.pop(location_id, None)  # force a fresh ESI call
     async with esi_client() as client:
         name, sys_id = await resolve_station_name(client, location_id, token)
-    resolved = name != str(location_id) and not name.startswith("[Privátní")
+    resolved = name != str(location_id) and not name.startswith("[")
     if resolved:
         ensure_location_name_table(conn)
         conn.execute(
@@ -3476,13 +3476,13 @@ async def location_resolve(request: Request, location_id: int):
 
 @app.get("/api/my-location")
 async def my_location(request: Request):
-    """Vrátí aktuální lokaci postavy (structure_id pokud je docknutá ve struktuře)."""
+    """Return the character's current location (structure_id if docked in a structure)."""
     conn = get_conn()
     token = get_active_token(request, conn)
     char = get_active_character(request, conn)
     if not token or not char:
         conn.close()
-        return {"error": "Nepřihlášen"}
+        return {"error": "Not signed in"}
     ensure_location_name_table(conn)
 
     try:
@@ -3501,7 +3501,7 @@ async def my_location(request: Request):
         sys_id: int = loc.get("solar_system_id", 0)
 
         if not structure_id:
-            # Načti jméno systému
+            # Load the system name
             async with esi_client() as client:
                 sr = await client.get(
                     f"https://esi.evetech.net/latest/universe/systems/{sys_id}/",
@@ -3510,7 +3510,7 @@ async def my_location(request: Request):
                 sys_name = sr.json().get("name", str(sys_id)) if sr.status_code == 200 else str(sys_id)
             return {"in_space": True, "solar_system_id": sys_id, "solar_system_name": sys_name}
 
-        # Vyřeš jméno struktury/stanice a ulož do cache
+        # Resolve the structure/station name and save it to the cache
         resolved_name = str(structure_id)
         try:
             async with esi_client() as client:
@@ -3547,12 +3547,12 @@ async def my_location(request: Request):
 
 @app.get("/api/plan/fetch-sell-price")
 async def fetch_plan_sell_price(request: Request, location_id: int, type_id: int):
-    """Načte best sell cenu konkrétního produktu na zadané stanici, uloží do station_volume_cache."""
+    """Fetch the best sell price of a specific product at the given station, save it to station_volume_cache."""
     conn = get_conn()
     token = get_active_token(request, conn)
     ensure_price_table(conn)
 
-    # Zajisti přítomnost type_id v market_price_cache (fetchery to potřebují pro filtrování)
+    # Ensure the type_id is present in market_price_cache (the fetchers need it for filtering)
     conn.execute(
         "INSERT OR IGNORE INTO market_price_cache (type_id, sell_price, buy_price, cached_at) VALUES (?,NULL,NULL,0)",
         (type_id,),
@@ -3565,12 +3565,12 @@ async def fetch_plan_sell_price(request: Request, location_id: int, type_id: int
         if location_id >= 1_000_000_000:
             if not token:
                 conn.close()
-                return {"ok": False, "error": "Pro přístup k marketu struktury je nutné přihlášení."}
+                return {"ok": False, "error": "Sign-in is required to access the structure market."}
             result = await fetch_structure_market(conn, location_id, token, {type_id}, region_id)
         else:
             if not region_id:
                 conn.close()
-                return {"ok": False, "error": "Nepodařilo se určit region pro tuto lokaci."}
+                return {"ok": False, "error": "Could not determine the region for this location."}
             result = await fetch_station_volumes(conn, location_id, region_id, [type_id])
     except PermissionError as e:
         conn.close()
@@ -3586,21 +3586,21 @@ async def fetch_plan_sell_price(request: Request, location_id: int, type_id: int
 
 @app.get("/api/plan/contract-price")
 async def api_plan_contract_price(request: Request, location_id: int, type_id: int):
-    """Nejlevnější cena/kus produktu z naindexovaných veřejných kontraktů v
-    regionu dané stanice. Vyžaduje předchozí index regionu (Public browser)."""
+    """Cheapest price per unit of the product from indexed public contracts in
+    the given station's region. Requires the region to have been indexed first (Public browser)."""
     conn = get_conn()
     try:
         token = get_active_token(request, conn)
         region_id = await get_region_for_location(conn, location_id, token)
         if not region_id:
-            return {"ok": False, "error": "Nepodařilo se určit region stanice."}
+            return {"ok": False, "error": "Could not determine the station's region."}
         status = contracts_helper.get_index_status(conn, region_id)
         if not status:
             return {"ok": False, "not_indexed": True, "region_id": region_id,
-                    "error": "Region kontraktů není naindexovaný — naindexuj ho v Public browseru."}
+                    "error": "The contract region is not indexed — index it in the Public browser."}
         best = contracts_helper.best_contract_price(conn, region_id, type_id)
         if not best:
-            return {"ok": False, "error": "Žádný veřejný kontrakt s tímto produktem v regionu."}
+            return {"ok": False, "error": "No public contract with this product in the region."}
         best["ok"] = True
         best["region_id"] = region_id
         return best
@@ -3624,7 +3624,7 @@ async def project_detail_page(request: Request, project_id: int):
     detail = get_project_detail(conn, project_id)
     conn.close()
     if not detail:
-        return HTMLResponse("Projekt nenalezen", status_code=404)
+        return HTMLResponse("Project not found", status_code=404)
     return _tr("project_detail.html", request, {"project": detail})
 
 
@@ -3641,7 +3641,7 @@ async def api_project_new(request: Request):
     body = await request.json()
     name = (body.get("name") or "").strip()
     if not name:
-        return {"ok": False, "error": "Název nesmí být prázdný"}
+        return {"ok": False, "error": "The name must not be empty"}
     conn = get_conn()
     pid = create_project(conn, name)
     conn.close()
@@ -3653,14 +3653,14 @@ async def api_project_add_plan(project_id: int, request: Request):
     body = await request.json()
     plan_data = body.get("plan_data")
     if not plan_data:
-        return {"ok": False, "error": "Chybí data plánu"}
+        return {"ok": False, "error": "Missing plan data"}
     conn = get_conn()
     row = conn.execute(
         "SELECT id FROM production_projects WHERE id=?", (project_id,)
     ).fetchone()
     if not row:
         conn.close()
-        return {"ok": False, "error": "Projekt nenalezen"}
+        return {"ok": False, "error": "Project not found"}
     plan_id = add_plan_to_project(
         conn, project_id, plan_data,
         body.get("station_name", ""),
@@ -3756,7 +3756,7 @@ async def suggest(request: Request, q: str = ""):
         raw_bps = _load_blueprints_from_cache(conn, char_id)
         if raw_bps:
             bp_type_ids = list({bp["type_id"] for bp in raw_bps})
-            # Seskup podle type_id — vyber nejlepší (BPO > BPC, nejvyšší ME)
+            # Group by type_id — pick the best one (BPO > BPC, highest ME)
             bp_by_type: dict[int, dict] = {}
             for bp in raw_bps:
                 tid = bp["type_id"]
@@ -3793,7 +3793,7 @@ async def suggest(request: Request, q: str = ""):
                     "runs": "∞" if runs == -1 else runs,
                 })
 
-    # SDE — ostatní blueprinty (nevlastněné)
+    # SDE — other blueprints (not owned)
     if owned_product_ids:
         ph2 = ",".join("?" * len(owned_product_ids))
         other_rows = conn.execute(f"""
@@ -3837,11 +3837,11 @@ async def _bg_fetch_prices(type_ids: list[int]) -> None:
 
 
 def _refresh_type_ids(conn) -> list[int]:
-    """Full set of type_ids to refresh — všechno obchodovatelné v EVE (market_group_id IS NOT NULL)
-    plus user assets/blueprints/materials a aktuálně cachované typy.
+    """Full set of type_ids to refresh — everything tradeable in EVE (market_group_id IS NOT NULL)
+    plus user assets/blueprints/materials and currently cached types.
 
-    Tradeable filter pokrývá moduly, ammo, lodě, skillbooky, struktury atd. — vše,
-    co lze koupit/prodat na marketu.
+    The tradeable filter covers modules, ammo, ships, skillbooks, structures, etc. — everything
+    that can be bought/sold on the market.
     """
     # Aggregate type IDs across ALL characters
     asset_type_ids: set[int] = set()
@@ -3855,7 +3855,7 @@ def _refresh_type_ids(conn) -> list[int]:
     cached_ids = {r[0] for r in conn.execute(
         "SELECT type_id FROM market_price_cache"
     ).fetchall()}
-    # Všechny published tradeable typy (modules, ammo, ships, skillbooks, ...)
+    # All published tradeable types (modules, ammo, ships, skillbooks, ...)
     tradeable_ids = {r[0] for r in conn.execute(
         "SELECT type_id FROM sde_types WHERE published=1 AND market_group_id IS NOT NULL"
     ).fetchall()}
@@ -3913,10 +3913,10 @@ async def prices_search(q: str = ""):
     from app.market.prices import PRICE_CACHE_TTL
     now = _time.time()
 
-    # Priorita: skupinový mód jen při PŘESNÉ shodě s názvem skupiny (např. "battleship"
-    # → group "Battleship"). Pro libovolný podřetězec ("amarr") preferujeme name search,
-    # protože uživatel hledá konkrétní typ podle názvu, ne všechny itemy z jedné z N
-    # skupin obsahujících substring.
+    # Priority: group mode only on an EXACT match with the group name (e.g. "battleship"
+    # → group "Battleship"). For any substring ("amarr") we prefer name search,
+    # because the user is looking for a specific type by name, not all items from one of the N
+    # groups containing the substring.
     group_rows = conn.execute(
         "SELECT group_id, name FROM sde_groups WHERE LOWER(name) = ? ORDER BY name",
         (q.strip().lower(),),
@@ -3970,9 +3970,9 @@ async def prices_search(q: str = ""):
             ],
         }
 
-    # Fallback: hledání v názvech itemů. LEFT JOIN aby se zobrazily i typy bez ceny
-    # v cache (právě dostáhneme na pozadí). Omezit jen na tradeable (market_group_id),
-    # aby se nevracely BPC/nepublishované/věcí mimo trh.
+    # Fallback: search within item names. LEFT JOIN so types without a price in
+    # the cache are shown too (we're fetching them in the background). Restrict to
+    # tradeable only (market_group_id) so BPCs/unpublished/off-market items aren't returned.
     rows = conn.execute("""
         SELECT t.type_id, t.name, g.name AS group_name,
                m.sell_price, m.buy_price, m.cached_at,
@@ -3987,7 +3987,7 @@ async def prices_search(q: str = ""):
         LIMIT 100
     """, (pattern,)).fetchall()
 
-    # Bg-fetch pro typy bez ceny
+    # Bg-fetch for types without a price
     uncached = [r[0] for r in rows if r[5] is None]
     if uncached:
         conn.executemany(
@@ -4038,7 +4038,7 @@ async def api_station_volume(request: Request):
     token = get_active_token(request, conn)
     ensure_price_table(conn)
 
-    # Zkus cache
+    # Try the cache
     cached = get_cached_station_volumes(conn, location_id)
     if cached is not None:
         conn.close()
@@ -4057,11 +4057,11 @@ async def api_station_volume(request: Request):
             for k, v in result.items()
         }}
 
-    # Player struktura (Upwell citadela, Fortizar, …) — použij strukturový market endpoint
+    # Player structure (Upwell citadel, Fortizar, …) — use the structure market endpoint
     if location_id >= 1_000_000_000:
         if not token:
             conn.close()
-            return {"ok": False, "error": "Pro přístup k marketu struktury je nutné přihlášení."}
+            return {"ok": False, "error": "Sign-in is required to access the structure market."}
         region_id = await get_region_for_location(conn, location_id, token)
         try:
             result = await fetch_structure_market(conn, location_id, token, set(type_ids), region_id)
@@ -4071,11 +4071,11 @@ async def api_station_volume(request: Request):
         conn.close()
         return _fmt(result)
 
-    # NPC stanice — regionální veřejný endpoint
+    # NPC station — regional public endpoint
     region_id = await get_region_for_location(conn, location_id, token)
     if not region_id:
         conn.close()
-        return {"ok": False, "error": "Nepodařilo se určit region pro tuto lokaci."}
+        return {"ok": False, "error": "Could not determine the region for this location."}
 
     result = await fetch_station_volumes(conn, location_id, region_id, type_ids)
     conn.close()
@@ -4096,8 +4096,8 @@ _CORP_DIVISION_NAMES = {
 
 
 async def _resolve_party_names(ids: set[int]) -> dict[int, str]:
-    """Resolvuje char/corp/alliance/station/type ID na jména přes ESI
-    /universe/names/. Player struktury (>1e12) endpoint neumí — vynecháme je.
+    """Resolve char/corp/alliance/station/type IDs to names via ESI
+    /universe/names/. The endpoint can't handle player structures (>1e12) — we skip them.
     """
     ids = {i for i in ids if i and i < 1_000_000_000_000}
     out: dict[int, str] = {}
@@ -4124,7 +4124,7 @@ async def _resolve_party_names(ids: set[int]) -> dict[int, str]:
 async def wallet_page(request: Request, char: str = "", scope: str = "personal",
                       division: int = 1):
     conn = get_conn()
-    # Která postava řídí stránku (?char= přebíjí aktivní cookie)
+    # Which character drives the page (?char= overrides the active cookie)
     plan_char_id: int | None = None
     if char.isdigit() and get_character_row(conn, int(char)):
         plan_char_id = int(char)
@@ -4140,21 +4140,21 @@ async def wallet_page(request: Request, char: str = "", scope: str = "personal",
     }
 
     if not plan_char_id:
-        ctx["error"] = "Nejsi přihlášen."
+        ctx["error"] = "You are not signed in."
         conn.close()
         return _tr("wallet.html", request, ctx)
 
     token = _get_valid_token_for(conn, plan_char_id)
     row = get_character_row(conn, plan_char_id)
     if not token or not row:
-        ctx["error"] = "Token postavy vypršel — přihlas se znovu."
+        ctx["error"] = "The character token expired — sign in again."
         conn.close()
         return _tr("wallet.html", request, ctx)
 
     division = max(1, min(7, division))
     ctx["division"] = division
 
-    # Type names z lokálního SDE (transakce mají type_id)
+    # Type names from the local SDE (transactions have a type_id)
     def _type_names(type_ids: set[int]) -> dict[int, str]:
         type_ids = {t for t in type_ids if t}
         if not type_ids:
@@ -4177,7 +4177,7 @@ async def wallet_page(request: Request, char: str = "", scope: str = "personal",
                         if corp_id:
                             update_corporation_id(conn, plan_char_id, corp_id)
                 if not corp_id:
-                    ctx["corp_error"] = "Nepodařilo se zjistit korporaci postavy."
+                    ctx["corp_error"] = "Could not determine the character's corporation."
                 else:
                     wallets, err = await wallet_api.fetch_corp_wallets(client, corp_id, token)
                     ctx["corp_wallets"] = wallets
@@ -4201,7 +4201,7 @@ async def wallet_page(request: Request, char: str = "", scope: str = "personal",
                 ctx["journal"], ctx["transactions"] = _decorate(
                     conn, journal, txns, _type_names, names)
     except Exception as exc:
-        ctx["error"] = f"Chyba při načítání peněženky: {exc}"
+        ctx["error"] = f"Error loading wallet: {exc}"
 
     conn.close()
     return _tr("wallet.html", request, ctx)
@@ -4213,8 +4213,8 @@ def _party_ids(journal: list[dict], txns: list[dict]) -> set[int]:
         for k in ("first_party_id", "second_party_id"):
             if j.get(k):
                 ids.add(j[k])
-        # context system/station (např. systém kde bylo bounty uloveno) —
-        # /universe/names/ je umí (oba <1e12)
+        # context system/station (e.g. the system where the bounty was earned) —
+        # /universe/names/ can handle them (both <1e12)
         if j.get("context_id_type") in ("system_id", "station_id") and j.get("context_id"):
             ids.add(j["context_id"])
     for t in txns:
@@ -4224,7 +4224,7 @@ def _party_ids(journal: list[dict], txns: list[dict]) -> set[int]:
 
 
 def _context_structure_ids(journal: list[dict]) -> list[int]:
-    """Player-struktura ID z journal contextu (resolvuje se přes auth endpoint)."""
+    """Player-structure IDs from the journal context (resolved via the auth endpoint)."""
     return list({
         j["context_id"] for j in journal
         if j.get("context_id_type") == "structure_id" and j.get("context_id")
@@ -4233,8 +4233,8 @@ def _context_structure_ids(journal: list[dict]) -> list[int]:
 
 async def _wallet_names(conn, journal: list[dict], txns: list[dict], token: str
                         ) -> dict[int, str]:
-    """Jména stran + context lokací (systém/stanice přes /universe/names/,
-    player struktury přes autorizovaný resolve_station_names_bulk)."""
+    """Party names + context locations (system/station via /universe/names/,
+    player structures via the authorized resolve_station_names_bulk)."""
     names = await _resolve_party_names(_party_ids(journal, txns))
     struct_ids = _context_structure_ids(journal)
     if struct_ids:
@@ -4248,23 +4248,23 @@ async def _wallet_names(conn, journal: list[dict], txns: list[dict], token: str
 def _decorate(conn, journal: list[dict], txns: list[dict],
               type_names_fn, party_names: dict[int, str]
               ) -> tuple[list[dict], list[dict]]:
-    """Doplní journal o humanizovaný ref_type + jména stran; transakce o
-    jméno itemu, jména stran a celkovou cenu. Vrátí (journal, transactions)
-    seřazené nejnovější první."""
+    """Augment the journal with a humanized ref_type + party names; transactions
+    with the item name, party names and total price. Return (journal, transactions)
+    sorted newest first."""
     import re as _re
-    # Bounty/agent payouts mají v `reason` strojový rozpis NPC killů
-    # ("24067: 2,24068: 3,…") — ingame se nezobrazuje. Zahodíme reason,
-    # který je jen čísla/dvojtečky/čárky (žádný čitelný text).
+    # Bounty/agent payouts have a machine-readable breakdown of NPC kills in
+    # `reason` ("24067: 2,24068: 3,…") — not shown in-game. We discard a reason
+    # that is only digits/colons/commas (no readable text).
     _numeric_reason = _re.compile(r"^[\d\s:,]*$")
     dj = []
     for j in journal[:500]:
         reason = (j.get("reason") or "").strip()
         if _numeric_reason.match(reason):
             reason = ""
-        # ESI občas prefixuje player-donation reason "DESC: "
+        # ESI sometimes prefixes a player-donation reason with "DESC: "
         if reason.startswith("DESC:"):
             reason = reason[5:].strip()
-        # Location z contextu (systém kde bylo bounty uloveno, stanice/struktura…)
+        # Location from the context (system where the bounty was earned, station/structure…)
         location = ""
         if j.get("context_id_type") in ("system_id", "station_id", "structure_id"):
             location = party_names.get(j.get("context_id"), "")
@@ -4304,8 +4304,8 @@ def _decorate(conn, journal: list[dict], txns: list[dict],
 
 def _decorate_orders(orders: list[dict], type_names: dict[int, str],
                      loc_names: dict[int, str]) -> list[dict]:
-    """Doplní ordery o jméno itemu, lokaci, % splnění a stav. Seřadí nejnovější
-    podle data zadání (issued) první."""
+    """Augment orders with the item name, location, fill % and status. Sort newest
+    by issue date (issued) first."""
     import datetime as _dt
     out = []
     for o in orders:
@@ -4321,10 +4321,10 @@ def _decorate_orders(orders: list[dict], type_names: dict[int, str],
         except Exception:
             pass
         price = o.get("price", 0.0) or 0.0
-        # ESI history má state jen "expired"/"cancelled" — plně splněný order se
-        # uzavře jako "expired" s volume_remain==0. Rozliš proto skutečný stav:
-        # completed = beze zbytku prodáno/nakoupeno; expired = doběhla doba se
-        # zbytkem; cancelled = zrušeno uživatelem.
+        # ESI history has state only "expired"/"cancelled" — a fully filled order
+        # closes as "expired" with volume_remain==0. So distinguish the real state:
+        # completed = sold/bought with no remainder; expired = duration ran out with
+        # a remainder; cancelled = cancelled by the user.
         raw_state = o.get("state", "")
         if remain == 0 and total:
             status_label = "completed"
@@ -4337,8 +4337,8 @@ def _decorate_orders(orders: list[dict], type_names: dict[int, str],
             "item": type_names.get(o.get("type_id"), f"#{o.get('type_id')}"),
             "is_buy": o.get("is_buy_order", False),
             "price": price,
-            "order_total": price * total,      # cena za všechny jednotky orderu
-            "remain_total": price * remain,    # hodnota dosud nesplněné části
+            "order_total": price * total,      # price for all units of the order
+            "remain_total": price * remain,    # value of the still-unfilled part
             "volume_total": total,
             "volume_remain": remain,
             "filled": filled,
@@ -4346,7 +4346,7 @@ def _decorate_orders(orders: list[dict], type_names: dict[int, str],
             "location": loc_names.get(o.get("location_id"), str(o.get("location_id", ""))),
             "issued": issued,
             "expiry": expiry,
-            "state": o.get("state", ""),   # jen u history: expired / cancelled
+            "state": o.get("state", ""),   # history only: expired / cancelled
             "status_label": status_label,  # completed / expired / cancelled
         })
     out.sort(key=lambda x: x["issued"], reverse=True)
@@ -4368,10 +4368,10 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
             f"SELECT type_id, name FROM sde_types WHERE type_id IN ({ph})", list(type_ids)
         ).fetchall()}
 
-    # ── All characters: ordery napříč všemi postavami, otagované "party" ──
-    #   personal → jedna sada na postavu (party = postava)
-    #   corp     → jedna sada na UNIKÁTNÍ korporaci (party = korporace), ať se
-    #              nedplikují sdílené corp ordery, když je víc postav v jedné corp
+    # ── All characters: orders across all characters, tagged with "party" ──
+    #   personal → one set per character (party = character)
+    #   corp     → one set per UNIQUE corporation (party = corporation), so shared
+    #              corp orders aren't duplicated when several characters are in one corp
     if all_chars:
         is_corp = (scope == "corp")
         ctx: dict = {
@@ -4381,7 +4381,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
         }
         chars = list_characters(conn)
         if not chars:
-            ctx["error"] = "Nejsi přihlášen."
+            ctx["error"] = "You are not signed in."
             conn.close()
             return _tr("orders.html", request, ctx)
 
@@ -4413,7 +4413,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
 
         try:
             if is_corp:
-                # unikátní corp → token postavy v ní
+                # unique corp → token of a character in it
                 corp_token: dict[int, str] = {}
                 async with esi_client() as client:
                     for cid, _cn in chars:
@@ -4445,7 +4445,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
             merged.sort(key=lambda x: x.get("issued", ""), reverse=True)
             ctx["orders"] = merged
         except Exception as exc:
-            ctx["error"] = f"Chyba při načítání orderů: {exc}"
+            ctx["error"] = f"Error loading orders: {exc}"
         conn.close()
         return _tr("orders.html", request, ctx)
 
@@ -4461,13 +4461,13 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
         "orders": [], "error": None, "corp_error": None, "corp_name": None,
     }
     if not plan_char_id:
-        ctx["error"] = "Nejsi přihlášen."
+        ctx["error"] = "You are not signed in."
         conn.close()
         return _tr("orders.html", request, ctx)
     token = _get_valid_token_for(conn, plan_char_id)
     row = get_character_row(conn, plan_char_id)
     if not token or not row:
-        ctx["error"] = "Token postavy vypršel — přihlas se znovu."
+        ctx["error"] = "The character token expired — sign in again."
         conn.close()
         return _tr("orders.html", request, ctx)
 
@@ -4483,7 +4483,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
                         if corp_id:
                             update_corporation_id(conn, plan_char_id, corp_id)
                 if not corp_id:
-                    ctx["corp_error"] = "Nepodařilo se zjistit korporaci postavy."
+                    ctx["corp_error"] = "Could not determine the character's corporation."
                 else:
                     cn = await _resolve_party_names({corp_id})
                     ctx["corp_name"] = cn.get(corp_id, str(corp_id))
@@ -4501,7 +4501,7 @@ async def orders_page(request: Request, char: str = "", scope: str = "personal",
                     raw_orders = await orders_api.fetch_orders(client, plan_char_id, token)
                 ctx["orders"] = await _finalize_orders(conn, raw_orders, _type_names, token)
     except Exception as exc:
-        ctx["error"] = f"Chyba při načítání orderů: {exc}"
+        ctx["error"] = f"Error loading orders: {exc}"
 
     conn.close()
     return _tr("orders.html", request, ctx)
@@ -4519,7 +4519,7 @@ async def _finalize_orders(conn, raw_orders: list[dict], type_names_fn, token: s
     return _decorate_orders(raw_orders, type_names, loc_names)
 
 
-# ── Kontrakty (osobní / korporační) ───────────────────────────────────────────
+# ── Contracts (personal / corporate) ───────────────────────────────────────────
 
 def _decorate_contracts(raw: list[dict], party_names: dict[int, str],
                         loc_names: dict[int, str]) -> list[dict]:
@@ -4587,7 +4587,7 @@ async def contracts_page(request: Request, char: str = "", scope: str = "persona
 
     chars = list_characters(conn)
     if not chars:
-        ctx["error"] = "Nejsi přihlášen."
+        ctx["error"] = "You are not signed in."
         conn.close()
         return _tr("contracts.html", request, ctx)
 
@@ -4621,7 +4621,7 @@ async def contracts_page(request: Request, char: str = "", scope: str = "persona
                             c["_char_id"] = cid
                             c["_party_label"] = cname
                             raw.append(c)
-            # dedup dle contract_id (stejný kontrakt může vidět víc postav)
+            # dedup by contract_id (several characters may see the same contract)
             seen: set[int] = set()
             raw = [c for c in raw if not (c.get("contract_id") in seen or seen.add(c.get("contract_id")))]
             any_tok = next((_get_valid_token_for(conn, c) for c, _ in chars
@@ -4630,7 +4630,7 @@ async def contracts_page(request: Request, char: str = "", scope: str = "persona
             conn.close()
             return _tr("contracts.html", request, ctx)
 
-        # jedna postava
+        # single character
         plan_char_id = int(char) if char.isdigit() and get_character_row(conn, int(char)) else None
         if plan_char_id is None:
             plan_char_id = get_active_character_id(request, conn)
@@ -4638,7 +4638,7 @@ async def contracts_page(request: Request, char: str = "", scope: str = "persona
         token = _get_valid_token_for(conn, plan_char_id) if plan_char_id else None
         row = get_character_row(conn, plan_char_id) if plan_char_id else None
         if not token or not row:
-            ctx["error"] = "Token postavy vypršel — přihlas se znovu."
+            ctx["error"] = "The character token expired — sign in again."
             conn.close()
             return _tr("contracts.html", request, ctx)
 
@@ -4653,7 +4653,7 @@ async def contracts_page(request: Request, char: str = "", scope: str = "persona
                         if corp_id:
                             update_corporation_id(conn, plan_char_id, corp_id)
                 if not corp_id:
-                    ctx["corp_error"] = "Nepodařilo se zjistit korporaci postavy."
+                    ctx["corp_error"] = "Could not determine the character's corporation."
                     raw = []
                 else:
                     lst, err = await contracts_api.fetch_corp_contracts(client, corp_id, token)
@@ -4667,7 +4667,7 @@ async def contracts_page(request: Request, char: str = "", scope: str = "persona
                     c["_char_id"] = plan_char_id
         ctx["contracts"] = await _finalize_contracts(conn, raw, token)
     except Exception as exc:
-        ctx["error"] = f"Chyba při načítání kontraktů: {exc}"
+        ctx["error"] = f"Error loading contracts: {exc}"
 
     conn.close()
     return _tr("contracts.html", request, ctx)
@@ -4676,7 +4676,7 @@ async def contracts_page(request: Request, char: str = "", scope: str = "persona
 @app.get("/api/contracts/items")
 async def api_contract_items(request: Request, contract_id: int,
                              char_id: int = 0, corp_id: int = 0):
-    """Lazy dotažení položek kontraktu (rozklik). Vrátí resolved jména z SDE."""
+    """Lazy fetch of a contract's items (on expand). Returns resolved names from the SDE."""
     conn = get_conn()
     try:
         items: list[dict] = []
@@ -4712,15 +4712,15 @@ async def api_contract_items(request: Request, contract_id: int,
         conn.close()
 
 
-# ── Veřejné kontrakty (per-region index + lokální search) ─────────────────────
+# ── Public contracts (per-region index + local search) ─────────────────────
 
 _REGIONS_CACHE: list[tuple[int, str]] | None = None
 
 
 async def _get_all_regions() -> list[tuple[int, str]]:
-    """Všechny regiony (id, jméno) z ESI, seřazené dle jména. Cache na proces
-    (regiony se prakticky nemění). Vynechá wormhole/abyssal (>= 11000000) —
-    tam veřejné kontrakty nejsou."""
+    """All regions (id, name) from ESI, sorted by name. Cached per process
+    (regions practically never change). Skips wormhole/abyssal (>= 11000000) —
+    there are no public contracts there."""
     global _REGIONS_CACHE
     if _REGIONS_CACHE is not None:
         return _REGIONS_CACHE
@@ -4744,7 +4744,7 @@ async def _get_all_regions() -> list[tuple[int, str]]:
 
 
 async def _resolve_region_id(name_or_id: str) -> tuple[int | None, str]:
-    """Vrátí (region_id, region_name) z názvu nebo ID. (None,'') když nenalezeno."""
+    """Return (region_id, region_name) from a name or ID. (None,'') if not found."""
     s = name_or_id.strip()
     if not s:
         return None, ""
@@ -4776,7 +4776,7 @@ async def public_contracts_page(request: Request, region: str = "", item: str = 
     ctx["region_id"] = region_id
     ctx["region_name"] = region_name
     if region and region_id is None:
-        ctx["error"] = f'Region „{region}" nenalezen.'
+        ctx["error"] = f'Region "{region}" not found.'
     if region_id:
         ctx["status"] = contracts_helper.get_index_status(conn, region_id)
         if ctx["status"]:
@@ -4811,7 +4811,7 @@ async def public_contracts_page(request: Request, region: str = "", item: str = 
 
 @app.get("/api/contracts/public/index")
 async def api_public_index(request: Request, region_id: int):
-    """SSE stream: naindexuje region (výpis + položky) do cache."""
+    """SSE stream: indexes a region (listing + items) into the cache."""
     async def gen():
         conn = get_conn()
         try:
@@ -4833,8 +4833,8 @@ async def api_public_contract_items(request: Request, contract_id: int):
 
 # ── Industry Jobs ─────────────────────────────────────────────────────────────
 
-# Industry job sloty: mapování ESI activity_id → kategorie slotu a skilly, které
-# kapacitu určují (base 1 + level obou skillů, max 11 na kategorii).
+# Industry job slots: mapping of ESI activity_id → slot category and the skills
+# that determine capacity (base 1 + level of both skills, max 11 per category).
 _SLOT_CATEGORY = {
     1: "manufacturing",                       # Manufacturing
     3: "science", 4: "science",               # TE / ME research
@@ -4859,10 +4859,10 @@ async def jobs_page(request: Request):
     chars = list_characters(conn)
     if not chars:
         conn.close()
-        return _tr("jobs.html", request, {"groups": [], "error": "Nejsi přihlášen.",
+        return _tr("jobs.html", request, {"groups": [], "error": "You are not signed in.",
                                           "total_active": 0})
 
-    # Stáhni joby všech postav souběžně
+    # Fetch all characters' jobs concurrently
     async def _one(cid: int):
         tok = _get_valid_token_for(conn, cid)
         if not tok:
@@ -4873,7 +4873,7 @@ async def jobs_page(request: Request):
     results = await asyncio.gather(*[_one(cid) for cid, _ in chars])
     char_name = {cid: name for cid, name in chars}
 
-    # Sesbírej type_id (product/blueprint) a facility_id pro resolve
+    # Collect type_ids (product/blueprint) and facility_id for resolution
     all_type_ids: set[int] = set()
     all_loc_ids: set[int] = set()
     for _cid, jl in results:
@@ -4922,9 +4922,9 @@ async def jobs_page(request: Request):
                 remaining = (f"{d}d " if d else "") + (f"{h}h " if (d or h) else "") + f"{m}m"
         except Exception:
             pass
-        # Ikona: image server používá pro blueprinty /bp (ne /icon — to vrací
-        # HTTP 400). Blueprint poznáme podle jména (pokrývá i invention, kde
-        # product_type_id je vyrobená BPC kopie = taky blueprint).
+        # Icon: the image server uses /bp for blueprints (not /icon — that returns
+        # HTTP 400). We detect a blueprint by name (covers invention too, where
+        # product_type_id is the produced BPC copy = also a blueprint).
         prod_id = j.get("product_type_id")
         bp_id = j.get("blueprint_type_id")
         icon_id = prod_id or bp_id
@@ -4944,20 +4944,20 @@ async def jobs_page(request: Request):
             "status": status,
         }
 
-    # Aktivní = status active nebo ready (ještě nedoručené). Ostatní skryjeme.
+    # Active = status active or ready (not yet delivered). We hide the rest.
     groups = []
     total_active = 0
     for cid, jl in results:
-        # active/paused/ready = joby, které stále drží slot (ready = hotový,
-        # nedoručený). delivered/cancelled/reverted slot neblokují.
+        # active/paused/ready = jobs that still hold a slot (ready = finished,
+        # not delivered). delivered/cancelled/reverted don't block a slot.
         active = [j for j in jl if j.get("status") in ("active", "paused", "ready")]
         decorated = [_decorate_job(j) for j in active]
-        # nejdřív ty co brzy skončí
+        # the ones finishing soonest first
         decorated.sort(key=lambda x: x["end_date"])
         total_active += len(decorated)
 
-        # Obsazenost slotů podle kategorie (kolik z kolika). Max = base 1 +
-        # obě skill úrovně; None pokud skilly ještě nejsou nasynchronizované.
+        # Slot occupancy by category (how many of how many). Max = base 1 +
+        # both skill levels; None if the skills aren't synced yet.
         skills = get_cached_skills(conn, cid)
         used = {"manufacturing": 0, "science": 0, "reactions": 0}
         for j in active:
@@ -4976,7 +4976,7 @@ async def jobs_page(request: Request):
             "jobs": decorated,
             "slots": slots,
         })
-    # postavy s nejvíc joby první
+    # characters with the most jobs first
     groups.sort(key=lambda g: -len(g["jobs"]))
 
     conn.close()

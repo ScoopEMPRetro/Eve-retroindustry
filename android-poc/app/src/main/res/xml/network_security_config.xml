@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Povolit cleartext HTTP jen na loopback (lokální uvicorn server appky).
-     Vše ostatní zůstává jen HTTPS (ESI API, evetech.net obrázky, CDN). -->
+<!-- Allow cleartext HTTP only on loopback (the app's local uvicorn server).
+     Everything else stays HTTPS-only (ESI API, evetech.net images, CDN). -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>

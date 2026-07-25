@@ -15,6 +15,6 @@
             android:fontFamily="monospace" android:textSize="12sp"
             android:textIsSelectable="true"
             android:textColor="#c9d1d9"
-            android:text="Spouštím EVE Retroindustry…" />
+            android:text="Starting EVE Retroindustry…" />
     </ScrollView>
 </FrameLayout>

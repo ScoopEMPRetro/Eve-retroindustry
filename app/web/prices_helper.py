@@ -1,7 +1,7 @@
 """
-Pomocné funkce pro načítání cen ve web UI.
+Helper functions for loading prices in the web UI.
 
-Strategie: Jita z cache pokud dostupné, jinak adjusted prices.
+Strategy: Jita from cache if available, otherwise adjusted prices.
 """
 from __future__ import annotations
 import asyncio
@@ -23,16 +23,16 @@ from app.market.prices import (
 
 
 def get_cached_jita_prices(conn: sqlite3.Connection, type_ids: list[int]) -> dict[int, tuple[float | None, float | None]]:
-    """Vrátí všechny ceny z cache (poslední načtená Jita / The Forge sell).
+    """Returns all prices from the cache (last fetched Jita / The Forge sell).
 
-    Cache se NEexpiruje — vždy se použije poslední fetched hodnota. Reálná
-    cena je často víc reprezentativní než ESI 30-day average, navíc bulk
-    refresh /markets/{region}/orders/ vrací nejnižší sell v celém regionu
-    The Forge (Jita station + okolní systémy), takže pokud zrovna v Jitě
-    neleží žádný sell order, použije se nejbližší v regionu.
+    The cache does NOT expire — the last fetched value is always used. The real
+    price is often more representative than the ESI 30-day average, and moreover a bulk
+    refresh of /markets/{region}/orders/ returns the lowest sell in the entire
+    The Forge region (Jita station + surrounding systems), so if there is currently no
+    sell order in Jita itself, the nearest one in the region is used.
 
-    PRICE_CACHE_TTL se používá jen pro UI freshness indicator
-    (`fresh` flag v /prices), ne pro filtrování hodnoty.
+    PRICE_CACHE_TTL is used only for the UI freshness indicator
+    (`fresh` flag in /prices), not for filtering the value.
     """
     result = {}
     for tid in type_ids:
@@ -46,7 +46,7 @@ def get_cached_jita_prices(conn: sqlite3.Connection, type_ids: list[int]) -> dic
 
 
 def get_price_cache_stats(conn: sqlite3.Connection) -> dict:
-    """Statistiky cache cen."""
+    """Price cache statistics."""
     row = conn.execute(
         "SELECT COUNT(*), MAX(cached_at), MIN(cached_at) FROM market_price_cache WHERE sell_price IS NOT NULL"
     ).fetchone()
@@ -87,11 +87,11 @@ async def get_prices_for_ids(
     type_ids: list[int],
 ) -> dict[int, tuple[float | None, float | None]]:
     """
-    Vrátí ceny pro seznam type_ids.
+    Returns prices for a list of type_ids.
 
-    Priorita: custom override > Jita / The Forge sell cache (poslední
-    načtená, nikdy neexpiruje) > ESI markets/prices average_price (jen
-    pro typy které ještě nebyly nikdy cachovány).
+    Priority: custom override > Jita / The Forge sell cache (last
+    fetched, never expires) > ESI markets/prices average_price (only
+    for types that have never been cached yet).
     """
     ensure_price_table(conn)
     jita = get_cached_jita_prices(conn, type_ids)
@@ -121,21 +121,21 @@ def get_all_price_items(
     conn: sqlite3.Connection,
     relevant_ids: set[int] | None = None,
 ) -> list[dict]:
-    """Vrátí itemy z cache pro initial render.
+    """Returns items from the cache for the initial render.
 
-    Pokud `relevant_ids` je předán, vrátí jen ty + všechny s custom_price.
-    Bez něj vrátí celou cache (legacy chování — pomalé pro 19k+ řádků).
+    If `relevant_ids` is passed, returns only those + everything with a custom_price.
+    Without it, returns the entire cache (legacy behavior — slow for 19k+ rows).
 
-    Pro velkou cache (~19k typů) je render všech řádků v HTML extrémně pomalý
-    (48 MB+ stránka). Místo toho UI loaduje zbytek přes `/api/prices/search` na
-    vyžádání. Default sada = user assets + blueprints + custom_price overrides.
+    For a large cache (~19k types), rendering all rows in HTML is extremely slow
+    (48 MB+ page). Instead, the UI loads the rest via `/api/prices/search` on
+    demand. Default set = user assets + blueprints + custom_price overrides.
     """
     ensure_price_table(conn)
     if relevant_ids is None:
         where_clause = ""
         params: tuple = ()
     else:
-        # Vždy zahrň všechno s custom_price
+        # Always include everything with a custom_price
         ph = ",".join("?" * len(relevant_ids)) if relevant_ids else "NULL"
         where_clause = (
             f"WHERE m.type_id IN ({ph}) OR c.price IS NOT NULL"
@@ -170,7 +170,7 @@ def get_all_price_items(
 
 
 def set_custom_price(conn: sqlite3.Connection, type_id: int, price: float | None):
-    """Uloží nebo smaže custom cenu pro daný type_id."""
+    """Stores or deletes the custom price for the given type_id."""
     ensure_price_table(conn)
     if price is None:
         conn.execute("DELETE FROM custom_price_override WHERE type_id=?", (type_id,))
@@ -188,10 +188,10 @@ def _persist_bulk_orders(
     bulk: dict[int, dict],
     wanted: set[int],
 ) -> tuple[int, list[int]]:
-    """Zapíše agregovaná data z bulk fetch do market_price_cache.
-    Pro type_ids ze `wanted` které nemají žádný order (chybí v `bulk`) zapíše None
-    (žádná aktivní objednávka v regionu = explicitně bez ceny).
-    Vrátí (počet refreshnutých záznamů, seznam type_ids s aspoň jedním orderem).
+    """Writes aggregated data from the bulk fetch into market_price_cache.
+    For type_ids from `wanted` that have no order (missing in `bulk`) it writes None
+    (no active order in the region = explicitly no price).
+    Returns (number of refreshed records, list of type_ids with at least one order).
     """
     now = time.time()
     rows: list[tuple] = []
@@ -200,7 +200,7 @@ def _persist_bulk_orders(
     for tid in wanted:
         d = bulk.get(tid)
         if d is None:
-            # Žádný order v regionu → zapíšeme None (explicitně bez ceny)
+            # No order in the region → write None (explicitly no price)
             rows.append((tid, None, None, None, now))
             continue
         sell = d.get("sell")
@@ -209,10 +209,10 @@ def _persist_bulk_orders(
         if sell is not None or buy is not None:
             refreshed += 1
             traded.append(tid)
-        # Volume (7-day history) v tomto refresh nepřepisujeme — zachová stará hodnota
+        # Volume (7-day history) is not overwritten in this refresh — the old value is kept
         rows.append((tid, sell, buy, jita_avail, now))
-    # Použijeme COALESCE pro volume — INSERT OR REPLACE smaže existující volume,
-    # takže místo toho použijeme UPSERT
+    # Use COALESCE for volume — INSERT OR REPLACE would erase the existing volume,
+    # so use an UPSERT instead
     conn.executemany(
         """INSERT INTO market_price_cache (type_id, sell_price, buy_price, jita_available, cached_at)
            VALUES (?, ?, ?, ?, ?)
@@ -232,11 +232,11 @@ async def _fill_volumes(
     type_ids: list[int],
     progress_cb=None,
 ) -> int:
-    """Pro každý type_id stáhne 7-day Jita history a uloží volume.
-    Paralelně přes _fetch_region_volume (semaphore 10 v market/prices.py).
-    Vrátí počet úspěšně aktualizovaných řádků.
+    """For each type_id, fetches the 7-day Jita history and stores the volume.
+    In parallel via _fetch_region_volume (semaphore 10 in market/prices.py).
+    Returns the number of successfully updated rows.
 
-    progress_cb(done, total) volaný v rámci komítů.
+    progress_cb(done, total) called within commits.
     """
     from app.market.prices import _fetch_region_volume, JITA_REGION  # type: ignore
 
@@ -245,7 +245,7 @@ async def _fill_volumes(
 
     done_holder = [0]
     total = len(type_ids)
-    BATCH = 200       # commit po 200 výsledcích — drží otevřený DB write krátký
+    BATCH = 200       # commit every 200 results — keeps the open DB write short
 
     async def _one(client: httpx.AsyncClient, tid: int) -> tuple[int, int | None]:
         vol = await _fetch_region_volume(client, JITA_REGION, tid)
@@ -253,7 +253,7 @@ async def _fill_volumes(
 
     updated = 0
     async with esi_client() as client:
-        # Zpracovávej v dávkách aby šel průběh hlásit a commitnout postupně.
+        # Process in batches so progress can be reported and committed incrementally.
         for start in range(0, total, BATCH):
             batch = type_ids[start:start + BATCH]
             results = await asyncio.gather(
@@ -281,9 +281,9 @@ async def _maybe_call(cb, *args):
 
 
 async def refresh_jita_prices_all(conn: sqlite3.Connection, type_ids: list[int]) -> int:
-    """Stáhne čerstvé Jita ceny pro všechny předané type_ids — bulk paginated region orders.
-    Pak pro typy s aspoň jedním orderem dotáhne i 7-day volume z history endpointu.
-    Vrátí počet typů s aspoň jednou cenou.
+    """Fetches fresh Jita prices for all passed type_ids — bulk paginated region orders.
+    Then, for types with at least one order, also fetches the 7-day volume from the history endpoint.
+    Returns the number of types with at least one price.
     """
     ensure_price_table(conn)
     wanted = set(type_ids)
@@ -297,7 +297,7 @@ async def refresh_jita_prices_all(conn: sqlite3.Connection, type_ids: list[int])
 
 async def stream_jita_refresh(conn: sqlite3.Connection, type_ids: list[int]):
     """Async generator yielding SSE chunks. Bulk paginated fetch — progress
-    se posílá po každé stránce orders endpointu (~500 stránek pro Jita region).
+    is sent after each page of the orders endpoint (~500 pages for the Jita region).
     """
     ensure_price_table(conn)
     wanted = set(type_ids)
@@ -350,6 +350,6 @@ async def stream_jita_refresh(conn: sqlite3.Connection, type_ids: list[int]):
 
 def _fmt_ts(ts: float | None) -> str:
     if not ts:
-        return "nikdy"
+        return "never"
     import datetime
     return datetime.datetime.fromtimestamp(ts).strftime("%d.%m.%Y %H:%M")

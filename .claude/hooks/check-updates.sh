@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
-# SessionStart hook: upozorní, když je lokální checkout pozadu za remote —
-# hlavní repo (aplikace) i privátní poznámky (CLAUDE.md přes symlink).
-# Zabraňuje editaci zastaralého stavu / desynchronizaci mezi stroji.
-# Nic citlivého se necommituje — URL poznámek se zjišťuje za běhu ze symlinku.
+# SessionStart hook: warns when the local checkout is behind the remote —
+# both the main repo (application) and the private notes (CLAUDE.md via symlink).
+# Prevents editing a stale state / desync between machines.
+# Nothing sensitive is committed — the notes URL is resolved at runtime from the symlink.
 set -uo pipefail
 proj="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 msgs=()
 
-check() {  # $1 = adresář repa, $2 = popisek
+check() {  # $1 = repo directory, $2 = label
   local d="$1" label="$2" up behind
   [ -d "$d/.git" ] || return 0
   git -C "$d" fetch --quiet 2>/dev/null || return 0
   up=$(git -C "$d" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null) || return 0
   behind=$(git -C "$d" rev-list --count "HEAD..$up" 2>/dev/null) || return 0
   if [ -n "$behind" ] && [ "$behind" -gt 0 ]; then
-    msgs+=("$label: $behind commit(s) za remote — před úpravami spusť: git -C \"$d\" pull")
+    msgs+=("$label: $behind commit(s) behind remote — before editing run: git -C \"$d\" pull")
   fi
 }
 
-check "$proj" "Hlavní repo (aplikace)"
+check "$proj" "Main repo (application)"
 
-# Privátní poznámky: CLAUDE.md v rootu je symlink do notes repa.
+# Private notes: CLAUDE.md in the root is a symlink into the notes repo.
 cl="$proj/CLAUDE.md"
 if [ -L "$cl" ]; then
   notes=$(dirname "$(readlink -f "$cl" 2>/dev/null)")
-  [ -n "$notes" ] && check "$notes" "Poznámky (CLAUDE.md)"
+  [ -n "$notes" ] && check "$notes" "Notes (CLAUDE.md)"
 fi
 
 if [ "${#msgs[@]}" -eq 0 ]; then
   jq -n '{suppressOutput: true}'
 else
-  text="⚠️ Aktuálnost repozitářů:"$'\n'"$(printf '%s\n' "${msgs[@]}")"
+  text="⚠️ Repository freshness:"$'\n'"$(printf '%s\n' "${msgs[@]}")"
   jq -n --arg t "$text" \
     '{systemMessage: $t, hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $t}}'
 fi

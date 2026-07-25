@@ -94,17 +94,17 @@ def _wait_for_server(port: int, timeout: float = 15.0) -> bool:
 
 
 def _patch_qt_clipboard() -> None:
-    """Oprava clipboardu v pywebview Qt backendu (pywebview 6.x + PyQt6 6.11).
+    """Fix the clipboard in the pywebview Qt backend (pywebview 6.x + PyQt6 6.11).
 
-    Dva problémy, kvůli kterým "Copy" v Shopping Listu shazoval appku na Linuxu:
-      1. JS přístup ke schránce je defaultně vypnutý → execCommand('copy') selže.
-      2. onFeaturePermissionRequested volá setFeaturePermission(url, feature, int),
-         ale PyQt6 6.11 vyžaduje enum PermissionPolicy → TypeError shodí appku ve
-         chvíli, kdy stránka zavolá navigator.clipboard.writeText() na secure
-         originu (náš http://127.0.0.1). Přesně to dělalo kopírování seznamu.
+    Two problems that made "Copy" in the Shopping List crash the app on Linux:
+      1. JS access to the clipboard is disabled by default → execCommand('copy') fails.
+      2. onFeaturePermissionRequested calls setFeaturePermission(url, feature, int),
+         but PyQt6 6.11 requires the PermissionPolicy enum → TypeError crashes the app
+         the moment the page calls navigator.clipboard.writeText() on a secure
+         origin (our http://127.0.0.1). That is exactly what broke copying the list.
 
-    Patchujeme bundlovaný pywebview (běží v AppImage) před webview.start().
-    Vše v try/except — selhání patche nesmí shodit start appky.
+    We patch the bundled pywebview (running in the AppImage) before webview.start().
+    Everything is in try/except — a failed patch must not crash app startup.
     """
     try:
         from webview.platforms.qt import BrowserView

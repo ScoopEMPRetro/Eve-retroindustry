@@ -1,4 +1,4 @@
-"""Spuštění web UI: python web.py"""
+"""Start the web UI: python web.py"""
 import uvicorn
 
 if __name__ == "__main__":

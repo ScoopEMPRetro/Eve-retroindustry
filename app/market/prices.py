@@ -1,9 +1,9 @@
 """
-Načítání tržních cen z ESI.
+Loading market prices from ESI.
 
-Dva režimy:
-  adjusted  – globální adjusted/average prices, jeden API call
-  jita      – živé Jita sell/buy ceny, N parallel calls, cache 30 min
+Two modes:
+  adjusted  – global adjusted/average prices, single API call
+  jita      – live Jita sell/buy prices, N parallel calls, 30 min cache
 """
 import asyncio
 import time
@@ -14,24 +14,24 @@ from app.esi.client import esi_client
 ESI_BASE = "https://esi.evetech.net/latest"
 JITA_REGION = 10000002   # The Forge
 JITA_STATION = 60003760  # Jita 4-4 CNAP
-PRICE_CACHE_TTL = 60 * 60 * 12  # 12 hodin
-# Používá se POUZE pro UI freshness indikátor (green/red badge na /prices,
-# `fresh` flag v API). Pro výpočty cen (`get_prices_for_ids`) se cache
-# NEexpiruje — vždy se použije poslední načtená Jita / The Forge sell hodnota,
-# bez ohledu na stáří. Plný refresh přes `/markets/{region}/orders/` trvá
-# ~3 s, user obvykle refreshuje 1× denně.
+PRICE_CACHE_TTL = 60 * 60 * 12  # 12 hours
+# Used ONLY for the UI freshness indicator (green/red badge on /prices,
+# `fresh` flag in the API). For price calculations (`get_prices_for_ids`) the
+# cache does NOT expire — the last fetched Jita / The Forge sell value is always
+# used, regardless of age. A full refresh via `/markets/{region}/orders/` takes
+# ~3 s, and the user usually refreshes once a day.
 
 _JITA_SEM = asyncio.Semaphore(10)
-# 7-day history se tahá per-type (žádný bulk endpoint), takže je to dominantní
-# část refreshe (~19k volání). Concurrency 30 = ~2.5× rychlejší než 10 (515 vs
-# 204 req/s naměřeno) a přitom bezpečně pod ESI rate-limitem — od ~45 souběžných
-# začne ESI vracet HTTP 420 (error-limit), což je pomalejší A poškozuje sdílený
-# error budget celé appky. 30 drží nulu 420 s rezervou.
+# The 7-day history is fetched per-type (no bulk endpoint), so it is the dominant
+# part of a refresh (~19k calls). Concurrency 30 = ~2.5x faster than 10 (515 vs
+# 204 req/s measured), while staying safely under the ESI rate limit — from ~45
+# concurrent, ESI starts returning HTTP 420 (error-limit), which is slower AND
+# damages the shared error budget of the whole app. 30 keeps zero 420s with margin.
 _HIST_SEM = asyncio.Semaphore(30)
 
 
 # ---------------------------------------------------------------------------
-# DB schéma
+# DB schema
 # ---------------------------------------------------------------------------
 
 def ensure_price_table(conn: sqlite3.Connection):
@@ -73,17 +73,17 @@ def ensure_price_table(conn: sqlite3.Connection):
 
 
 # ---------------------------------------------------------------------------
-# Adjusted prices (globální, 1 call)
+# Adjusted prices (global, 1 call)
 # ---------------------------------------------------------------------------
 
 async def fetch_adjusted_prices(client: httpx.AsyncClient) -> dict[int, dict]:
     """
-    Vrátí {type_id: {adjusted_price, average_price}} pro všechny typy.
-    Jeden API call — vhodné pro rychlý odhad.
+    Returns {type_id: {adjusted_price, average_price}} for all types.
+    A single API call — suitable for a quick estimate.
 
-    Best-effort: tohle je jen fallback odhad ceny. NIKDY neraisuje —
-    při 420 (ESI error-limit), timeoutu či jiné chybě vrátí {}, takže
-    pád ESI nikdy neshodí dashboard / plán. Volající prázdný dict zvládne.
+    Best-effort: this is only a fallback price estimate. NEVER raises —
+    on a 420 (ESI error-limit), timeout, or any other error it returns {}, so
+    an ESI failure never takes down the dashboard / plan. The caller handles an empty dict.
     """
     try:
         r = await client.get(
@@ -128,7 +128,7 @@ def _save_cached_price(
 
 
 async def _fetch_region_volume(client: httpx.AsyncClient, region_id: int, type_id: int) -> int | None:
-    """Vrátí součet objemu za posledních 7 dní z ESI history pro daný region."""
+    """Returns the total volume over the last 7 days from ESI history for the given region."""
     async with _HIST_SEM:
         try:
             r = await client.get(
@@ -157,8 +157,8 @@ async def fetch_jita_price(
     force: bool = False,
 ) -> tuple[float | None, float | None]:
     """
-    Vrátí (best_sell, best_buy) pro daný typ v Jitě.
-    Používá cache — platná 30 minut. force=True přeskočí cache a vždy stáhne čerstvá data.
+    Returns (best_sell, best_buy) for the given type in Jita.
+    Uses the cache — valid for 30 minutes. force=True skips the cache and always fetches fresh data.
     """
     if not force:
         sell_c, buy_c = _get_cached_price(conn, type_id)
@@ -220,7 +220,7 @@ async def fetch_jita_prices_bulk(
     type_ids: list[int],
     force: bool = False,
 ) -> dict[int, tuple[float | None, float | None]]:
-    """Načte Jita ceny pro seznam typů paralelně."""
+    """Fetches Jita prices for a list of types in parallel."""
     tasks = [fetch_jita_price(client, conn, tid, force=force) for tid in type_ids]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     return {
@@ -230,7 +230,7 @@ async def fetch_jita_prices_bulk(
 
 
 # ---------------------------------------------------------------------------
-# Bulk Jita orders — stáhne všechny aktivní orders v regionu naráz (paginated)
+# Bulk Jita orders — fetch all active orders in the region at once (paginated)
 # ---------------------------------------------------------------------------
 
 async def _fetch_orders_page(
@@ -238,7 +238,7 @@ async def _fetch_orders_page(
     region_id: int,
     page: int,
 ) -> tuple[list[dict], int]:
-    """Stáhne jednu stránku orders a vrátí (orders, x_pages)."""
+    """Fetches a single page of orders and returns (orders, x_pages)."""
     async with _JITA_SEM:
         for attempt in range(3):
             try:
@@ -270,9 +270,9 @@ async def _fetch_all_region_orders(
     region_id: int,
     progress_cb=None,
 ) -> list[list[dict]]:
-    """Stáhne VŠECHNY stránky orders regionu paginovaně (paralelně, _JITA_SEM).
-    Vrátí seznam stránek (každá = list orderů). progress_cb(done, total) po každé
-    stránce. Sdíleno mezi region-bulk a station-bulk agregací."""
+    """Fetches ALL pages of the region's orders, paginated (in parallel, _JITA_SEM).
+    Returns a list of pages (each = list of orders). progress_cb(done, total) after each
+    page. Shared between region-bulk and station-bulk aggregation."""
     first, total_pages = await _fetch_orders_page(client, region_id, 1)
     if not first and total_pages == 0:
         return []
@@ -303,11 +303,11 @@ async def fetch_station_orders_bulk(
     location_id: int,
     progress_cb=None,
 ) -> dict[int, tuple[int, float]]:
-    """Bulk varianta pro konkrétní stanici: stáhne regionální ordery jednou
-    (~stránky, ne ~19k per-type volání) a vrátí {type_id: (sell_volume_sum,
-    best_sell)} agregované JEN pro sell ordery na dané location_id.
+    """Bulk variant for a specific station: fetches regional orders once
+    (~pages, not ~19k per-type calls) and returns {type_id: (sell_volume_sum,
+    best_sell)} aggregated ONLY for sell orders at the given location_id.
 
-    Řádově rychlejší než per-type `_fetch_orders_for_type` pro velké type_ids."""
+    Orders of magnitude faster than per-type `_fetch_orders_for_type` for large type_ids."""
     pages_data = await _fetch_all_region_orders(client, region_id, progress_cb)
     agg: dict[int, tuple[int, float]] = {}
     for page_orders in pages_data:
@@ -334,17 +334,17 @@ async def fetch_region_orders_bulk(
     region_id: int = JITA_REGION,
     progress_cb=None,
 ) -> dict[int, dict]:
-    """Stáhne VŠECHNY aktivní orders pro region paginovaně a agreguje
+    """Fetches ALL active orders for the region, paginated, and aggregates
     per type_id: {type_id: {sell, buy, jita_available}}.
 
-    Tohle je řádově efektivnější než per-type call: ~500 stránek vs. 19k volání.
-    progress_cb(page, total_pages) zavoláno po každé stránce (pokud zadáno).
+    This is orders of magnitude more efficient than a per-type call: ~500 pages vs. 19k calls.
+    progress_cb(page, total_pages) is called after each page (if provided).
     """
     pages_data = await _fetch_all_region_orders(client, region_id, progress_cb)
     if not pages_data:
         return {}
 
-    # Agregace per type_id
+    # Aggregate per type_id
     agg: dict[int, dict] = {}
     for page_orders in pages_data:
         for o in page_orders:
@@ -365,37 +365,37 @@ async def fetch_region_orders_bulk(
 
 
 async def _maybe_call(cb, *args):
-    """Helper — callback může být sync nebo async."""
+    """Helper — the callback can be sync or async."""
     if asyncio.iscoroutinefunction(cb):
         await cb(*args)
     else:
         cb(*args)
 
 
-# Per-type orders na custom stanici (fáze A ve fetch_station_volumes). Běží
-# sekvenčně před history fází (_HIST_SEM), takže se concurrency nesčítá — 30 je
-# bezpečné pod ESI rate-limitem (stejně jako _HIST_SEM).
+# Per-type orders at a custom station (phase A in fetch_station_volumes). Runs
+# sequentially before the history phase (_HIST_SEM), so concurrency does not add up — 30 is
+# safe under the ESI rate limit (same as _HIST_SEM).
 _STATION_SEM = asyncio.Semaphore(30)
 STATION_VOLUME_TTL = 60 * 30
-# Od tolika type_ids se ve fetch_station_volumes vyplatí bulk (jeden region
-# download) místo per-type volání. Pod prahem je per-type lehčí a rychlejší.
+# From this many type_ids onward, bulk (a single region download) pays off in
+# fetch_station_volumes instead of per-type calls. Below the threshold, per-type is lighter and faster.
 _BULK_ORDERS_THRESHOLD = 1000
 _region_cache: dict[int, int] = {}  # structure_id → region_id (in-memory)
 
 
 async def get_region_for_structure(structure_id: int) -> int | None:
-    """Zjistí region_id pro strukturu přes ESI (system→constellation→region). Cachuje v paměti."""
+    """Resolves the region_id for a structure via ESI (system→constellation→region). Cached in memory."""
     if structure_id in _region_cache:
         return _region_cache[structure_id]
     try:
         async with esi_client() as client:
-            # NPC stanice: /universe/stations/{id}/ → system_id
+            # NPC station: /universe/stations/{id}/ → system_id
             if structure_id < 1_000_000_000_000:
                 r = await client.get(f"{ESI_BASE}/universe/stations/{structure_id}/",
                                      params={"datasource": "tranquility"}, timeout=8)
                 sys_id = r.json().get("system_id") if r.status_code == 200 else None
             else:
-                # Player struktura — nemáme token zde, zkusíme přes DB location_name_cache
+                # Player structure — we have no token here, try via DB location_name_cache
                 return None
 
             if not sys_id:
@@ -428,9 +428,9 @@ async def fetch_structure_market(
     region_id: int | None = None,
 ) -> dict[int, tuple[int | None, float | None, int | None]]:
     """
-    Stáhne všechny sell objednávky z player struktury přes autorizovaný endpoint.
-    Vrátí {type_id: (volume, best_sell)} jen pro type_ids z naší cache.
-    Vyžaduje scope esi-markets.structure_markets.v1.
+    Fetches all sell orders from a player structure via the authorized endpoint.
+    Returns {type_id: (volume, best_sell)} only for type_ids from our cache.
+    Requires the esi-markets.structure_markets.v1 scope.
     """
     ensure_price_table(conn)
     aggregated: dict[int, dict] = {}
@@ -449,7 +449,7 @@ async def fetch_structure_market(
                 break
 
             if r.status_code == 403:
-                raise PermissionError("Nedostatečná oprávnění pro přístup k marketu struktury (403).")
+                raise PermissionError("Insufficient permissions to access the structure market (403).")
             if r.status_code != 200:
                 break
 
@@ -475,10 +475,10 @@ async def fetch_structure_market(
                 break
             page += 1
 
-    # 7-day "volume" je REGIONÁLNÍ historie (ESI nezveřejňuje historii obchodů
-    # pro player struktury). Tahej ji pro VŠECHNY požadované typy — i pro ty,
-    # které ve struktuře zrovna nemají žádnou nabídku, jinak by u nich "prodáno
-    # za 7 dní" chybělo, přestože v regionu se s nimi obchoduje.
+    # The 7-day "volume" is REGIONAL history (ESI does not publish trade history
+    # for player structures). Fetch it for ALL requested types — even those
+    # that currently have no offer in the structure, otherwise "sold in the last
+    # 7 days" would be missing for them even though they are traded in the region.
     if region_id is None:
         # Try location_name_cache first (populated by location resolver in web layer)
         try:
@@ -526,7 +526,7 @@ async def _fetch_orders_for_type(
     location_id: int,
     type_id: int,
 ) -> tuple[int | None, float | None]:
-    """Vrátí (volume_sum, best_sell) pro daný typ na konkrétní stanici."""
+    """Returns (volume_sum, best_sell) for the given type at a specific station."""
     async with _STATION_SEM:
         try:
             r = await client.get(
@@ -553,21 +553,21 @@ async def fetch_station_volumes(
     region_id: int,
     type_ids: list[int],
 ) -> dict[int, tuple[int | None, float | None, int | None]]:
-    """Stáhne a uloží objemy+ceny+historii pro všechny type_ids na dané NPC stanici."""
+    """Fetches and stores volumes+prices+history for all type_ids at the given NPC station."""
     ensure_price_table(conn)
 
-    # Fáze A (ceny): dvě strategie podle počtu typů.
-    #  - málo typů → per-type volání (lehké, žádný 94MB region download); vhodné
-    #    pro plan sell price (1 typ).
-    #  - hodně typů → bulk regionální ordery jednou + filtr na stanici (~2 s
-    #    místo ~37 s); crossover ~1000 typů (bulk má fixní ~2 s + 94MB overhead).
+    # Phase A (prices): two strategies depending on the number of types.
+    #  - few types → per-type calls (light, no 94MB region download); suitable
+    #    for plan sell price (1 type).
+    #  - many types → bulk regional orders once + station filter (~2 s
+    #    instead of ~37 s); crossover ~1000 types (bulk has a fixed ~2 s + 94MB overhead).
     order_map: dict[int, tuple] = {}
     if len(type_ids) >= _BULK_ORDERS_THRESHOLD:
         async with esi_client() as client:
             station_orders = await fetch_station_orders_bulk(client, region_id, location_id)
         for tid in type_ids:
             vs = station_orders.get(tid)
-            # typ bez sell orderu na stanici → (0, None), konzistentní s per-type
+            # type with no sell order at the station → (0, None), consistent with per-type
             order_map[tid] = vs if vs is not None else (0, None)
     else:
         async with esi_client() as client:
@@ -576,8 +576,8 @@ async def fetch_station_volumes(
         for tid, res in zip(type_ids, order_results):
             order_map[tid] = res if isinstance(res, tuple) else (None, None)
 
-    # 7-day regionální volume pro VŠECHNY typy — i pro ty, co na stanici zrovna
-    # nemají order (jinak by u nich "prodáno za 7 dní" chybělo).
+    # 7-day regional volume for ALL types — even those that currently have no
+    # order at the station (otherwise "sold in the last 7 days" would be missing for them).
     history_map: dict[int, int | None] = {}
     if type_ids:
         async with esi_client() as client:
@@ -607,7 +607,7 @@ def get_cached_station_volumes(
     conn: sqlite3.Connection,
     location_id: int,
 ) -> dict[int, tuple[int | None, float | None, int | None]] | None:
-    """Vrátí cachovaná data pokud jsou čerstvá, jinak None."""
+    """Returns cached data if it is fresh, otherwise None."""
     rows = conn.execute(
         "SELECT type_id, volume, best_sell, traded_volume, cached_at FROM station_volume_cache WHERE location_id=?",
         (location_id,)
@@ -617,8 +617,8 @@ def get_cached_station_volumes(
     now = time.time()
     if any((now - (r[4] or 0)) > STATION_VOLUME_TTL for r in rows):
         return None
-    # Pokud jsou záznamy s volume>0 ale všechna traded_volume jsou NULL,
-    # cache je neúplná (region nebyl znám při ukládání) — vynutíme refetch.
+    # If there are records with volume>0 but all traded_volume are NULL,
+    # the cache is incomplete (the region was unknown at save time) — force a refetch.
     has_stock = any(r[1] and r[1] > 0 for r in rows)
     all_traded_null = all(r[3] is None for r in rows)
     if has_stock and all_traded_null:

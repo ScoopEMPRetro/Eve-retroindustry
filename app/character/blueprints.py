@@ -1,7 +1,7 @@
 """
-Načítání blueprintů postavy z ESI.
-  quantity == -1 → originál (BPO), neomezené runy
-  quantity == -2 → kopie   (BPC), zbývající runy v poli 'runs'
+Fetching a character's blueprints from ESI.
+  quantity == -1 → original (BPO), unlimited runs
+  quantity == -2 → copy     (BPC), remaining runs in the 'runs' field
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -11,17 +11,17 @@ import json
 import httpx
 
 ESI_BASE = "https://esi.evetech.net/latest"
-CACHE_TTL = 60 * 15  # 15 minut
+CACHE_TTL = 60 * 15  # 15 minutes
 
 
 @dataclass
 class CharBlueprint:
     item_id: int
-    type_id: int         # type_id blueprintu (ne produktu!)
+    type_id: int         # type_id of the blueprint (not the product!)
     location_id: int
     location_flag: str
     is_original: bool    # True = BPO, False = BPC
-    runs: int            # -1 = neomezeno (BPO), jinak zbývající runy
+    runs: int            # -1 = unlimited (BPO), otherwise remaining runs
     material_efficiency: int   # ME 0-10
     time_efficiency: int       # TE 0-20
 
@@ -63,7 +63,7 @@ async def fetch_blueprints(
     conn: sqlite3.Connection,
     force_refresh: bool = False,
 ) -> list[CharBlueprint]:
-    """Načte všechny blueprinty postavy (stránkovaně), s cache."""
+    """Fetch all of a character's blueprints (paginated), with caching."""
     if not force_refresh:
         cached = _load_cache(conn, character_id)
         if cached is not None:

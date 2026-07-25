@@ -1,10 +1,10 @@
 """
-Výrobní plánovač — porovná BOM s dostupnými assety na stanici.
+Manufacturing planner — compares the BOM with assets available at a station.
 
-Módy:
-  full       – cena základních surovin (celý výrobní řetězec)
-  components – cena přímých komponentů 1. úrovně (Capital Armor Plates atd.)
-  optimal    – make vs. buy optimalizace (potřebuje prices)
+Modes:
+  full       – cost of raw materials (the whole manufacturing chain)
+  components – cost of the direct first-level components (Capital Armor Plates, etc.)
+  optimal    – make vs. buy optimization (requires prices)
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -18,8 +18,8 @@ from app.character.blueprints import CharBlueprint
 PlanMode = Literal["full", "components", "optimal"]
 
 # Skill type IDs
-_SKILL_INDUSTRY        = 3380  # -4 % čas/level
-_SKILL_ADV_INDUSTRY    = 3388  # -3 % čas/level
+_SKILL_INDUSTRY        = 3380  # -4 % time/level
+_SKILL_ADV_INDUSTRY    = 3388  # -3 % time/level
 
 
 def calc_job_time(
@@ -32,16 +32,16 @@ def calc_job_time(
     is_reaction: bool = False,
     science_skill_mult: float = 1.0,
 ) -> int:
-    """Vrátí celkovou dobu jobu v sekundách (runs × čas/run po aplikaci bonusů).
+    """Return the total job time in seconds (runs × time/run after bonuses).
 
-    Vzorec EVE Online:
+    EVE Online formula:
       time/run = base_time
         × (1 − te × 0.01)               # Blueprint TE (0–20)
-        × (1 − industry × 0.04)         # Industry skill (jen výroba)
-        × (1 − adv_industry × 0.03)     # Advanced Industry skill (jen výroba)
-        × science_skill_mult             # science skilly požadované blueprintem (předpočítáno)
-        × facility_te_multiplier         # struktura + rigy (předpočítáno)
-    Reakce: Industry/AdvIndustry neaplikují.
+        × (1 − industry × 0.04)         # Industry skill (manufacturing only)
+        × (1 − adv_industry × 0.03)     # Advanced Industry skill (manufacturing only)
+        × science_skill_mult             # science skills required by the blueprint (precomputed)
+        × facility_te_multiplier         # structure + rigs (precomputed)
+    Reactions: Industry/AdvIndustry do not apply.
     """
     mult = 1.0 - min(te, 20) * 0.01
     if not is_reaction:
@@ -54,7 +54,7 @@ def calc_job_time(
 
 
 def format_duration(seconds: int) -> str:
-    """Formátuje sekundy jako 'Xd Yh Zm'."""
+    """Format seconds as 'Xd Yh Zm'."""
     if seconds <= 0:
         return "—"
     d = seconds // 86400
@@ -102,11 +102,11 @@ class ManufacturingPlan:
     materials:         list[MaterialStatus]
     can_manufacture:   bool
     total_missing_types: int
-    # Pro optimal mód — pro zobrazení make vs buy rozhodnutí
+    # For optimal mode — to display make vs buy decisions
     opt_total_cost:    float | None = None
     opt_naive_cost:    float | None = None
-    # [Decision, …] z optimizeru (jen optimal mode) — UI z nich renderuje
-    # Make vs Buy tabulku a steps vynechávají "buy" komponenty.
+    # [Decision, …] from the optimizer (optimal mode only) — the UI renders
+    # the Make vs Buy table from them, and steps skip "buy" components.
     opt_decisions:     list | None = None
 
 
@@ -178,15 +178,15 @@ def build_plan(
         items = root.aggregate_leaves()
 
     elif mode == "components":
-        # Přímé komponenty 1. úrovně (děti kořene)
+        # Direct first-level components (children of the root)
         items = {}
         for child in root.children:
             prev = items.get(child.type_id, (child.name, 0))[1]
             items[child.type_id] = (child.name, prev + child.quantity)
 
-    # Make-vs-buy analýza běží i mimo optimal mód — ve full/components je
-    # čistě informativní (tab "Make vs Buy"), shopping list ani manufacturing
-    # steps neovlivňuje.
+    # Make-vs-buy analysis runs outside optimal mode too — in full/components it
+    # is purely informational (the "Make vs Buy" tab) and affects neither the
+    # shopping list nor the manufacturing steps.
     opt_decisions = None
     if prices:
         opt_result = optimize(root, prices)
@@ -196,10 +196,10 @@ def build_plan(
 
     if mode == "optimal":
         if not prices:
-            # Bez cen fallback na full
+            # Without prices, fall back to full
             items = root.aggregate_leaves()
         else:
-            # Nákupní seznam: mix buy komponentů + raw surovin pro make větve
+            # Shopping list: a mix of buy components + raw materials for make branches
             decisions_map = {d.type_id: d for d in opt_decisions}
             items = get_shopping_list(root, decisions_map)
     elif mode not in ("full", "components"):

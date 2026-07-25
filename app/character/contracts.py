@@ -1,16 +1,16 @@
 """
-Kontrakty — osobní, korporační a veřejné (regionální).
+Contracts — personal, corporation and public (regional).
 
-ESI endpointy:
-  Postava (scope esi-contracts.read_character_contracts.v1):
-    GET /characters/{id}/contracts/                     → kontrakty (paginated)
-    GET /characters/{id}/contracts/{cid}/items/         → položky
-  Korporace (scope esi-contracts.read_corporation_contracts.v1, role Accountant):
+ESI endpoints:
+  Character (scope esi-contracts.read_character_contracts.v1):
+    GET /characters/{id}/contracts/                     → contracts (paginated)
+    GET /characters/{id}/contracts/{cid}/items/         → items
+  Corporation (scope esi-contracts.read_corporation_contracts.v1, role Accountant):
     GET /corporations/{id}/contracts/
     GET /corporations/{id}/contracts/{cid}/items/
-  Veřejné (bez auth):
+  Public (no auth):
     GET /contracts/public/{region_id}/                  → metadata (paginated)
-    GET /contracts/public/items/{cid}/                  → položky
+    GET /contracts/public/items/{cid}/                  → items
 """
 from __future__ import annotations
 import asyncio
@@ -52,7 +52,7 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 
-# ── Osobní / korporační ──────────────────────────────────────────────────────
+# ── Personal / corporation ────────────────────────────────────────────────────
 
 async def _get_all_pages(client: httpx.AsyncClient, url: str, token: str | None = None,
                          max_pages: int = 30) -> list[dict]:
@@ -86,9 +86,9 @@ async def fetch_corp_contracts(client, corp_id: int, token: str
     except Exception as exc:
         return None, str(exc)
     if r.status_code == 403:
-        return None, "Tato postava nemá v korporaci roli pro čtení kontraktů (Accountant)."
+        return None, "This character lacks the corporation role to read contracts (Accountant)."
     if r.status_code != 200:
-        return None, f"ESI vrátilo HTTP {r.status_code}."
+        return None, f"ESI returned HTTP {r.status_code}."
     out = r.json()
     for page in range(2, int(r.headers.get("x-pages", 1)) + 1):
         try:
@@ -128,9 +128,9 @@ async def fetch_corp_contract_items(client, corp_id: int, contract_id: int,
     return []
 
 
-# ── Veřejné (regionální) ─────────────────────────────────────────────────────
+# ── Public (regional) ─────────────────────────────────────────────────────────
 
-_PUB_SEM = asyncio.Semaphore(30)   # pod ESI rate-limit útesem (~45)
+_PUB_SEM = asyncio.Semaphore(30)   # below the ESI rate-limit cliff (~45)
 
 
 async def _fetch_public_page(client, region_id: int, page: int) -> tuple[list[dict], int]:
@@ -154,7 +154,7 @@ async def _fetch_public_page(client, region_id: int, page: int) -> tuple[list[di
 
 
 async def fetch_public_contracts(client, region_id: int, progress_cb=None) -> list[dict]:
-    """Všechny veřejné kontrakty v regionu (jen metadata, bez položek)."""
+    """All public contracts in the region (metadata only, no items)."""
     first, total_pages = await _fetch_public_page(client, region_id, 1)
     if not first and total_pages == 0:
         return []
@@ -181,8 +181,8 @@ async def fetch_public_contracts(client, region_id: int, progress_cb=None) -> li
 
 
 async def fetch_public_contract_items(client, contract_id: int) -> list[dict]:
-    """Položky veřejného kontraktu. 204/403/404 → prázdný list (courier bez
-    položek, expirovaný apod.)."""
+    """Items of a public contract. 204/403/404 → empty list (courier with no
+    items, expired, etc.)."""
     async with _PUB_SEM:
         try:
             r = await client.get(f"{ESI_BASE}/contracts/public/items/{contract_id}/",

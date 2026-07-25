@@ -1,4 +1,4 @@
-"""Vizualizace BOM stromu a souhrnu primárních surovin pomocí Rich."""
+"""Visualization of the BOM tree and primary-materials summary using Rich."""
 from rich.console import Console
 from rich.tree import Tree
 from rich.table import Table
@@ -41,7 +41,7 @@ def build_rich_tree(node: BOMNode, parent=None) -> Tree:
 
 def print_bom_tree(root: BOMNode):
     console.print()
-    console.print(f"[bold]Výrobní strom:[/] [cyan]{root.name}[/] ×{root.quantity:,}\n")
+    console.print(f"[bold]Production tree:[/] [cyan]{root.name}[/] ×{root.quantity:,}\n")
     tree = build_rich_tree(root)
     console.print(tree)
 
@@ -52,25 +52,25 @@ def print_primary_materials(root: BOMNode):
         return
 
     table = Table(
-        title=f"Primární suroviny pro výrobu: {root.name} ×{root.quantity:,}",
+        title=f"Primary materials for manufacturing: {root.name} ×{root.quantity:,}",
         box=box.ROUNDED,
         show_lines=True,
     )
-    table.add_column("Surovina", style="green", min_width=30)
-    table.add_column("Množství", justify="right", style="bold white")
+    table.add_column("Material", style="green", min_width=30)
+    table.add_column("Quantity", justify="right", style="bold white")
     table.add_column("Type ID", style="dim", justify="right")
 
-    # Seřadit abecedně
+    # Sort alphabetically
     for type_id, (name, qty) in sorted(leaves.items(), key=lambda x: x[1][0]):
         table.add_row(name, f"{qty:,}", str(type_id))
 
     console.print()
     console.print(table)
-    console.print(f"\n[dim]Celkem různých primárních surovin: {len(leaves)}[/]")
+    console.print(f"\n[dim]Total distinct primary materials: {len(leaves)}[/]")
 
 
 def print_bom_stats(root: BOMNode):
-    """Statistiky o hloubce a počtu uzlů stromu."""
+    """Statistics on the depth and node count of the tree."""
     total_nodes = 0
     max_depth = 0
     manufactured = 0
@@ -90,8 +90,8 @@ def print_bom_stats(root: BOMNode):
     walk(root, 0)
 
     console.print(
-        f"[dim]Statistiky stromu: {total_nodes} uzlů, "
-        f"max hloubka {max_depth}, "
+        f"[dim]Tree statistics: {total_nodes} nodes, "
+        f"max depth {max_depth}, "
         f"{manufactured} manufacturing, "
-        f"{reactions} reaction kroků[/]"
+        f"{reactions} reaction steps[/]"
     )

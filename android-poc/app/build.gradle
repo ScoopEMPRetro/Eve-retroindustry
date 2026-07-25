@@ -8,32 +8,32 @@ android {
     compileSdk 34
 
     buildFeatures {
-        buildConfig true   // BuildConfig.VERSION_CODE pro in-app update check
+        buildConfig true   // BuildConfig.VERSION_CODE for in-app update check
     }
 
     defaultConfig {
         applicationId "com.everetro.poc"
         minSdk 26
         targetSdk 34
-        // Verze: v normálním releasu ji řídí git tag (release.yml předá env
-        // ANDROID_VERSION_CODE/NAME, odvozené z tagu v0.8.6 -> 806/"0.8.6").
-        // Fallback pro manuální/test buildy. versionCode MUSÍ růst každým
-        // releasem (in-app updater podle něj pozná novější build).
+        // Version: in a normal release it is driven by the git tag (release.yml
+        // passes env ANDROID_VERSION_CODE/NAME, derived from tag v0.8.6 -> 806/"0.8.6").
+        // Fallback for manual/test builds. versionCode MUST increase with every
+        // release (the in-app updater uses it to detect a newer build).
         def vCode = (System.getenv("ANDROID_VERSION_CODE") ?: "806").toInteger()
         def vName = System.getenv("ANDROID_VERSION_NAME") ?: "0.8.6"
         versionCode vCode
         versionName vName
 
         ndk {
-            // Pouze reálné telefony (arm64). Bez emulátoru → x86_64 netřeba.
+            // Real phones only (arm64). No emulator → x86_64 not needed.
             abiFilters "arm64-v8a"
         }
 
         python {
             version "3.12"
             pip {
-                // Závislosti reálné appky (app/web/main). Vše pure-Python wheely
-                // dostupné pro Chaquopy arm64.
+                // Dependencies of the real app (app/web/main). All pure-Python wheels
+                // available for Chaquopy arm64.
                 install "fastapi==0.115.0"
                 install "starlette==0.38.6"
                 install "uvicorn==0.30.6"
@@ -44,20 +44,20 @@ android {
                 install "jinja2==3.1.4"
                 install "PyJWT==2.9.0"
                 install "python-multipart==0.0.9"
-                install "rich==13.9.4"        // importuje app.auth.esi_oauth
+                install "rich==13.9.4"        // imported by app.auth.esi_oauth
                 install "sqlalchemy==2.0.35"
-                // pydantic v1 — v2 vyžaduje pydantic-core (Rust), který NEMÁ
-                // Chaquopy arm64 wheel (build padá na maturin/sdist). v1 má
-                // čistě-Python wheel; FastAPI 0.115 v1 podporuje. app kód je
-                // v1/v2 kompatibilní (viz app/models/blueprint.py).
+                // pydantic v1 — v2 requires pydantic-core (Rust), which has NO
+                // Chaquopy arm64 wheel (the build fails on maturin/sdist). v1 has a
+                // pure-Python wheel; FastAPI 0.115 supports v1. The app code is
+                // v1/v2 compatible (see app/models/blueprint.py).
                 install "pydantic==1.10.18"
             }
         }
     }
 
-    // Podepisování release buildu stálým klíčem (z GitHub Secrets, dekódovaným
-    // v CI do souboru). Bez něj (lokální build bez env) zůstane signingConfig
-    // prázdný a `assembleRelease` by nešel podepsat — pro CI to ale stačí.
+    // Signing the release build with a persistent key (from GitHub Secrets, decoded
+    // into a file in CI). Without it (a local build without env vars) signingConfig
+    // stays empty and `assembleRelease` could not be signed — but that is fine for CI.
     signingConfigs {
         release {
             def ksFile = System.getenv("ANDROID_KEYSTORE_FILE")
@@ -86,9 +86,9 @@ android {
 }
 
 dependencies {
-    // kotlin-bom sjednotí verze kotlin-stdlib napříč tranzitivními závislostmi.
-    // Bez něj: "Duplicate class kotlin.collections.jdk8.*" (stdlib 1.8.22 vs
-    // stdlib-jdk8 1.6.21) — od Kotlin 1.8 jsou jdk7/jdk8 sloučené do stdlib.
+    // kotlin-bom unifies kotlin-stdlib versions across transitive dependencies.
+    // Without it: "Duplicate class kotlin.collections.jdk8.*" (stdlib 1.8.22 vs
+    // stdlib-jdk8 1.6.21) — since Kotlin 1.8, jdk7/jdk8 are merged into stdlib.
     implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
     implementation 'androidx.appcompat:appcompat:1.7.0'
 }

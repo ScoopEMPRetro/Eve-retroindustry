@@ -11,18 +11,18 @@
 <div class="alert alert-danger"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
 {% endif %}
 
-{# Výběr regionu #}
+{# Region selection #}
 <form method="get" action="/contracts/public" class="card mb-3">
   <div class="card-body d-flex align-items-end gap-2 flex-wrap">
     <div style="flex:1;min-width:220px">
-      <label class="form-label small text-muted mb-1">Region (jméno nebo ID)</label>
+      <label class="form-label small text-muted mb-1">Region (name or ID)</label>
       <input type="text" name="region" value="{{ region_name }}" class="form-control form-control-sm"
-             placeholder="např. The Forge, Domain, Delve…" list="region-hints" autocomplete="off">
+             placeholder="e.g. The Forge, Domain, Delve…" list="region-hints" autocomplete="off">
       <datalist id="region-hints">
         {% for rid, rname in regions %}<option value="{{ rname }}">{% endfor %}
       </datalist>
     </div>
-    <button class="btn btn-sm btn-eve"><i class="bi bi-search me-1"></i>Vybrat region</button>
+    <button class="btn btn-sm btn-eve"><i class="bi bi-search me-1"></i>Select region</button>
   </div>
 </form>
 
@@ -33,51 +33,51 @@
       <span class="fw-semibold">{{ region_name }}</span>
       {% if status %}
       <span class="text-muted small ms-2">
-        {{ "{:,}".format(status.contract_count) }} kontraktů · indexováno
+        {{ "{:,}".format(status.contract_count) }} contracts · indexed
         <span id="idx-age" data-ts="{{ status.indexed_at }}"></span>
       </span>
       {% else %}
-      <span class="text-warning small ms-2">region ještě nenaindexován</span>
+      <span class="text-warning small ms-2">region not indexed yet</span>
       {% endif %}
     </div>
     <button class="btn btn-sm {% if status %}btn-outline-secondary{% else %}btn-eve{% endif %}"
             id="index-btn" onclick="indexRegion({{ region_id }})">
-      <i class="bi bi-cloud-download me-1"></i>{% if status %}Přeindexovat{% else %}Naindexovat region{% endif %}
+      <i class="bi bi-cloud-download me-1"></i>{% if status %}Reindex{% else %}Index region{% endif %}
     </button>
   </div>
   <div id="index-progress" class="d-none px-3 pb-3">
     <div class="d-flex justify-content-between small text-muted mb-1">
-      <span id="idx-label">Stahuji…</span><span id="idx-pct">0%</span>
+      <span id="idx-label">Downloading…</span><span id="idx-pct">0%</span>
     </div>
     <div class="progress" style="height:6px"><div id="idx-bar" class="progress-bar bg-warning" style="width:0%"></div></div>
-    <div class="text-muted mt-1" style="font-size:.72rem">Velký region (The Forge ~34k kontraktů) může trvat 1–2 min.</div>
+    <div class="text-muted mt-1" style="font-size:.72rem">A large region (The Forge ~34k contracts) can take 1–2 min.</div>
   </div>
 </div>
 {% endif %}
 
 {% if status %}
-{# Hledání v naindexovaném regionu #}
+{# Search within the indexed region #}
 <form method="get" action="/contracts/public" class="card mb-3">
   <input type="hidden" name="region" value="{{ region_name }}">
   <div class="card-body d-flex align-items-end gap-2 flex-wrap">
     <div style="flex:2;min-width:200px">
-      <label class="form-label small text-muted mb-1">Item (obsah kontraktu)</label>
-      <input type="text" name="item" value="{{ item }}" class="form-control form-control-sm" placeholder="např. Raven, Tritanium…">
+      <label class="form-label small text-muted mb-1">Item (contract contents)</label>
+      <input type="text" name="item" value="{{ item }}" class="form-control form-control-sm" placeholder="e.g. Raven, Tritanium…">
     </div>
     <div style="min-width:140px">
-      <label class="form-label small text-muted mb-1">Typ</label>
+      <label class="form-label small text-muted mb-1">Type</label>
       <select name="ctype" class="form-select form-select-sm">
-        <option value="" {% if not ctype %}selected{% endif %}>Všechny</option>
+        <option value="" {% if not ctype %}selected{% endif %}>All</option>
         <option value="item_exchange" {% if ctype=='item_exchange' %}selected{% endif %}>Item Exchange</option>
         <option value="auction" {% if ctype=='auction' %}selected{% endif %}>Auction</option>
         <option value="courier" {% if ctype=='courier' %}selected{% endif %}>Courier</option>
       </select>
     </div>
     <div style="min-width:130px">
-      <label class="form-label small text-muted mb-1">Max cena (ISK)</label>
+      <label class="form-label small text-muted mb-1">Max price (ISK)</label>
       <input type="number" name="max_price" value="{{ max_price }}" class="form-control form-control-sm" placeholder="—">
     </div>
-    <button class="btn btn-sm btn-eve"><i class="bi bi-search me-1"></i>Hledat</button>
+    <button class="btn btn-sm btn-eve"><i class="bi bi-search me-1"></i>Search</button>
   </div>
 </form>
 
@@ -118,9 +118,9 @@
     </table>
   </div>
 </div>
-<div class="text-muted small mt-2">{{ results | length }} výsledků (max 300)</div>
+<div class="text-muted small mt-2">{{ results | length }} results (max 300)</div>
 {% else %}
-<div class="card"><div class="text-muted text-center py-4">Žádné kontrakty pro tento filtr.</div></div>
+<div class="card"><div class="text-muted text-center py-4">No contracts for this filter.</div></div>
 {% endif %}
 {% endif %}
 
@@ -128,13 +128,13 @@
 
 {% block scripts %}
 <script>
-// stáří indexu
+// index age
 (function(){
   const el = document.getElementById('idx-age');
   if (!el) return;
   const ts = parseFloat(el.dataset.ts) * 1000;
   const mins = Math.floor((Date.now() - ts) / 60000);
-  el.textContent = mins < 1 ? 'právě teď' : (mins < 60 ? mins + ' min' : Math.floor(mins/60) + ' h') + ' zpět';
+  el.textContent = mins < 1 ? 'just now' : (mins < 60 ? mins + ' min' : Math.floor(mins/60) + ' h') + ' ago';
 })();
 
 function indexRegion(regionId) {
@@ -147,11 +147,11 @@ function indexRegion(regionId) {
     const d = JSON.parse(e.data);
     document.getElementById('idx-bar').style.width = (d.pct || 0) + '%';
     document.getElementById('idx-pct').textContent = (d.pct || 0) + '%';
-    if (d.phase === 'list') document.getElementById('idx-label').textContent = `Výpis: ${d.done}/${d.total} stránek`;
-    else if (d.phase === 'items') document.getElementById('idx-label').textContent = `Položky: ${d.done}/${d.total} kontraktů`;
-    if (d.done) { es.close(); document.getElementById('idx-label').textContent = 'Hotovo, načítám…'; setTimeout(() => location.reload(), 800); }
+    if (d.phase === 'list') document.getElementById('idx-label').textContent = `Listing: ${d.done}/${d.total} pages`;
+    else if (d.phase === 'items') document.getElementById('idx-label').textContent = `Items: ${d.done}/${d.total} contracts`;
+    if (d.done) { es.close(); document.getElementById('idx-label').textContent = 'Done, loading…'; setTimeout(() => location.reload(), 800); }
   };
-  es.onerror = () => { es.close(); document.getElementById('idx-label').textContent = 'Chyba spojení'; btn.disabled = false; };
+  es.onerror = () => { es.close(); document.getElementById('idx-label').textContent = 'Connection error'; btn.disabled = false; };
 }
 
 async function pubItems(btn, contractId) {

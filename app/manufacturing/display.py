@@ -1,4 +1,4 @@
-"""Vizualizace výrobního plánu."""
+"""Manufacturing plan visualization."""
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -22,59 +22,59 @@ def print_plan(
     loc_label = location_name or str(plan.location_id)
     price_mode = prices is not None
 
-    # --- Záhlaví ---
+    # --- Header ---
     bp = plan.blueprint
     if bp:
-        bp_kind = "[green]BPO (originál)[/]" if bp.is_original else "[yellow]BPC (kopie)[/]"
+        bp_kind = "[green]BPO (original)[/]" if bp.is_original else "[yellow]BPC (copy)[/]"
         bp_runs = "∞" if bp.runs == -1 else str(bp.runs)
-        bp_info = f"{bp_kind}  ME:{plan.me}  TE:{plan.te}  Runy: {bp_runs}"
+        bp_info = f"{bp_kind}  ME:{plan.me}  TE:{plan.te}  Runs: {bp_runs}"
     else:
-        bp_info = "[red]Postava nemá blueprint pro tento produkt[/]"
+        bp_info = "[red]Character has no blueprint for this product[/]"
 
     mode_labels = {
-        "full":       "[white]full[/]       — základní suroviny (celý výrobní řetězec)",
-        "components": "[yellow]components[/] — přímé komponenty 1. úrovně (koupit hotové)",
-        "optimal":    "[green]optimal[/]    — make vs. buy optimalizace",
+        "full":       "[white]full[/]       — base materials (entire production chain)",
+        "components": "[yellow]components[/] — direct tier-1 components (buy ready)",
+        "optimal":    "[green]optimal[/]    — make vs. buy optimization",
     }
     mode_str = mode_labels.get(plan.mode, plan.mode)
 
     header_lines = [
-        f"  Produkt  : [cyan]{plan.product_name}[/] ×{plan.quantity:,}",
+        f"  Product  : [cyan]{plan.product_name}[/] ×{plan.quantity:,}",
         f"  Blueprint: {bp_info}",
-        f"  Stanice  : [bold]{loc_label}[/]  (ID: {plan.location_id})",
-        f"  Mód      : {mode_str}",
+        f"  Station  : [bold]{loc_label}[/]  (ID: {plan.location_id})",
+        f"  Mode     : {mode_str}",
         "",
     ]
 
     if plan.mode == "optimal" and plan.opt_total_cost is not None:
         header_lines.append(
-            f"  Náklady  : [bold yellow]{_isk(plan.opt_total_cost)} ISK[/]"
-            f"  [dim](naivní: {_isk(plan.opt_naive_cost)} ISK)[/]"
+            f"  Cost     : [bold yellow]{_isk(plan.opt_total_cost)} ISK[/]"
+            f"  [dim](naive: {_isk(plan.opt_naive_cost)} ISK)[/]"
         )
 
     if plan.can_manufacture:
-        header_lines.append("  [bold green]✓ Máš dostatek materiálů k výrobě![/]")
+        header_lines.append("  [bold green]✓ You have enough materials to manufacture![/]")
     else:
         header_lines.append(
-            f"  [bold red]✗ Chybí {plan.total_missing_types} druhů materiálů[/]"
+            f"  [bold red]✗ Missing {plan.total_missing_types} material types[/]"
         )
 
     console.print()
-    console.print(Panel("\n".join(header_lines), title="[bold]Výrobní plán[/]", border_style="cyan"))
+    console.print(Panel("\n".join(header_lines), title="[bold]Manufacturing plan[/]", border_style="cyan"))
 
-    # --- Tabulka materiálů ---
-    table = Table(title="Materiály", box=box.ROUNDED, show_lines=True)
-    table.add_column("Surovina",          style="white", min_width=32)
-    table.add_column("Potřeba",           justify="right")
+    # --- Materials table ---
+    table = Table(title="Materials", box=box.ROUNDED, show_lines=True)
+    table.add_column("Material",          style="white", min_width=32)
+    table.add_column("Needed",            justify="right")
     if price_mode:
-        table.add_column("Cena/ks (ISK)",     justify="right", style="cyan")
-        table.add_column("Celkem (ISK)",      justify="right", style="cyan")
-    table.add_column("Na stanici",        justify="right")
-    table.add_column("Chybí",             justify="right")
+        table.add_column("Price/unit (ISK)",  justify="right", style="cyan")
+        table.add_column("Total (ISK)",       justify="right", style="cyan")
+    table.add_column("At station",        justify="right")
+    table.add_column("Missing",           justify="right")
     if price_mode:
-        table.add_column("Dokoupit (ISK)",    justify="right", style="bold yellow")
-    table.add_column("Krytí",             justify="right")
-    table.add_column("Stav",              justify="center", width=4)
+        table.add_column("To buy (ISK)",      justify="right", style="bold yellow")
+    table.add_column("Coverage",          justify="right")
+    table.add_column("State",             justify="center", width=4)
 
     sorted_mats = sorted(plan.materials, key=lambda m: (m.ok, m.coverage_pct))
 
@@ -109,7 +109,7 @@ def print_plan(
     console.print()
     console.print(table)
 
-    # --- Nákupní seznam s cenami ---
+    # --- Shopping list with prices ---
     missing_mats = [m for m in plan.materials if not m.ok]
     if not missing_mats:
         return
@@ -117,10 +117,10 @@ def print_plan(
     if price_mode:
         _print_shopping_bill(missing_mats, prices, plan)
     else:
-        console.print(f"\n[bold red]Chybějící materiály k dokoupení ({len(missing_mats)}):[/]")
+        console.print(f"\n[bold red]Missing materials to buy ({len(missing_mats)}):[/]")
         buy_table = Table(box=box.SIMPLE)
-        buy_table.add_column("Surovina", style="red", min_width=32)
-        buy_table.add_column("Dokoupit", justify="right", style="bold red")
+        buy_table.add_column("Material", style="red", min_width=32)
+        buy_table.add_column("To buy",   justify="right", style="bold red")
         buy_table.add_column("Type ID",  justify="right", style="dim")
         for m in sorted(missing_mats, key=lambda m: -m.missing):
             buy_table.add_row(m.name, f"{m.missing:,}", str(m.type_id))
@@ -132,7 +132,7 @@ def _print_shopping_bill(
     prices: dict[int, tuple[float | None, float | None]],
     plan: ManufacturingPlan,
 ):
-    """Nákupní účet — chybějící materiály seřazené podle ceny."""
+    """Shopping bill — missing materials sorted by price."""
     rows = []
     total_known = 0.0
     missing_price_count = 0
@@ -147,18 +147,18 @@ def _print_shopping_bill(
             missing_price_count += 1
             rows.append((m.name, m.missing, None, None))
 
-    # Seřadit podle ceny DESC
+    # Sort by price DESC
     rows.sort(key=lambda r: -(r[3] or 0))
 
     table = Table(
-        title=f"Nákupní seznam — {plan.product_name} ×{plan.quantity:,}",
+        title=f"Shopping list — {plan.product_name} ×{plan.quantity:,}",
         box=box.ROUNDED,
         show_lines=True,
     )
-    table.add_column("Surovina",        style="white", min_width=32)
-    table.add_column("Dokoupit",        justify="right")
-    table.add_column("Cena/ks (ISK)",   justify="right", style="cyan")
-    table.add_column("Celkem (ISK)",    justify="right", style="bold yellow")
+    table.add_column("Material",        style="white", min_width=32)
+    table.add_column("To buy",          justify="right")
+    table.add_column("Price/unit (ISK)", justify="right", style="cyan")
+    table.add_column("Total (ISK)",     justify="right", style="bold yellow")
 
     for name, qty, unit, total in rows:
         table.add_row(
@@ -168,28 +168,28 @@ def _print_shopping_bill(
             _isk(total),
         )
 
-    # Součtový řádek
+    # Total row
     table.add_section()
     table.add_row(
-        f"[bold]CELKEM[/] [dim]({len(rows)} položek)[/]",
+        f"[bold]TOTAL[/] [dim]({len(rows)} items)[/]",
         "",
         "",
         f"[bold green]{_isk(total_known)}[/]",
     )
     if missing_price_count:
         table.add_row(
-            f"[dim]+ {missing_price_count} položek bez ceny[/]",
+            f"[dim]+ {missing_price_count} items without a price[/]",
             "", "", "",
         )
 
     console.print()
     console.print(table)
 
-    # Panel souhrn
+    # Summary panel
     sell_p, _ = prices.get(plan.product_type_id, (None, None))
     lines = [
-        f"  Produkt      : [cyan]{plan.product_name}[/] ×{plan.quantity:,}",
-        f"  Nákup surovin: [bold yellow]{_isk(total_known)} ISK[/]",
+        f"  Product       : [cyan]{plan.product_name}[/] ×{plan.quantity:,}",
+        f"  Material cost : [bold yellow]{_isk(total_known)} ISK[/]",
     ]
     if sell_p:
         revenue = sell_p * plan.quantity
@@ -197,8 +197,8 @@ def _print_shopping_bill(
         color   = "green" if profit >= 0 else "red"
         sign    = "+" if profit >= 0 else ""
         lines += [
-            f"  Jita sell    : [bold]{_isk(sell_p)} ISK/ks[/]  →  příjem [bold]{_isk(revenue)} ISK[/]",
-            f"  Zisk         : [{color}]{sign}{_isk(profit)} ISK[/]",
+            f"  Jita sell     : [bold]{_isk(sell_p)} ISK/unit[/]  →  revenue [bold]{_isk(revenue)} ISK[/]",
+            f"  Profit        : [{color}]{sign}{_isk(profit)} ISK[/]",
         ]
     console.print()
-    console.print(Panel("\n".join(lines), title="[bold]Finanční souhrn[/]", border_style="yellow"))
+    console.print(Panel("\n".join(lines), title="[bold]Financial summary[/]", border_style="yellow"))

@@ -1,11 +1,11 @@
 """
-Rekurzivní BOM (Bill of Materials) resolver pro Eve Online výrobu.
+Recursive BOM (Bill of Materials) resolver for Eve Online manufacturing.
 
-Výpočet množství s ME:
+Quantity calculation with ME:
   runs = ceil(needed_qty / product_qty_per_run)
   total_material = max(runs, ceil(base_qty * runs * (1 - ME/100)))
 
-Leaf node = typ bez blueprintu v SDE (minerály, PI, moon goo, ...)
+Leaf node = a type with no blueprint in the SDE (minerals, PI, moon goo, ...)
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -21,15 +21,15 @@ _MISSING = object()
 
 @dataclass(frozen=True)
 class StationFacility:
-    """Strukturovaná konfigurace stanice pro výpočet ME/TE multiplikátorů per produkt.
+    """Structured station configuration for computing per-product ME/TE multipliers.
 
-    `structure_pct` = ME role bonus struktury (např. 1.0 % pro engineering complex).
-    `structure_te_pct` = TE role bonus struktury (15/20/30/0/25 % pro Raitaru/Azbel/Sotiyo/Athanor/Tatara).
-    `rigs` = seznam (rig_type_id, me_bonus_pct, te_bonus_pct).
-    `sec_multiplier` = 1.0 / 1.9 / 2.1 podle security statusu systému.
+    `structure_pct` = structure ME role bonus (e.g. 1.0 % for an engineering complex).
+    `structure_te_pct` = structure TE role bonus (15/20/30/0/25 % for Raitaru/Azbel/Sotiyo/Athanor/Tatara).
+    `rigs` = list of (rig_type_id, me_bonus_pct, te_bonus_pct).
+    `sec_multiplier` = 1.0 / 1.9 / 2.1 depending on the system's security status.
 
-    Resolver / time-calc pak per produkt rozhoduje, které rigy se uplatní (Equipment rig
-    se neaplikuje na lodě atd.) — viz industry_helper.rig_applies_to_product.
+    The resolver / time-calc then decides per product which rigs apply (an Equipment rig
+    does not apply to ships, etc.) — see industry_helper.rig_applies_to_product.
     """
     structure_pct: float = 0.0
     structure_te_pct: float = 0.0
@@ -41,17 +41,17 @@ class StationFacility:
 class BOMNode:
     type_id: int
     name: str
-    quantity: int           # potřebné množství od rodiče
-    runs: int               # počet výrobních runů
-    is_leaf: bool           # True = primární surovina (nelze dál rozkládat)
+    quantity: int           # quantity needed by the parent
+    runs: int               # number of production runs
+    is_leaf: bool           # True = primary raw material (cannot be broken down further)
     activity: str           # "manufacturing" | "reaction" | "raw"
     blueprint_type_id: int | None
-    me: int = 0             # efektivní ME použité pro výpočet (0 pokud user BP nemá)
-    product_qty_per_run: int = 1   # yield jednoho cyklu (40 fuel block, 10000 TC, …)
+    me: int = 0             # effective ME used for the calculation (0 if the user has no BP)
+    product_qty_per_run: int = 1   # yield of one cycle (40 fuel block, 10000 TC, …)
     children: list[BOMNode] = field(default_factory=list)
 
     def aggregate_leaves(self) -> dict[int, tuple[str, int]]:
-        """Vrátí slovník {type_id: (name, total_qty)} pro všechny leaf uzly."""
+        """Return a dict {type_id: (name, total_qty)} for all leaf nodes."""
         result: dict[int, tuple[str, int]] = {}
         self._collect_leaves(result)
         return result
@@ -75,14 +75,14 @@ class BOMResolver:
     ):
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
-        # Max runů na jeden job (= na jednu BPC kopii). ME se zaokrouhluje
-        # per job, takže tohle řídí materiálovou matematiku:
-        #   1 (default) — N paralelních 1-run kopií (konzervativní)
-        #   K           — kopie po K runech (např. 10-run BPC), zbytek
-        #                 v posledním menším jobu
-        #   None        — vše v jednom batched jobu (in-game multi-run okno)
+        # Max runs per single job (= per BPC copy). ME is rounded per job,
+        # so this drives the material math:
+        #   1 (default) — N parallel 1-run copies (conservative)
+        #   K           — copies of K runs each (e.g. a 10-run BPC), remainder
+        #                 in a final smaller job
+        #   None        — everything in one batched job (in-game multi-run window)
         self.runs_per_job = runs_per_job if (runs_per_job or 0) > 0 else None
-        # product_type_id → ME postavy (best dostupný blueprint pro daný produkt)
+        # product_type_id → character's ME (best available blueprint for that product)
         self._bp_me_by_product: dict[int, int] = {}
         # Hot-path caches — resolver is reused for the entire BOM walk, so
         # repeating the same DB lookups for the same type_id (Wasp I appears
@@ -152,10 +152,10 @@ class BOMResolver:
         return _RIG_CATEGORY.get(gid)
 
     def _build_bp_index(self, blueprints: list[CharBlueprint]) -> None:
-        """Předpočítá nejlepší ME postavy pro každý vyrobitelný produkt.
+        """Precomputes the character's best ME for each manufacturable product.
 
-        Pro produkty s více blueprinty (BPO + BPC, nebo BPO + různé kopie)
-        vybírá BPO před BPC, pak nejvyšší ME.
+        For products with multiple blueprints (BPO + BPC, or BPO + various copies)
+        it prefers a BPO over a BPC, then the highest ME.
         """
         bp_type_ids = list({bp.type_id for bp in blueprints})
         if not bp_type_ids:
@@ -171,7 +171,7 @@ class BOMResolver:
         product_by_bp: dict[int, int] = {r["blueprint_type_id"]: r["product_type_id"] for r in rows}
 
         best: dict[int, tuple[int, int]] = {}  # product → (priority, me)
-        # priority: BPO = 0 (lepší), BPC = 1; nižší vyhrává
+        # priority: BPO = 0 (better), BPC = 1; lower wins
         for bp in blueprints:
             prod = product_by_bp.get(bp.type_id)
             if prod is None:
@@ -194,18 +194,18 @@ class BOMResolver:
         return name
 
     def find_blueprint(self, product_type_id: int) -> sqlite3.Row | None:
-        """Najde blueprint, který produkuje daný typ (manufacturing nebo reaction).
+        """Finds the blueprint that produces the given type (manufacturing or reaction).
 
-        Selection rules — vyřeší případy kde SDE nese víc receptů pro stejný produkt:
+        Selection rules — resolves cases where the SDE carries several recipes for the same product:
 
-        1. Vyřadí blueprinty s "TEST" / "Test " / "QA " / "Tournament" v názvu
-           — to jsou tutoriálové / interní CCP blueprinty (např. "Test Reaction
-           Blueprint" vyrábí Tungsten Carbide se 500× nižším yieldem než
-           pravý recept; bug propagoval do 43 dalších T2 produktů).
-        2. Preferuje recept s nejvyšším výstupem na cyklus (`p.quantity DESC`)
-           — pravé recepty mívají větší yield než legacy/test verze.
-        3. Při tie na yield preferuje vyšší `blueprint_type_id` (novější
-           záznam v SDE; CCP občas přejmenuje BP a starý nechá v datech).
+        1. Excludes blueprints with "TEST" / "Test " / "QA " / "Tournament" in the name
+           — these are tutorial / internal CCP blueprints (e.g. the "Test Reaction
+           Blueprint" produces Tungsten Carbide with a 500x lower yield than the
+           real recipe; the bug propagated to 43 other T2 products).
+        2. Prefers the recipe with the highest output per cycle (`p.quantity DESC`)
+           — real recipes tend to have a larger yield than legacy/test versions.
+        3. On a yield tie, prefers the higher `blueprint_type_id` (the newer
+           SDE record; CCP occasionally renames a BP and leaves the old one in the data).
         """
         cached = self._bp_cache.get(product_type_id, _MISSING)
         if cached is not _MISSING:
@@ -251,9 +251,9 @@ class BOMResolver:
         product_type_id: int,
         facility: StationFacility,
     ) -> float:
-        """Vrátí ME multiplikátor pro konkrétní produkt — filtruje rigy podle
-        toho, jestli se aplikují na kategorii produktu (Equipment rig
-        se neaplikuje na lodě atd.).
+        """Returns the ME multiplier for a specific product — filters rigs by
+        whether they apply to the product's category (an Equipment rig
+        does not apply to ships, etc.).
 
         Cached: classify each product once and the rig groups once, no
         per-node DB round-trips — Wasp II BOM walk went from ~180
@@ -276,20 +276,20 @@ class BOMResolver:
         self,
         type_id: int,
         quantity: int,
-        me: float | None = None,        # Root ME override; None → použít user BP nebo 0
-        mfg_facility: StationFacility | None = None,  # Stanice pro výrobní uzly
-        rxn_facility: StationFacility | None = None,  # Stanice pro reakční uzly
+        me: float | None = None,        # Root ME override; None → use user BP or 0
+        mfg_facility: StationFacility | None = None,  # Station for manufacturing nodes
+        rxn_facility: StationFacility | None = None,  # Station for reaction nodes
         depth: int = 0,
         visited: set[int] | None = None,
     ) -> BOMNode:
         """
-        Rekurzivně rozloží výrobu daného typu na primární suroviny.
+        Recursively breaks the manufacturing of the given type down into primary raw materials.
 
-        me: pro root uzel — None znamená použít nejlepší user BP (nebo 0 pokud žádný).
-        Pro mezikroky se vždy hledá per-product ME v `_bp_me_by_product`.
+        me: for the root node — None means use the best user BP (or 0 if none).
+        For intermediate steps, the per-product ME is always looked up in `_bp_me_by_product`.
 
-        mfg_facility / rxn_facility: konfigurace stanice pro per-product ME multiplikátor.
-            Pokud None, ME bonus stanice se neaplikuje (NPC stanice).
+        mfg_facility / rxn_facility: station configuration for the per-product ME multiplier.
+            If None, the station's ME bonus is not applied (NPC station).
         """
         if visited is None:
             visited = set()
@@ -301,7 +301,7 @@ class BOMResolver:
         name = self.get_type_name(type_id)
         blueprint = self.find_blueprint(type_id)
 
-        # Leaf: žádný blueprint nebo cyklická závislost
+        # Leaf: no blueprint or a cyclic dependency
         if blueprint is None or type_id in visited:
             return BOMNode(
                 type_id=type_id, name=name, quantity=quantity,
@@ -313,13 +313,13 @@ class BOMResolver:
         activity = blueprint["activity"]
         bp_type_id = blueprint["blueprint_type_id"]
 
-        # Root override má přednost; jinak per-product lookup (děti nebo neexplicitní root).
+        # Root override takes precedence; otherwise per-product lookup (children or a non-explicit root).
         if me is None:
             effective_me = float(self._bp_me_by_product.get(type_id, 0))
         else:
             effective_me = float(me)
 
-        # Per-product facility multiplikátor — uplatní jen rigy aplikovatelné na tento produkt
+        # Per-product facility multiplier — applies only rigs applicable to this product
         facility = mfg_facility if activity == "manufacturing" else rxn_facility
         prod_mult = self._product_facility_multiplier(type_id, facility)
 
@@ -334,14 +334,14 @@ class BOMResolver:
             product_qty_per_run=int(product_qty_per_run),
         )
 
-        visited = visited | {type_id}  # immutable kopie pro větve
+        visited = visited | {type_id}  # immutable copy per branch
 
         for mat in materials:
             mat_qty = self._apply_me(mat["quantity"], runs, effective_me, prod_mult)
             child = self.resolve(
                 type_id=mat["material_type_id"],
                 quantity=mat_qty,
-                me=None,  # děti používají vlastní per-product ME
+                me=None,  # children use their own per-product ME
                 mfg_facility=mfg_facility,
                 rxn_facility=rxn_facility,
                 depth=depth + 1,
@@ -353,19 +353,19 @@ class BOMResolver:
 
     def _apply_me(self, base_qty: int, runs: int, me: float, facility_multiplier: float = 1.0) -> int:
         """
-        EVE formula (per CCP) pro JEDEN job s R runy:
+        EVE formula (per CCP) for ONE job with R runs:
             max(R, ceil(round(base × R × (1-ME/100) × fac_mult, 2)))
-        kde fac_mult je už multiplikativně sloučený multiplikátor struktury
-        a rigů. round(..., 2) před ceil zabrání floating-point driftu.
+        where fac_mult is the already multiplicatively-combined multiplier of the
+        structure and rigs. round(..., 2) before ceil prevents floating-point drift.
 
-        ME se zaokrouhluje per JOB — celkový potřebný materiál tedy závisí
-        na tom, jak se runy rozdělí mezi joby/BPC kopie. self.runs_per_job
-        (J) říká, kolik runů má jedna kopie:
+        ME is rounded per JOB — so the total material needed depends on how the
+        runs are split across jobs/BPC copies. self.runs_per_job (J) says how many
+        runs one copy has:
 
-          J=1    → N paralelních 1-run jobů (konzervativní; 2× Thanatos
-                   spotřebuje 2×10 Meta-Operant, ne 19 jako batched)
-          J=K    → kopie po K runech + případný menší zbytkový job
-          J=None → jeden batched job (přesně in-game multi-run okno)
+          J=1    → N parallel 1-run jobs (conservative; 2× Thanatos
+                   consumes 2×10 Meta-Operant, not 19 as batched)
+          J=K    → copies of K runs each + a possible smaller remainder job
+          J=None → a single batched job (exactly the in-game multi-run window)
         """
         per_run_mult = (1 - me / 100) * facility_multiplier
 

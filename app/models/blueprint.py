@@ -6,11 +6,11 @@ class Material(BaseModel):
     type_id: int
     type_name: str
     quantity: int
-    is_manufactured: bool = False  # True = lze vyrobit, False = primární surovina
+    is_manufactured: bool = False  # True = can be manufactured, False = raw material
 
 
 class BlueprintActivity(BaseModel):
-    time: int  # v sekundách
+    time: int  # in seconds
     materials: list[Material]
     products: list[dict]
 
@@ -29,7 +29,7 @@ class ManufacturingNode(BaseModel):
     quantity: int
     depth: int
     children: list["ManufacturingNode"] = []
-    is_leaf: bool = False  # True = nelze dál rozkládat (ruda, ice, PI...)
+    is_leaf: bool = False  # True = cannot be broken down further (ore, ice, PI...)
 
 
 # Resolve the forward reference in `children`. pydantic v2 uses model_rebuild();

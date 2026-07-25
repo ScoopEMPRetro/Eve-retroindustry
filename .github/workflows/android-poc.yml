@@ -1,12 +1,13 @@
 name: Android (test build)
 
-# Spouštěný RUČNĚ (Actions → "Android (test build)" → Run workflow).
-# Postaví Android APK (Chaquopy + WebView nad reálnou FastAPI appkou) a
-# publikuje ho jako prerelease "android-latest" s přímým odkazem ke stažení:
+# Run MANUALLY (Actions → "Android (test build)" → Run workflow).
+# Builds the Android APK (Chaquopy + WebView over the real FastAPI app) and
+# publishes it as the "android-latest" prerelease with a direct download link:
 #   https://github.com/ScoopEMPRetro/Eve-retroindustry/releases/download/android-latest/EveRetroindustry.apk
 #
-# Záměrně NEnapojeno na release.yml — dokud je Android jen testovací (runtime na
-# zařízení neověřen, OAuth login zatím nejde), nepatří do verzovaných releasů.
+# Intentionally NOT wired into release.yml — while Android is still just a test
+# build (on-device runtime unverified, OAuth login not working yet), it does not
+# belong in versioned releases.
 
 on:
   workflow_dispatch:
@@ -15,7 +16,7 @@ jobs:
   build-android:
     runs-on: ubuntu-latest
     permissions:
-      contents: write          # potřeba pro publikaci release assetu
+      contents: write          # needed to publish the release asset
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +45,7 @@ jobs:
 
       - name: Build signed release APK
         working-directory: android-poc
-        # První build je pomalý — Chaquopy stahuje CPython 3.12 + wheely.
+        # The first build is slow — Chaquopy downloads CPython 3.12 + wheels.
         env:
           ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.p12
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -55,7 +56,7 @@ jobs:
       - name: Rename APK
         run: cp android-poc/app/build/outputs/apk/release/app-release.apk EveRetroindustry.apk
 
-      - name: Generate version.json (pro in-app updater)
+      - name: Generate version.json (for in-app updater)
         run: |
           VC=$(grep -oP 'versionCode \K[0-9]+' android-poc/app/build.gradle | head -1)
           VN=$(grep -oP 'versionName "\K[^"]+' android-poc/app/build.gradle | head -1)
@@ -68,15 +69,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Vytvoř prerelease (poprvé) nebo jen nahraj/přepiš assety (dále).
+          # Create the prerelease (first time) or just upload/overwrite assets (afterwards).
           gh release create android-latest EveRetroindustry.apk version.json \
             --prerelease \
             --title "EVE Retroindustry — Android (test build)" \
-            --notes "Automatický testovací Android build (arm64, sideload). Stáhni EveRetroindustry.apk a nainstaluj ručně (povol instalaci z neznámých zdrojů). Aktualizace pak jdou přímo v appce." \
+            --notes "Automated Android test build (arm64, sideload). Download EveRetroindustry.apk and install it manually (allow installs from unknown sources). Updates then happen directly in the app." \
             --target main \
           || gh release upload android-latest EveRetroindustry.apk version.json --clobber
 
-      - name: Upload APK artifact (záloha)
+      - name: Upload APK artifact (backup)
         uses: actions/upload-artifact@v4
         with:
           name: EveRetroindustry-apk

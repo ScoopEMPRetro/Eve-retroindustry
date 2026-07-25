@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Zkopíruje sdílený Python kód + data z rootu repa do Android gradle modulu.
-# Volá se před `gradle assembleDebug` (v CI i lokálně). Cílové adresáře jsou
-# gitignorované — jsou to build-time artefakty, ne zdroj.
+# Copies the shared Python code + data from the repo root into the Android gradle module.
+# Called before `gradle assembleDebug` (in CI and locally). The target directories are
+# gitignored — they are build-time artifacts, not source.
 #
 #   app/  ──► app/src/main/python/app          (Chaquopy: `import app.web.main`)
-#   app/web/templates/ ─► assets/bundle/app/web/templates  (Jinja čte z filesystému)
+#   app/web/templates/ ─► assets/bundle/app/web/templates  (Jinja reads from the filesystem)
 #   sde_base.db ───────► assets/bundle/sde_base.db          (SDE bootstrap)
 set -euo pipefail
 
@@ -16,14 +16,14 @@ ASSET_DST="$HERE/app/src/main/assets/bundle"
 
 echo "==> prepare: root=$ROOT"
 
-# ── Python kód pro Chaquopy (bez __pycache__ a bez .db) ──────────────────────
+# ── Python code for Chaquopy (without __pycache__ and without .db) ───────────
 rm -rf "$PY_DST"
 mkdir -p "$PY_DST"
 cp -r "$ROOT/app/." "$PY_DST/"
 find "$PY_DST" -name '__pycache__' -type d -prune -exec rm -rf {} +
 find "$PY_DST" -name '*.pyc' -delete
 
-# ── Assety: templates + static + SDE (čtené z filesystému přes EVE_BUNDLE_DIR) ─
+# ── Assets: templates + static + SDE (read from the filesystem via EVE_BUNDLE_DIR) ─
 rm -rf "$ASSET_DST"
 mkdir -p "$ASSET_DST/app/web"
 cp -r "$ROOT/app/web/templates" "$ASSET_DST/app/web/templates"

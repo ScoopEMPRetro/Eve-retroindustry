@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.database import TypeCache, BlueprintCache, get_session
 from app.esi.client import fetch_type_info, fetch_blueprint_data
 
-CACHE_TTL = 60 * 60 * 24 * 7  # 7 dní — blueprinty se nemění často
+CACHE_TTL = 60 * 60 * 24 * 7  # 7 days — blueprints rarely change
 
 
 def get_type_name(session: Session, type_id: int) -> str | None:
@@ -47,7 +47,7 @@ def save_blueprint(session: Session, type_id: int, blueprint_type_id: int, data:
 
 
 async def resolve_type(client: httpx.AsyncClient, session: Session, type_id: int) -> str:
-    """Vrátí název typu — z cache nebo z ESI."""
+    """Return the type name — from cache or from ESI."""
     cached = get_type_name(session, type_id)
     if cached:
         return cached
@@ -63,8 +63,8 @@ async def resolve_type(client: httpx.AsyncClient, session: Session, type_id: int
 
 async def resolve_blueprint(client: httpx.AsyncClient, session: Session, type_id: int) -> dict | None:
     """
-    Vrátí blueprint data pro daný type_id produktu.
-    Fuzzwork vrací dict: { "blueprint_type_id": { "activities": {...} } }
+    Return blueprint data for the given product type_id.
+    Fuzzwork returns a dict: { "blueprint_type_id": { "activities": {...} } }
     """
     cached = get_cached_blueprint(session, type_id)
     if cached:
@@ -74,7 +74,7 @@ async def resolve_blueprint(client: httpx.AsyncClient, session: Session, type_id
     if not data:
         return None
 
-    # Uložíme do cache
+    # Store in cache
     bp_type_id = int(list(data.keys())[0])
     save_blueprint(session, type_id, bp_type_id, data)
     return data

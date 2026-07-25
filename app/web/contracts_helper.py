@@ -1,11 +1,11 @@
 """
-Veřejné kontrakty — per-region index do SQLite cache + lokální fulltext search.
+Public contracts — per-region index into a SQLite cache + local full-text search.
 
-Stáhne VŠECHNY veřejné kontrakty zvoleného regionu (metadata) i jejich položky
-(1 volání/kontrakt), uloží do cache a pak se nad tím dá hledat cokoliv (podle
-itemu, typu, ceny) bez dalších ESI volání. Viz diskuze: jediný způsob, jak
-hledat podle itemu, protože výpis metadat položky neobsahuje a `title` bývá
-prázdný.
+Fetches ALL public contracts of the chosen region (metadata) and their items
+(1 call/contract), stores them in the cache, and then anything can be searched
+over it (by item, type, price) without further ESI calls. See the discussion: the
+only way to search by item, because the metadata listing does not contain items and
+the `title` is usually empty.
 """
 from __future__ import annotations
 import asyncio
@@ -67,7 +67,7 @@ def _store(conn: sqlite3.Connection, region_id: int, contracts: list[dict],
            items_by_cid: dict[int, list[dict]]) -> None:
     ensure_public_contract_tables(conn)
     cids = [c["contract_id"] for c in contracts if c.get("contract_id")]
-    # smaž starý index regionu
+    # delete the region's old index
     conn.execute("DELETE FROM public_contracts WHERE region_id=?", (region_id,))
     if cids:
         ph = ",".join("?" * len(cids))
@@ -99,7 +99,7 @@ def _store(conn: sqlite3.Connection, region_id: int, contracts: list[dict],
 
 
 async def stream_public_index(conn: sqlite3.Connection, region_id: int):
-    """SSE generator: stáhne výpis (stránky) + položky (per kontrakt) a uloží."""
+    """SSE generator: fetch the listing (pages) + items (per contract) and store them."""
     ensure_public_contract_tables(conn)
     total_pages = [0]
     done_pages = [0]
@@ -123,7 +123,7 @@ async def stream_public_index(conn: sqlite3.Connection, region_id: int):
     await task
     contracts = holder.get("list", [])
 
-    # Položky jen pro typy s obsahem (courier/loan zpravidla položky nemají).
+    # Items only for types with contents (courier/loan usually have no items).
     item_contracts = [c for c in contracts if c.get("type") in ("item_exchange", "auction")]
     total_items = len(item_contracts)
     done_items = [0]
@@ -183,10 +183,10 @@ def search_public_contracts(conn: sqlite3.Connection, region_id: int, *,
 
 
 def best_contract_price(conn: sqlite3.Connection, region_id: int, type_id: int) -> dict | None:
-    """Nejlevnější cena/kus produktu z veřejných item_exchange kontraktů v regionu.
-    Preferuje single-item kontrakty (čistá cena/kus); když žádný není, vezme
-    balíček (víc položek) a označí is_bundle=True (cena/kus je pak jen orientační
-    — pokrývá i ostatní položky v balíku). Vrací None, když produkt nikde není."""
+    """Cheapest price/unit of a product from public item_exchange contracts in the region.
+    Prefers single-item contracts (clean price/unit); if there is none, it takes a
+    bundle (multiple items) and marks is_bundle=True (the price/unit is then only
+    indicative — it also covers the other items in the bundle). Returns None if the product is nowhere."""
     ensure_public_contract_tables(conn)
     rows = conn.execute("""
         SELECT c.contract_id, c.price, pi.quantity,
