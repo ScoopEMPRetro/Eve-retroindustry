@@ -126,6 +126,13 @@
       </ul>
       <ul class="navbar-nav ms-auto align-items-center gap-2">
         <li class="nav-item">
+          <a class="nav-link d-flex align-items-center" href="#" onclick="kofiOpen(event)"
+             style="font-size:.85rem;opacity:.7" title="Support the project on Ko-fi">
+            <i class="bi bi-cup-hot-fill" style="color:#e3b341"></i>
+            <span class="d-none d-xl-inline ms-1">Support</span>
+          </a>
+        </li>
+        <li class="nav-item">
           <a class="nav-link {% if request.url.path == '/about' %}active{% endif %}"
              href="/about" style="font-size:.85rem;opacity:.7">About
             <span id="nav-update-dot" class="d-none ms-1 badge rounded-pill"
@@ -219,6 +226,18 @@ async function removeChar(charId, name) {
   const r = await fetch(`/api/characters/${charId}`, {method: 'DELETE'});
   if (r.ok) location.reload();
 }
+// Open the Ko-fi support page in the system browser (via the server-side
+// opener, so it works on desktop and Android alike). Available on every page.
+async function kofiOpen(ev) {
+  if (ev) ev.preventDefault();
+  try {
+    const d = await fetch('/api/support/open').then(r => r.json());
+    if (!d.ok) window.open(d.url || 'https://ko-fi.com/retrovisor', '_blank', 'noopener');
+  } catch (e) {
+    window.open('https://ko-fi.com/retrovisor', '_blank', 'noopener');
+  }
+}
+
 // Global Sync All — available on every page via the navbar button.
 async function syncAll(btn) {
   const orig = btn.innerHTML;

@@ -893,6 +893,18 @@ async def auth_login(request: Request):
     })
 
 
+SUPPORT_URL = "https://ko-fi.com/retrovisor"
+
+
+@app.get("/api/support/open")
+async def api_support_open():
+    """Open the Ko-fi support page in the system default browser. Routed through
+    the server-side opener so it works on both desktop and Android — a plain
+    target=_blank link would not open in the Android WebView."""
+    opened = _open_in_external_browser(SUPPORT_URL)
+    return {"ok": opened, "url": SUPPORT_URL}
+
+
 @app.post("/auth/cancel")
 async def auth_cancel():
     """Cancel the in-progress login. Server shutdown + lock release."""
