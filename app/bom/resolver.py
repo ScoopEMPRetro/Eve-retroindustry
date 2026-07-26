@@ -95,8 +95,8 @@ class BOMResolver:
         self._type_group_cache: dict[int, int | None] = {}
         # rig_type_id → group_id (so we don't hit DB for every rig×node combo)
         self._rig_group_cache: dict[int, int | None] = {}
-        # product_type_id → frozenset of category tags (Equipment/Drone/Ship/…)
-        self._product_cats_cache: dict[int, frozenset[str]] = {}
+        # rig_type_id → frozenset of product group_ids it bonuses (authoritative)
+        self._rig_affected_cache: dict[int, frozenset[int]] = {}
         if blueprints:
             self._build_bp_index(blueprints)
 
@@ -125,31 +125,18 @@ class BOMResolver:
         self._rig_group_cache[rig_type_id] = gid
         return gid
 
-    def _product_cats(self, product_type_id: int) -> frozenset[str]:
-        """Cached product classification. Replaces the per-node round-trip in
-        rig_applies_to_product (which did SELECT group_id + JOIN sde_groups
-        for *every* (rig × product) tuple in the BOM)."""
-        cached = self._product_cats_cache.get(product_type_id)
+    def _rig_affected_groups(self, rig_type_id: int) -> frozenset[int]:
+        """Cached set of product group_ids a rig bonuses (authoritative, from
+        RIG_AFFECTED_GROUPS). Replaces the old per-node name-based classification
+        round-trip in rig_applies_to_product."""
+        cached = self._rig_affected_cache.get(rig_type_id)
         if cached is not None:
             return cached
-        from app.web.industry_helper import _classify_product_group
-        row = self.conn.execute(
-            "SELECT t.group_id, g.name FROM sde_types t"
-            " JOIN sde_groups g ON g.group_id = t.group_id"
-            " WHERE t.type_id=?",
-            (product_type_id,),
-        ).fetchone()
-        cats = _classify_product_group(row[0], row[1]) if row else frozenset()
-        self._product_cats_cache[product_type_id] = cats
-        return cats
-
-    def _rig_category(self, rig_type_id: int) -> str | None:
-        """Cached rig category tag (EQUIPMENT_OR_AMMO / ANY_SHIP / …)."""
-        from app.web.industry_helper import _RIG_CATEGORY
+        from app.web.rig_affected_groups import RIG_AFFECTED_GROUPS
         gid = self.get_rig_group(rig_type_id)
-        if gid is None:
-            return None
-        return _RIG_CATEGORY.get(gid)
+        affected = RIG_AFFECTED_GROUPS.get(gid, frozenset()) if gid is not None else frozenset()
+        self._rig_affected_cache[rig_type_id] = affected
+        return affected
 
     def _build_bp_index(self, blueprints: list[CharBlueprint]) -> None:
         """Precomputes the character's best ME for each manufacturable product.
@@ -262,13 +249,12 @@ class BOMResolver:
         multiplier = 1.0 - facility.structure_pct / 100
         if not facility.rigs:
             return multiplier
-        prod_cats = self._product_cats(product_type_id)
+        prod_group = self.get_type_group(product_type_id)
         sec_mult = facility.sec_multiplier
         for rig_id, me_b, _te_b in facility.rigs:
             if me_b <= 0:
                 continue
-            cat = self._rig_category(rig_id)
-            if cat and cat in prod_cats:
+            if prod_group is not None and prod_group in self._rig_affected_groups(rig_id):
                 multiplier *= 1.0 - me_b * sec_mult / 100
         return max(0.01, multiplier)
 

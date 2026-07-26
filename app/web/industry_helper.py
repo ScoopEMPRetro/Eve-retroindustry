@@ -4,6 +4,10 @@ import sqlite3
 import time
 import httpx
 from app.esi.client import esi_client
+# Authoritative rig group_id → affected product group_ids, generated from EVE Ref
+# reference-data (see scripts/build_rig_affected_groups.py). Replaces the old
+# name-based product classification, which produced ~74 false positives.
+from app.web.rig_affected_groups import RIG_AFFECTED_GROUPS
 
 ESI_BASE = "https://esi.evetech.net/latest"
 
@@ -70,210 +74,6 @@ def ensure_industry_tables(conn: sqlite3.Connection):
     conn.commit()
 
 
-# Map rig group_id → category tag (what kind of product it affects).
-# Tags are matched against product group classification by name keywords.
-_RIG_CATEGORY: dict[int, str] = {
-    # === Manufacturing rigs ===
-    # Equipment (ship modules, rigs, deployables, implants, cargo containers)
-    1816: "EQUIPMENT", 1819: "EQUIPMENT", 1850: "EQUIPMENT",
-    # Ammunition (charges, scripts)
-    1820: "AMMO", 1821: "AMMO", 1851: "AMMO",
-    # Drone and Fighter
-    1822: "DRONE", 1823: "DRONE", 1852: "DRONE",
-    # Basic Ships (T1)
-    1824: "SHIP_S_BASIC", 1825: "SHIP_S_BASIC", 1853: "SHIP_S_BASIC",
-    1826: "SHIP_M_BASIC", 1827: "SHIP_M_BASIC", 1854: "SHIP_M_BASIC",
-    1828: "SHIP_L_BASIC", 1829: "SHIP_L_BASIC", 1855: "SHIP_L_BASIC",
-    # Advanced Ships (T2/T3)
-    1830: "SHIP_S_ADV", 1831: "SHIP_S_ADV", 1856: "SHIP_S_ADV",
-    1832: "SHIP_M_ADV", 1833: "SHIP_M_ADV", 1857: "SHIP_M_ADV",
-    1834: "SHIP_L_ADV", 1835: "SHIP_L_ADV", 1858: "SHIP_L_ADV",
-    # Capital Ships
-    1859: "SHIP_CAPITAL",
-    # Components
-    1836: "ADV_COMPONENT", 1837: "ADV_COMPONENT", 1860: "ADV_COMPONENT",
-    1838: "CAP_COMPONENT", 1839: "CAP_COMPONENT", 1861: "CAP_COMPONENT",
-    # Structures
-    1840: "STRUCTURE", 1841: "STRUCTURE", 1862: "STRUCTURE",
-    # XL rigs (cover broad categories)
-    1867: "EQUIPMENT_OR_AMMO",   # Equipment + consumable
-    1868: "ANY_SHIP",            # Any ship
-    1869: "STRUCTURE_OR_COMPONENT",  # Structure + component
-    # === Reactor rigs ===
-    1933: "REACT_COMPOSITE", 1934: "REACT_COMPOSITE",
-    1935: "REACT_HYBRID",    1936: "REACT_HYBRID",
-    1937: "REACT_BIO",       1938: "REACT_BIO",
-    1939: "REACT_ANY",
-}
-
-
-# Cache of product_group_id → set of rig category tags it belongs to.
-# Populated lazily on first query.
-_product_cat_cache: dict[int, frozenset[str]] = {}
-
-
-def _classify_product_group(group_id: int, group_name: str) -> frozenset[str]:
-    """Classify a product group by name — return the set of rig category tags
-    for which the rig bonus applies to this product.
-    """
-    if group_id in _product_cat_cache:
-        return _product_cat_cache[group_id]
-
-    n = group_name.lower()
-    cats: set[str] = set()
-
-    # === Ships ===
-    if group_id in (25, 420, 31, 237, 1283):
-        cats.add("SHIP_S_BASIC"); cats.add("ANY_SHIP")
-    elif group_id in (26, 419, 28, 463, 1201):
-        cats.add("SHIP_M_BASIC"); cats.add("ANY_SHIP")
-    elif group_id in (27, 513, 941):
-        cats.add("SHIP_L_BASIC"); cats.add("ANY_SHIP")
-    elif group_id in (324, 834, 830, 831, 893, 1527, 541, 1305, 1534):
-        cats.add("SHIP_S_ADV"); cats.add("ANY_SHIP")
-    elif group_id in (358, 832, 894, 906, 833, 963, 1202, 1972, 540, 543, 380):
-        cats.add("SHIP_M_ADV"); cats.add("ANY_SHIP")
-    elif group_id in (900, 898, 902):
-        cats.add("SHIP_L_ADV"); cats.add("ANY_SHIP")
-    elif group_id in (547, 485, 1538, 659, 30, 883, 4594, 5120):
-        # 5120 = Command Carrier (Cradle of War expansion, June 2026 —
-        # Simurgh / Salvation / Gaia / Ymir)
-        cats.add("SHIP_CAPITAL"); cats.add("ANY_SHIP")
-
-    # === Drones / Fighters ===
-    # Exclude drone MODULES (ship fittings that affect drones) — handled as EQUIPMENT below
-    elif ("drone" in n or "fighter" in n) and group_id not in (644, 645, 646, 647, 1292):
-        cats.add("DRONE")
-        # XL-Set Equipment and Consumable Manufacturing rig (group 1867) broadens
-        # the "Equipment" category to include drones/fighters — verified against
-        # EVE Ref API: Wasp II + rig 37178 reduces time/materials, Wasp II + M-Set
-        # Equipment rig 43920 does not. M/L-Set "Equipment" rigs (1816/1850) stay
-        # drone-exclusive (Drone & Fighter rig is its own group 1822/1852).
-        cats.add("EQUIPMENT_OR_AMMO")
-
-    # === Ammunition ===
-    elif (any(k in n for k in ("ammo", "missile", "charge", "crystal", "frequency",
-                                "torpedo", "script", "rocket", "bomb", "scanner probe",
-                                "interdiction probe", "interdiction nullifier", "condenser pack",
-                                "command burst", "filament", "breacher pod"))
-          and "launcher" not in n):
-        cats.add("AMMO")
-        cats.add("EQUIPMENT_OR_AMMO")
-    elif group_id in (90, 384, 385, 386, 387, 388, 479, 481, 648, 1019, 476, 4088):
-        # 4088 = Interdiction Burst Probes (Stasis Webification Probe etc.) — empirically AMMO
-        cats.add("AMMO")
-        cats.add("EQUIPMENT_OR_AMMO")
-
-    # === Components ===
-    # XL-Set Structure and Component Manufacturing rig (group 1869) broadens
-    # the category to cover EVERY kind of component (cap, adv, T1 structure
-    # parts) and tools. Verified against EVE Ref: rig 43704 reduces time
-    # and materials for groups 873/913/716/964/332/334, but NOT for 4096
-    # (Molecular-Forged reaction output) or 954-958 (T3 subsystems).
-    elif group_id == 873:
-        cats.add("CAP_COMPONENT")
-        cats.add("STRUCTURE_OR_COMPONENT")
-    elif group_id in (913, 716, 964):  # Advanced components, data interfaces, hybrid tech
-        cats.add("ADV_COMPONENT")
-        cats.add("STRUCTURE_OR_COMPONENT")
-    elif group_id == 4096:  # Molecular-Forged Materials — reaction output + used as ADV_COMPONENT
-        cats.add("ADV_COMPONENT")
-        cats.add("REACT_ANY")
-    elif group_id in (954, 956, 957, 958):  # T3 subsystems
-        cats.add("ADV_COMPONENT")
-    elif group_id in (334, 536, 1314):  # Construction Components, Structure Components, Unknown Components
-        cats.add("STRUCTURE_OR_COMPONENT")
-    elif group_id == 332:  # Tool (R.A.M. - …, R.Db - …)
-        cats.add("ADV_COMPONENT")  # Tools are advanced components per rig description
-        cats.add("STRUCTURE_OR_COMPONENT")
-    elif group_id == 1136:  # Fuel Block
-        cats.add("STRUCTURE")
-        cats.add("STRUCTURE_OR_COMPONENT")
-
-    # === Reaction outputs (Athanor/Tatara) ===
-    elif group_id in (428, 429):  # Intermediate Materials (simple), Composite (complex moon reactions)
-        cats.add("REACT_COMPOSITE")
-        cats.add("REACT_ANY")
-    elif group_id == 974:  # Hybrid Polymers
-        cats.add("REACT_HYBRID")
-        cats.add("REACT_ANY")
-    elif group_id == 712:  # Biochemical Material
-        cats.add("REACT_BIO")
-        cats.add("REACT_ANY")
-
-    # === Structures (Upwell + starbase + deployables) ===
-    # group 763 = "Nanofiber Internal Structure" is a ship module, not a structure
-    elif (group_id in (365, 397, 404, 413, 438, 444, 471, 815, 838, 839, 1106, 1404,
-                       1406, 1657, 1287, 1408, 4744, 4736, 1012, 365, 311, 363,
-                       1106, 815, 1322, 1415, 1430, 1321, 1106, 4810)
-          or "structure" in n or "starbase" in n or "citadel" in n or "refinery" in n
-          or "engineering complex" in n or "upwell" in n or "control tower" in n
-          or "sovereignty hub" in n or "infrastructure hub" in n
-          or n.startswith("mobile ") or "deployable" in n
-          or "service module" in n or "claim unit" in n) and group_id != 763:
-        cats.add("STRUCTURE")
-        cats.add("STRUCTURE_OR_COMPONENT")
-
-    # === Equipment (modules, ship rigs, implants, containers, deployable tools) ===
-    elif (group_id == 300                       # Cyberimplant (implants)
-          or group_id in (12, 340, 448, 649, 1212)  # Cargo containers
-          or n.startswith("rig ")               # Ship rigs (Rig Armor, Rig Shield, ...)
-          or group_id in (1232, 1233, 1234, 1308)  # More rig groups
-          # Drone modules (ship modules that affect drones, not actual drones)
-          or group_id in (644, 645, 646, 647, 1292)
-          or group_id == 763                        # Nanofiber Internal Structure (ship module)
-          # Empirically verified Equipment groups via EVE Ref API
-          or group_id in (
-              1154,  # Signature Suppressor
-              546,   # Mining Upgrade
-              1988,  # Entropic Radiation Sink
-              658,   # Cynosural Field Generator
-              4174,  # Compressors (ore/gas)
-              1533,  # Micro Jump Field Generators
-              740,   # Cyber Electronic Systems (implants)
-              1230,  # Cyber Scanning (implants)
-              1273,  # Encounter Surveillance System
-              1815,  # Titan Phenomena Generator
-          )
-          or "launcher" in n                    # All weapon launchers
-          or any(k in n for k in (
-              "shield", "armor", "hull", "plate", "membrane", "coating", "hardener",
-              "extender", "recharger", "flux", "amplifier", "booster", "damage control",
-              "capacitor", "propulsion", "overdrive", "nanofiber", "inertial",
-              "warp", "stasis", "disruptor", "scrambler", "target painter",
-              "sensor", "tracking", "ecm", "jammer", "signal", "remote", "salvager",
-              "tractor", "cloak", "enhancer", "weapon", "laser", "energy", "smart bomb",
-              "mining laser", "strip miner", "gas cloud", "analyzer", "scanner",
-              "survey", "data miner", "expanded cargohold", "reinforced bulkhead",
-              "automated", "passive", "siege module", "triage", "jump drive",
-              "jump portal", "clone vat", "fighter support", "module", "command burst",
-              "co-processor", "ballistic control", "gyrostabilizer", "heat sink",
-              "magnetic field", "weapon upgrade", "burst projector", "entosis",
-              "stabilizer", "auxiliary power", "power diagnostic", "power relay",
-              "reactor control", "regenerative plating", "tool", "nanite repair",
-              "warp accelerator", "interdiction sphere", "warp core stabilizer",
-              "scanning upgrade", "burst projector", "remote", "mass entangler",
-              "vorton projector", "drone link", "drone control",
-              "drone damage", "drone navigation", "drone tracking"))):
-        cats.add("EQUIPMENT")
-        cats.add("EQUIPMENT_OR_AMMO")
-
-    # === Reactions ===
-    elif group_id == 429:
-        cats.add("REACT_COMPOSITE"); cats.add("REACT_ANY")
-    elif group_id == 974:
-        cats.add("REACT_HYBRID"); cats.add("REACT_ANY")
-    elif group_id in (712, 4096):
-        cats.add("REACT_BIO"); cats.add("REACT_ANY")
-    elif group_id == 428:
-        # Intermediate Materials — simple reactions, applies to L Reactor only
-        cats.add("REACT_ANY")
-
-    result = frozenset(cats)
-    _product_cat_cache[group_id] = result
-    return result
-
-
 def rig_applies_to_product(
     conn: sqlite3.Connection,
     rig_type_id: int,
@@ -281,30 +81,20 @@ def rig_applies_to_product(
 ) -> bool:
     """Return True if the given rig provides a bonus to manufacturing the given product.
 
-    Filters rig bonuses by EVE rules (an Equipment rig does not apply to ships, etc.).
-    For an unknown combination it defaults to False (safe not to apply) — better a slight
-    underestimate of savings than a false overestimate.
+    Looks the product's group up in the rig's authoritative affected-groups set
+    (RIG_AFFECTED_GROUPS, generated from EVE Ref). Unknown combination → False
+    (safe: a slight underestimate of savings beats a false overestimate).
     """
     rig_group_row = conn.execute(
         "SELECT group_id FROM sde_types WHERE type_id=?", (rig_type_id,)
     ).fetchone()
-    if not rig_group_row:
-        return False
-    rig_group_id = rig_group_row[0]
-    rig_cat = _RIG_CATEGORY.get(rig_group_id)
-    if not rig_cat:
-        return False
-
     prod_row = conn.execute(
-        "SELECT t.group_id, g.name FROM sde_types t"
-        " JOIN sde_groups g ON g.group_id = t.group_id"
-        " WHERE t.type_id=?",
-        (product_type_id,),
+        "SELECT group_id FROM sde_types WHERE type_id=?", (product_type_id,)
     ).fetchone()
-    if not prod_row:
+    if not rig_group_row or not prod_row:
         return False
-    prod_cats = _classify_product_group(prod_row[0], prod_row[1])
-    return rig_cat in prod_cats
+    affected = RIG_AFFECTED_GROUPS.get(rig_group_row[0])
+    return bool(affected) and prod_row[0] in affected
 
 
 # Group ID → (set_size, category) for Standup structure rigs

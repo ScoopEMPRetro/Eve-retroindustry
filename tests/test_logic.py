@@ -88,6 +88,41 @@ def test_best_contract_price_bundle_fallback():
     assert best["is_bundle"] is True
 
 
+# ── rig ↔ product applicability (authoritative EVE Ref group map) ────────────
+def test_rig_applies_to_product(app_module):
+    from app.web.industry_helper import rig_applies_to_product as applies
+    conn = app_module.get_conn()
+    try:
+        def tid(name):
+            r = conn.execute("SELECT type_id FROM sde_types WHERE name=? AND published=1",
+                             (name,)).fetchone()
+            return r[0] if r else None
+
+        def rig(group_id):
+            r = conn.execute("SELECT type_id FROM sde_types WHERE group_id=? AND published=1 "
+                             "ORDER BY type_id LIMIT 1", (group_id,)).fetchone()
+            return r[0] if r else None
+
+        r_large_ship = rig(1828)   # Basic Large Ship manufacturing rig
+        r_equipment = rig(1816)    # Equipment manufacturing rig
+        r_drone = rig(1822)        # Drone & Fighter manufacturing rig
+        hyperion = tid("Hyperion")            # Battleship
+        drone_amp = tid("Drone Damage Amplifier II")  # a MODULE (drone fitting)
+        warrior = tid("Warrior II")           # a combat drone
+
+        assert None not in (r_large_ship, r_equipment, r_drone, hyperion, drone_amp, warrior)
+        # Battleship: large-ship rig applies, equipment rig does not.
+        assert applies(conn, r_large_ship, hyperion) is True
+        assert applies(conn, r_equipment, hyperion) is False
+        # A drone-damage MODULE is Equipment, not a Drone — the old heuristic got this wrong.
+        assert applies(conn, r_equipment, drone_amp) is True
+        assert applies(conn, r_drone, drone_amp) is False
+        # An actual drone is bonused by the Drone rig.
+        assert applies(conn, r_drone, warrior) is True
+    finally:
+        conn.close()
+
+
 def test_best_contract_price_none_when_absent():
     conn, helper = _contracts_db()
     _add_contract(conn, 1, 100.0, [(99, 10, 1)])                 # different product
