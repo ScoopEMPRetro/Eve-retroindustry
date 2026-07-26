@@ -140,22 +140,22 @@
       <thead class="sticky-top" style="top:0; background:var(--bs-body-bg);">
         <tr>
           <th style="width:36px"></th>
-          <th>Name</th>
-          <th class="text-end">Jita sell</th>
-          <th class="text-end">Jita buy</th>
-          <th class="text-end" title="Traded volume over the last 7 days at Jita (from ESI history)">Jita vol/7d</th>
-          <th class="text-end" title="Available units in sell orders at Jita 4-4">Jita available</th>
-          <th class="text-end station-col" style="display:none" title="Best sell price at station">
-            <span class="stn-name">Station</span> sell
+          <th class="sortable" data-col="1" data-sort-type="text" style="cursor:pointer;user-select:none">Name <span class="sort-indicator"></span></th>
+          <th class="text-end sortable" data-col="2" data-sort-type="num" style="cursor:pointer;user-select:none">Jita sell <span class="sort-indicator"></span></th>
+          <th class="text-end sortable" data-col="3" data-sort-type="num" style="cursor:pointer;user-select:none">Jita buy <span class="sort-indicator"></span></th>
+          <th class="text-end sortable" data-col="4" data-sort-type="num" style="cursor:pointer;user-select:none" title="Traded volume over the last 7 days at Jita (from ESI history)">Jita vol/7d <span class="sort-indicator"></span></th>
+          <th class="text-end sortable" data-col="5" data-sort-type="num" style="cursor:pointer;user-select:none" title="Available units in sell orders at Jita 4-4">Jita available <span class="sort-indicator"></span></th>
+          <th class="text-end station-col sortable" data-col="6" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Best sell price at station">
+            <span class="stn-name">Station</span> sell <span class="sort-indicator"></span>
           </th>
-          <th class="text-end station-col" style="display:none" title="Trade volume over the last 7 days across the station's whole REGION (ESI market history). CCP does not publish trade history for individual player structures, so this is region-wide demand — not sales at this specific station/citadel.">
+          <th class="text-end station-col sortable" data-col="7" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Trade volume over the last 7 days across the station's whole REGION (ESI market history). CCP does not publish trade history for individual player structures, so this is region-wide demand — not sales at this specific station/citadel.">
             <span class="stn-name">Station</span> region vol/7d
-            <i class="bi bi-info-circle ms-1" style="opacity:.5;font-size:.75rem"></i>
+            <i class="bi bi-info-circle ms-1" style="opacity:.5;font-size:.75rem"></i> <span class="sort-indicator"></span>
           </th>
-          <th class="text-end station-col" style="display:none" title="Available units in sell orders at station">
-            <span class="stn-name">Station</span> available
+          <th class="text-end station-col sortable" data-col="8" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Available units in sell orders at station">
+            <span class="stn-name">Station</span> available <span class="sort-indicator"></span>
           </th>
-          <th style="width:210px">Custom price</th>
+          <th class="sortable" data-col="9" data-sort-type="num" style="width:210px;cursor:pointer;user-select:none">Custom price <span class="sort-indicator"></span></th>
         </tr>
       </thead>
       <tbody>
@@ -247,6 +247,43 @@
   const priceTable = document.getElementById('price-table');
   const tbody     = priceTable?.querySelector('tbody');
   const noResults = document.getElementById('price-no-results');
+
+  // ── Column sorting — click a header to sort (matches the materials-table style) ──
+  (function () {
+    if (!priceTable || !tbody) return;
+    const thead = priceTable.querySelector('thead');
+    let sortCol = null, sortDir = 1;
+    function cellValue(row, col, type) {
+      if (type !== 'num')
+        return row.dataset.name || (row.children[col]?.textContent || '').trim().toLowerCase();
+      const cell = row.children[col];
+      if (!cell) return null;
+      const inp = cell.querySelector('input');
+      const raw = ((inp ? inp.value : cell.textContent) || '').replace(/\s/g, '').replace(',', '.');
+      const n = parseFloat(raw);
+      return isNaN(n) ? null : n;   // N/A / empty sorts to the bottom
+    }
+    thead.addEventListener('click', (e) => {
+      const th = e.target.closest('th.sortable');
+      if (!th) return;
+      const col = +th.dataset.col, type = th.dataset.sortType || 'text';
+      sortDir = (sortCol === col) ? -sortDir : (type === 'num' ? -1 : 1);
+      sortCol = col;
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      rows.sort((a, b) => {
+        const va = cellValue(a, col, type), vb = cellValue(b, col, type);
+        if (va === null && vb === null) return 0;
+        if (va === null) return 1;
+        if (vb === null) return -1;
+        if (type === 'num') return (va - vb) * sortDir;
+        return (va < vb ? -1 : va > vb ? 1 : 0) * sortDir;
+      });
+      rows.forEach(r => tbody.appendChild(r));
+      thead.querySelectorAll('th.sortable .sort-indicator').forEach(s => s.textContent = '');
+      const ind = th.querySelector('.sort-indicator');
+      if (ind) ind.textContent = sortDir > 0 ? ' ▲' : ' ▼';
+    });
+  })();
 
   // Snapshot original rows — stored as DOM elements so event delegation keeps working
   const originalRows = tbody ? Array.from(tbody.querySelectorAll('tr')) : [];
