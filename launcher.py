@@ -29,19 +29,63 @@ if sys.platform == "win32":
 # Path resolution
 # ---------------------------------------------------------------------------
 
+def _user_data_dir() -> str:
+    """Per-user data directory OUTSIDE the install folder, so an app update
+    (which replaces the install dir) can never touch eve_cache.db / config."""
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "EVE Retroindustry")
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/EVE Retroindustry")
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, "eve-retroindustry")
+
+
+def _migrate_legacy_data(old_dir: str, new_dir: str) -> None:
+    """One-time copy of user data from the old in-install location into the
+    stable data dir — only when the data dir has no eve_cache.db yet."""
+    import shutil
+    if not old_dir or os.path.abspath(old_dir) == os.path.abspath(new_dir):
+        return
+    if os.path.exists(os.path.join(new_dir, "eve_cache.db")):
+        return
+    for fn in ("eve_cache.db", ".eve_config.json"):
+        src = os.path.join(old_dir, fn)
+        if os.path.exists(src):
+            try:
+                shutil.copy2(src, os.path.join(new_dir, fn))
+            except Exception:
+                pass
+    src_wv, dst_wv = os.path.join(old_dir, "webview_data"), os.path.join(new_dir, "webview_data")
+    if os.path.isdir(src_wv) and not os.path.exists(dst_wv):
+        try:
+            shutil.copytree(src_wv, dst_wv)
+        except Exception:
+            pass
+
+
 if getattr(sys, "frozen", False):
     _BUNDLE_DIR: str = sys._MEIPASS          # type: ignore[attr-defined]
-    # When running inside an AppImage, $APPIMAGE points to the .appimage file
-    # itself (read-only). Store user data (eve_cache.db) next to that file so
-    # it survives AppImage remounts across restarts.
+    # $APPIMAGE points to the .appimage file itself when running as one.
     _appimage = os.environ.get("APPIMAGE")
-    _APP_DIR: str = os.path.dirname(_appimage) if _appimage else os.path.dirname(sys.executable)
+    # Install dir = where the exe / AppImage lives = the update target.
+    _INSTALL_DIR: str = os.path.dirname(_appimage) if _appimage else os.path.dirname(sys.executable)
+    # User data lives in a stable per-user dir, migrated from the old
+    # in-install location once, so updates can't wipe characters / prices.
+    _APP_DIR = _user_data_dir()
+    try:
+        os.makedirs(_APP_DIR, exist_ok=True)
+        _migrate_legacy_data(_INSTALL_DIR, _APP_DIR)
+    except Exception:
+        _APP_DIR = _INSTALL_DIR   # fall back to old behavior if data dir is unusable
     sys.path.insert(0, _BUNDLE_DIR)
 else:
     _BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
+    _INSTALL_DIR = _BUNDLE_DIR
     _APP_DIR = _BUNDLE_DIR
 
 os.environ.setdefault("EVE_APP_DIR", _APP_DIR)
+os.environ.setdefault("EVE_INSTALL_DIR", _INSTALL_DIR)
 os.environ.setdefault("EVE_BUNDLE_DIR", _BUNDLE_DIR)
 
 # console=False in PyInstaller sets sys.stdout/stderr to None. Redirect to a

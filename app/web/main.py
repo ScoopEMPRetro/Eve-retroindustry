@@ -5048,8 +5048,11 @@ def _is_bundled() -> bool:
     return hasattr(_sys, "_MEIPASS")
 
 
-def _app_dir() -> Path:
-    return Path(os.environ.get("EVE_APP_DIR", "."))
+def _install_dir() -> Path:
+    """Folder holding the executable + bundled files — the update target.
+    Distinct from EVE_APP_DIR (user data, kept outside the install so updates
+    never touch eve_cache.db / config)."""
+    return Path(os.environ.get("EVE_INSTALL_DIR") or os.path.dirname(_sys.executable))
 
 
 @app.get("/api/version/check")
@@ -5070,7 +5073,12 @@ async def api_version_check():
         return {"error": str(exc), "current": APP_VERSION}
 
     latest_tag = data.get("tag_name", "").lstrip("v")
-    has_update = bool(latest_tag) and latest_tag != APP_VERSION
+
+    def _ver(v: str) -> tuple:
+        # numeric, component-wise — so 0.8.51 > 0.8.9 (string compare got this wrong)
+        return tuple(int("".join(c for c in p if c.isdigit()) or 0) for p in v.split("."))
+
+    has_update = bool(latest_tag) and _ver(latest_tag) > _ver(APP_VERSION)
 
     plat = "win64" if _sys.platform == "win32" else "linux"
     asset_name = f"EVE_Retroindustry-v{latest_tag}-{plat}.zip"
@@ -5102,7 +5110,7 @@ async def api_version_download(url: str):
         return StreamingResponse(_err(), media_type="text/event-stream")
 
     async def _stream():
-        app_dir = _app_dir()
+        app_dir = _install_dir()
         staging = app_dir / "update_staging"
         tmp_zip = app_dir / "update.zip.tmp"
         try:
@@ -5201,7 +5209,7 @@ async def api_version_download(url: str):
 async def api_version_apply():
     """Launch helper update script then exit the process."""
     import subprocess
-    app_dir = _app_dir()
+    app_dir = _install_dir()
     if _sys.platform == "win32":
         script = app_dir / "update.bat"
     else:
