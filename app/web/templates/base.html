@@ -9,14 +9,18 @@
   <link rel="stylesheet" href="/static/bootstrap-icons.min.css">
   <style>
     :root {
-      --eve-gold:   #e3b341;
-      --eve-amber:  #c9a227;
+      --eve-gold:   #e6b84a;
+      --eve-amber:  #caa02e;
       --eve-dim:    #8b7020;
-      --eve-bg:     #0d1117;
-      --eve-card:   #161b22;
-      --eve-border: #30363d;
+      --eve-bg:     #0b0e13;
+      --eve-card:   #161c25;
+      --eve-border: #2b333d;
     }
-    body { background: var(--eve-bg); color: #e6edf3; }
+    body {
+      background: radial-gradient(1100px 520px at 50% -8%, #17202b 0%, #0b0e13 55%) #0b0e13;
+      background-attachment: fixed;
+      color: #e6edf3;
+    }
 
     /* ── Navbar ── */
     .navbar-brand { font-weight: 700; letter-spacing: .04em; color: var(--eve-gold) !important; display:flex; align-items:center; gap:.5rem; }
@@ -26,11 +30,12 @@
     .navbar-nav .nav-link { white-space: nowrap; }
 
     /* ── Cards / Tables ── */
-    .card  { background: var(--eve-card); border-color: var(--eve-border); }
+    .card  { background: linear-gradient(180deg, #171e28, #131922); border: 1px solid var(--eve-border); border-radius: 12px; }
     .table { --bs-table-bg: transparent; --bs-table-striped-bg: #1c2128; }
-    .table th { color: #8b949e; font-weight: 500; font-size: .85rem; text-transform: uppercase; letter-spacing: .05em; }
+    .table th { color: #98a3b0; font-weight: 500; font-size: .85rem; text-transform: uppercase; letter-spacing: .07em; }
 
     /* ── Badges ── */
+    .badge { border-radius: 6px; }
     .badge-bpo { background: #1f6feb; }
     .badge-bpc { background: #6e40c9; }
 
@@ -51,9 +56,10 @@
     a         { color: var(--eve-amber); }
     a:hover   { color: var(--eve-gold); }
 
-    /* ── Primary button ── */
-    .btn-eve       { background: var(--eve-amber); border: 1px solid var(--eve-gold); color: #0d1117; font-weight: 600; }
-    .btn-eve:hover { background: var(--eve-gold);  border-color: var(--eve-gold); color: #0d1117; }
+    /* ── Buttons ── */
+    .btn, .btn-sm { border-radius: 8px; }
+    .btn-eve       { background: linear-gradient(180deg, #e6b84a, #caa02e); border: 1px solid #e6b84a; color: #12161c; font-weight: 600; }
+    .btn-eve:hover { background: linear-gradient(180deg, #efc35c, #d4ab33); border-color: #efc35c; color: #12161c; }
 
     /* Ko-fi brand button (styled locally — no external CDN dependency) */
     .btn-kofi       { background: #ff5e5b; border: 1px solid #ff5e5b; color: #fff; font-weight: 700; }
@@ -73,7 +79,7 @@
   </style>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg navbar-dark sticky-top" style="background:var(--eve-card,#161b22); border-bottom:1px solid #30363d;">
+<nav class="navbar navbar-expand-lg navbar-dark sticky-top" style="background:#0f141b; border-bottom:1px solid var(--eve-border);">
   <div class="container-fluid px-4">
     <a class="navbar-brand" href="/">
       {# EVE Retroindustry logo — hexagonal factory icon #}
