@@ -480,6 +480,14 @@ function switchPlanChar(charId) {
     </span>
   </div>
 
+  {# Inline contract-region indexing progress (shown when the region isn't indexed yet) #}
+  <div id="contract-index-progress" class="d-none mb-2" style="max-width:440px">
+    <div class="d-flex justify-content-between mb-1 text-muted" style="font-size:.7rem">
+      <span id="contract-index-label">Indexing contracts…</span><span id="contract-index-pct">0%</span>
+    </div>
+    <div class="progress" style="height:5px"><div id="contract-index-bar" class="progress-bar bg-warning" style="width:0%"></div></div>
+  </div>
+
   {# Two variants side by side #}
   <div class="row g-0">
 
@@ -1971,6 +1979,49 @@ document.addEventListener('DOMContentLoaded', () => {
     _recomputeProfitRow('jita', window._planCalc.jitaSell);
 });
 
+// Fetch the contract price once (no side effects).
+async function _fetchContractOnce(locationId, typeId) {
+  const r = await fetch(`/api/plan/contract-price?location_id=${locationId}&type_id=${typeId}`);
+  return r.json();
+}
+
+// Index a region's public contracts inline, streaming progress into the mini
+// progress bar. Resolves true on success, false on error. Reuses the same SSE
+// endpoint as the Public browser.
+function indexContractRegion(regionId) {
+  return new Promise((resolve) => {
+    const prog = document.getElementById('contract-index-progress');
+    const bar  = document.getElementById('contract-index-bar');
+    const pct  = document.getElementById('contract-index-pct');
+    const lbl  = document.getElementById('contract-index-label');
+    if (prog) prog.classList.remove('d-none');
+    if (bar) bar.style.width = '0%';
+    if (pct) pct.textContent = '0%';
+    if (lbl) lbl.textContent = 'Indexing contracts…';
+    const es = new EventSource('/api/contracts/public/index?region_id=' + regionId);
+    es.onmessage = (e) => {
+      const d = JSON.parse(e.data);
+      if (bar) bar.style.width = (d.pct || 0) + '%';
+      if (pct) pct.textContent = (d.pct || 0) + '%';
+      if (lbl) {
+        if (d.phase === 'list')  lbl.textContent = `Listing contracts… ${d.done}/${d.total} pages`;
+        else if (d.phase === 'items') lbl.textContent = `Reading items… ${d.done}/${d.total} contracts`;
+      }
+      if (d.done) {
+        es.close();
+        if (lbl) lbl.textContent = 'Done — loading price…';
+        setTimeout(() => { if (prog) prog.classList.add('d-none'); resolve(true); }, 400);
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      if (lbl) lbl.textContent = 'Indexing failed — try again';
+      setTimeout(() => { if (prog) prog.classList.add('d-none'); }, 2000);
+      resolve(false);
+    };
+  });
+}
+
 async function fetchContractPrice(btn) {
   const locationId = btn.dataset.locationId, typeId = btn.dataset.typeId;
   if (!locationId || !typeId) return;
@@ -1981,8 +2032,12 @@ async function fetchContractPrice(btn) {
   const badgeEl = document.getElementById('contract-price-badge');
   const cmpBadge = document.querySelector('#profit-compare tr[data-src="contract"] .compare-badge');
   try {
-    const r = await fetch(`/api/plan/contract-price?location_id=${locationId}&type_id=${typeId}`);
-    const d = await r.json();
+    let d = await _fetchContractOnce(locationId, typeId);
+    // Region not indexed yet → index it inline (with progress), then retry.
+    if (!d.ok && d.not_indexed && d.region_id) {
+      const ok = await indexContractRegion(d.region_id);
+      if (ok) d = await _fetchContractOnce(locationId, typeId);
+    }
     if (d.ok && d.price) {
       const badge = d.is_bundle
         ? '<span class="badge bg-warning text-dark" style="font-size:.55rem" title="Price from a bundle contract — approximate (also includes other items)">bundle</span>'
