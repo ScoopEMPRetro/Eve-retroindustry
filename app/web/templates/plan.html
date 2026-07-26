@@ -592,26 +592,31 @@ function switchPlanChar(charId) {
           <th class="text-start fw-normal">Source</th>
           <th class="text-end fw-normal">Price/unit</th>
           <th class="text-end fw-normal">Profit · buy all</th>
+          <th class="text-end fw-normal">Profit/unit · buy all</th>
           <th class="text-end fw-normal">Profit · with stock</th>
+          <th class="text-end fw-normal">Profit/unit · with stock</th>
         </tr></thead>
         <tbody id="profit-compare">
           <tr data-src="jita">
             <td class="text-muted">Jita sell</td>
             <td class="text-end price">{% if result.sell_price %}{{ result.sell_price | isk }}{% else %}—{% endif %}</td>
-            <td class="text-end pm">—</td><td class="text-end ps">—</td>
+            <td class="text-end pm">—</td><td class="text-end pmu">—</td>
+            <td class="text-end ps">—</td><td class="text-end psu">—</td>
           </tr>
           <tr data-src="market">
             <td class="text-muted">{{ selling_station_name }} <span class="badge bg-secondary" style="font-size:.55rem">market</span></td>
-            <td class="text-end price">—</td><td class="text-end pm">—</td><td class="text-end ps">—</td>
+            <td class="text-end price">—</td><td class="text-end pm">—</td><td class="text-end pmu">—</td>
+            <td class="text-end ps">—</td><td class="text-end psu">—</td>
           </tr>
           <tr data-src="contract">
             <td class="text-muted">Contract <span class="compare-badge"></span></td>
-            <td class="text-end price">—</td><td class="text-end pm">—</td><td class="text-end ps">—</td>
+            <td class="text-end price">—</td><td class="text-end pm">—</td><td class="text-end pmu">—</td>
+            <td class="text-end ps">—</td><td class="text-end psu">—</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <div class="text-muted" style="font-size:.68rem">Computed from fetched prices × quantity − costs. Use "Fetch price" / "Fetch contract" above.</div>
+    <div class="text-muted" style="font-size:.68rem">Computed from fetched prices × quantity − costs; "Profit/unit" is the profit for a single item. Use "Fetch price" / "Fetch contract" above.</div>
   </div>
   <script>
     window._planCalc = {
@@ -1965,6 +1970,14 @@ function _profitCell(price, cost) {
   const color = profit >= 0 ? '#3fb950' : '#f85149';
   return `<span style="color:${color}">${profit >= 0 ? '+' : ''}${_isk(profit)}</span>`;
 }
+// Per-unit profit (profit for a single item = total profit / quantity).
+function _profitUnitCell(price, cost) {
+  const c = window._planCalc;
+  if (!c || !c.qty) return '—';
+  const per = (price * c.qty - cost) / c.qty;
+  const color = per >= 0 ? '#3fb950' : '#f85149';
+  return `<span style="color:${color}">${per >= 0 ? '+' : ''}${_isk(per)}</span>`;
+}
 function _recomputeProfitRow(src, price) {
   const c = window._planCalc;
   if (!c || !price || price <= 0) return;
@@ -1972,7 +1985,9 @@ function _recomputeProfitRow(src, price) {
   if (!row) return;
   row.querySelector('.price').textContent = _isk(price);
   row.querySelector('.pm').innerHTML = _profitCell(price, c.mfgCost);
+  row.querySelector('.pmu').innerHTML = _profitUnitCell(price, c.mfgCost);
   row.querySelector('.ps').innerHTML = _profitCell(price, c.stockCost);
+  row.querySelector('.psu').innerHTML = _profitUnitCell(price, c.stockCost);
 }
 document.addEventListener('DOMContentLoaded', () => {
   if (window._planCalc && window._planCalc.jitaSell)
