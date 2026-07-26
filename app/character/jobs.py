@@ -26,9 +26,11 @@ def activity_label(activity_id: int) -> str:
 
 
 async def fetch_industry_jobs(client: httpx.AsyncClient, char_id: int, token: str,
-                              include_completed: bool = True) -> list[dict]:
-    """Return a character's industry jobs. include_completed=true also returns
-    ready/delivered from the recent period; active ones are filtered in the view."""
+                              include_completed: bool = True) -> list[dict] | None:
+    """Return a character's industry jobs, or None if the fetch failed (so the
+    caller can tell a real "no jobs" apart from a transient ESI error — e.g.
+    during a background sync). include_completed=true also returns ready/
+    delivered from the recent period; active ones are filtered in the view."""
     try:
         r = await client.get(
             f"{ESI_BASE}/characters/{char_id}/industry/jobs/",
@@ -40,4 +42,4 @@ async def fetch_industry_jobs(client: httpx.AsyncClient, char_id: int, token: st
             return r.json()
     except Exception:
         pass
-    return []
+    return None

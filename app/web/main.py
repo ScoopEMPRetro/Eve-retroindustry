@@ -4905,15 +4905,22 @@ async def jobs_page(request: Request):
         return _tr("jobs.html", request, {"groups": [], "error": "You are not signed in.",
                                           "total_active": 0})
 
-    # Fetch all characters' jobs concurrently
+    # Fetch all characters' jobs concurrently. _one returns None (not []) when
+    # the fetch could not run — no token or an ESI error — so a transient
+    # failure (e.g. during a background Sync All) isn't shown as "no jobs".
     async def _one(cid: int):
-        tok = _get_valid_token_for(conn, cid)
-        if not tok:
-            return cid, []
-        async with esi_client() as client:
-            return cid, await jobs_api.fetch_industry_jobs(client, cid, tok)
+        try:
+            tok = _get_valid_token_for(conn, cid)
+            if not tok:
+                return cid, None
+            async with esi_client() as client:
+                return cid, await jobs_api.fetch_industry_jobs(client, cid, tok)
+        except Exception:
+            return cid, None
 
-    results = await asyncio.gather(*[_one(cid) for cid, _ in chars])
+    raw_results = await asyncio.gather(*[_one(cid) for cid, _ in chars])
+    fetch_failed = any(jl is None for _cid, jl in raw_results)
+    results = [(cid, jl or []) for cid, jl in raw_results]
     char_name = {cid: name for cid, name in chars}
 
     # Collect type_ids (product/blueprint) and facility_id for resolution
@@ -5025,6 +5032,7 @@ async def jobs_page(request: Request):
     conn.close()
     return _tr("jobs.html", request, {
         "groups": groups, "error": None, "total_active": total_active,
+        "fetch_failed": fetch_failed,
     })
 
 

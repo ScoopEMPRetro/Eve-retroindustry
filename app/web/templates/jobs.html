@@ -14,10 +14,14 @@
 <div class="alert alert-danger"><i class="bi bi-exclamation-circle me-2"></i>{{ error }}</div>
 {% endif %}
 
+{% if fetch_failed %}
+<div class="alert alert-warning py-2"><i class="bi bi-arrow-repeat me-2"></i>Couldn't load jobs for some characters — a sync may be in progress. Refresh in a moment.</div>
+{% endif %}
+
 {% set ns = namespace(any=false) %}
 {% for g in groups %}{% if g.jobs %}{% set ns.any = true %}{% endif %}{% endfor %}
 
-{% if not ns.any and not error %}
+{% if not ns.any and not error and not fetch_failed %}
 <div class="card"><div class="text-muted text-center py-4">No running industry jobs across your characters.</div></div>
 {% endif %}
 
