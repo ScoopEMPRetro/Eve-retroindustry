@@ -76,11 +76,7 @@
         <tr>
           {% if all_chars %}<td class="text-truncate" style="max-width:130px;font-size:.78rem">{{ c.party_label }}</td>{% endif %}
           <td>
-            <span class="badge" style="font-size:.65rem;background:
-              {%- if c.type_raw == 'courier' %}#0b2d4a;color:#79c0ff
-              {%- elif c.type_raw == 'auction' %}#2d2200;color:#b392f0
-              {%- elif c.type_raw == 'loan' %}#21262d;color:#8b949e
-              {%- else %}#3d2c00;color:#e3b341{% endif %}">{{ c.type }}</span>
+            <span class="badge {% if c.type_raw == 'courier' %}badge-courier{% elif c.type_raw == 'auction' %}badge-rxn{% elif c.type_raw == 'loan' %}badge-neutral{% else %}badge-mfg{% endif %}" style="font-size:.65rem">{{ c.type }}</span>
           </td>
           <td style="max-width:260px">
             {% if c.title %}<div class="text-truncate" title="{{ c.title }}">{{ c.title }}</div>{% endif %}

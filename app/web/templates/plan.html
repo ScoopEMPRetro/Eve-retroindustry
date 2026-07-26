@@ -460,7 +460,7 @@ function switchPlanChar(charId) {
               data-location-id="{{ _sell_loc_id }}"
               data-type-id="{{ result.product_type_id }}"
               onclick="fetchStationSellPrice(this)"
-              class="btn btn-sm" style="background:#21262d;border-color:#30363d;color:#8b949e;font-size:.75rem;padding:1px 7px">
+              class="btn btn-sm btn-ghost" style="font-size:.75rem;padding:1px 7px">
         <i class="bi bi-cloud-download me-1"></i>Fetch price
       </button>
       <span id="station-sell-price-val" class="fw-semibold d-none"></span>
@@ -473,7 +473,7 @@ function switchPlanChar(charId) {
       <span id="contract-price-badge"></span>
       <button type="button" data-location-id="{{ _sell_loc_id }}" data-type-id="{{ result.product_type_id }}"
               onclick="fetchContractPrice(this)"
-              class="btn btn-sm" style="background:#21262d;border-color:#30363d;color:#8b949e;font-size:.75rem;padding:1px 7px"
+              class="btn btn-sm btn-ghost" style="font-size:.75rem;padding:1px 7px"
               title="Cheapest price/unit from indexed public contracts in the station's region">
         <i class="bi bi-cloud-download me-1"></i>Fetch contract
       </button>
@@ -1496,10 +1496,10 @@ function makeStationSelector({ displayId, hiddenId, boxId, onSelect }) {
       <div style="color:#8b949e;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Add structure</div>
       <div class="d-flex gap-1 mb-1">
         <input id="${pfx}-add-raw" type="text" placeholder="ID, &quot;ID Name&quot; or EVE URL link"
-               class="form-control form-control-sm"
-               style="flex:1;background:#0d1117;border-color:#30363d;color:#e6edf3;font-size:.8rem">
-        <button id="${pfx}-add-btn" type="button" class="btn btn-sm"
-                style="background:#21262d;border-color:#30363d;color:#e6edf3;white-space:nowrap;font-size:.8rem">Add</button>
+               class="form-control form-control-sm input-eve"
+               style="flex:1;font-size:.8rem">
+        <button id="${pfx}-add-btn" type="button" class="btn btn-sm btn-ghost"
+                style="white-space:nowrap;font-size:.8rem">Add</button>
       </div>
       <button id="${pfx}-loc-btn" type="button" class="btn btn-sm w-100"
               style="background:#0d1117;border-color:#30363d;color:#8b949e;font-size:.75rem">
@@ -2151,7 +2151,7 @@ async function openSaveToProject() {
     d.projects.forEach(p => {
       const name = p.name.replace(/'/g, "\\'");
       html += `<div class="d-flex align-items-center gap-1">
-        <button class="btn btn-sm text-start flex-grow-1" style="background:#21262d;border-color:#30363d;color:#e6edf3"
+        <button class="btn btn-sm btn-ghost text-start flex-grow-1"
                 onclick="saveToProject(${p.id})">
           <i class="bi bi-kanban me-2" style="color:#e3b341"></i>${p.name}
           <span class="text-muted ms-2" style="font-size:.75rem">${p.plan_count} items</span>

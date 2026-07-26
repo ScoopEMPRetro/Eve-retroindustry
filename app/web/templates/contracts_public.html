@@ -93,10 +93,7 @@
       <tbody>
         {% for c in results %}
         <tr>
-          <td><span class="badge" style="font-size:.65rem;background:
-            {%- if c.type == 'courier' %}#0b2d4a;color:#79c0ff
-            {%- elif c.type == 'auction' %}#2d2200;color:#b392f0
-            {%- else %}#3d2c00;color:#e3b341{% endif %}">{{ c.type_label }}</span></td>
+          <td><span class="badge {% if c.type == 'courier' %}badge-courier{% elif c.type == 'auction' %}badge-rxn{% else %}badge-mfg{% endif %}" style="font-size:.65rem">{{ c.type_label }}</span></td>
           <td style="max-width:280px">
             {% if c.title %}<div class="text-truncate" title="{{ c.title }}">{{ c.title }}</div>{% endif %}
             {% if c.type != 'courier' %}

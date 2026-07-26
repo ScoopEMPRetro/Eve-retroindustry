@@ -56,7 +56,7 @@
           {% for j in g.jobs %}
           <tr>
             <td>
-              <span class="badge" style="background:{% if j.activity == 'Reactions' %}#2d2200;color:#b392f0{% elif j.activity == 'Manufacturing' %}#3d2c00;color:#e3b341{% else %}#21262d;color:#8b949e{% endif %};font-size:.65rem">{{ j.activity }}</span>
+              <span class="badge {% if j.activity == 'Reactions' %}badge-rxn{% elif j.activity == 'Manufacturing' %}badge-mfg{% else %}badge-neutral{% endif %}" style="font-size:.65rem">{{ j.activity }}</span>
               {% if j.status == 'paused' %}<span class="badge bg-secondary ms-1" style="font-size:.6rem">PAUSED</span>{% endif %}
             </td>
             <td>
