@@ -478,14 +478,14 @@ function switchPlanChar(charId) {
         <i class="bi bi-cloud-download me-1"></i>Fetch contract
       </button>
     </span>
-  </div>
 
-  {# Inline contract-region indexing progress (shown when the region isn't indexed yet) #}
-  <div id="contract-index-progress" class="d-none mb-2" style="max-width:440px">
-    <div class="d-flex justify-content-between mb-1 text-muted" style="font-size:.7rem">
-      <span id="contract-index-label">Indexing contracts…</span><span id="contract-index-pct">0%</span>
+    {# Contract-region indexing progress — inside this header row, wraps full-width directly under it. #}
+    <div id="contract-index-progress" class="d-none" style="width:100%;margin-top:.15rem">
+      <div class="d-flex justify-content-between mb-1 text-muted" style="font-size:.7rem">
+        <span id="contract-index-label">Indexing contracts…</span><span id="contract-index-pct">0%</span>
+      </div>
+      <div class="progress" style="height:5px"><div id="contract-index-bar" class="progress-bar bg-warning" style="width:0%"></div></div>
     </div>
-    <div class="progress" style="height:5px"><div id="contract-index-bar" class="progress-bar bg-warning" style="width:0%"></div></div>
   </div>
 
   {# Two variants side by side #}
