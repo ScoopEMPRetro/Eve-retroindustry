@@ -5145,13 +5145,27 @@ async def api_version_download(url: str):
             # Write helper script
             if _sys.platform == "win32":
                 script_path = app_dir / "update.bat"
+                # Robust in-place update:
+                #  * give the app a moment to exit, then force-kill any leftover
+                #    QtWebEngineProcess / main exe that still hold locks on the
+                #    bundled DLLs (otherwise the copy silently skips them and the
+                #    result is a broken install);
+                #  * robocopy retries locked files (/R:15 /W:1). /E copies the
+                #    tree WITHOUT purging, so user data (eve_cache.db,
+                #    .eve_config.json, webview_data) is preserved — it is not in
+                #    the source and never gets deleted;
+                #  * launch the new exe BEFORE the script deletes itself — a .bat
+                #    that dels itself first never reaches the next line.
                 script_path.write_text(
-                    f'@echo off\r\n'
-                    f'timeout /t 3 /nobreak >nul\r\n'
-                    f'xcopy /E /Y /I "{inner_dir}\\*" "{app_dir}\\"\r\n'
-                    f'rmdir /S /Q "{staging}"\r\n'
-                    f'del "%~f0"\r\n'
-                    f'start "" "{app_dir}\\EVE_Retroindustry.exe"\r\n',
+                    '@echo off\r\n'
+                    'timeout /t 2 /nobreak >nul\r\n'
+                    'taskkill /F /IM QtWebEngineProcess.exe >nul 2>&1\r\n'
+                    'taskkill /F /IM EVE_Retroindustry.exe >nul 2>&1\r\n'
+                    'timeout /t 1 /nobreak >nul\r\n'
+                    f'robocopy "{inner_dir}" "{app_dir}" /E /R:15 /W:1 /NFL /NDL /NJH /NJS /NC /NP >nul\r\n'
+                    f'rmdir /S /Q "{staging}" >nul 2>&1\r\n'
+                    f'start "" "{app_dir}\\EVE_Retroindustry.exe"\r\n'
+                    'del "%~f0"\r\n',
                     encoding="utf-8",
                 )
             else:
