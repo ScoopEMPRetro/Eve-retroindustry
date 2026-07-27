@@ -43,5 +43,6 @@ android-poc/app/src/main/assets/
 .DS_Store
 Thumbs.db
 
-# Private Claude context (symlink to the eve-retroindustry-notes repo) — never in public
+# Private agent/Claude context (symlinks to the eve-retroindustry-notes repo) — never in public
 /CLAUDE.md
+/AGENTS.md
