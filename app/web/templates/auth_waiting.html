@@ -4,7 +4,7 @@
 
 <div class="row justify-content-center mt-5">
   <div class="col-lg-5 text-center">
-    <div class="card p-5">
+    <div class="card p-5" id="auth-card">
 
       {% if external_opened %}
       <div class="mb-4">
@@ -62,27 +62,69 @@
 {% block scripts %}
 <script>
 let cancelled = false;
+let finished  = false;
+const startedAt  = Date.now();
+const TIMEOUT_MS = 90000;   // hard cap: browser never came back to us
 
 async function cancelLogin() {
   cancelled = true;
-  document.getElementById('cancel-btn').disabled = true;
-  document.getElementById('status-line').textContent = 'Cancelling…';
+  const btn = document.getElementById('cancel-btn');
+  if (btn) btn.disabled = true;
+  const line = document.getElementById('status-line');
+  if (line) line.textContent = 'Cancelling…';
   try {
     await fetch('/auth/cancel', { method: 'POST' });
   } catch {}
   window.location.href = '/';
 }
 
+function showError(msg) {
+  finished = true;
+  const card = document.getElementById('auth-card');
+  if (!card) return;
+  card.innerHTML =
+    '<div class="mb-3"><i class="bi bi-exclamation-triangle" ' +
+    'style="font-size:3rem;color:#e3b341"></i></div>' +
+    '<h5 class="mb-2">Login didn’t complete</h5>' +
+    '<p class="text-muted small mb-3">' + msg + '</p>' +
+    '<div class="text-start text-muted small mb-4" style="line-height:1.6">' +
+    'Things to try:' +
+    '<ul class="mb-0">' +
+    '<li>Make sure you finished signing in in the browser before closing the tab.</li>' +
+    '<li>Close anything that might be using port 5173, then retry.</li>' +
+    '<li>If you are on a work network/VPN, a proxy or antivirus may be blocking it.</li>' +
+    '</ul></div>' +
+    '<div class="d-flex gap-2 justify-content-center">' +
+    '<a href="/" class="btn btn-outline-secondary">Back</a>' +
+    '<a href="/auth/login" class="btn btn-eve">Try again</a>' +
+    '</div>';
+}
+
 async function pollStatus() {
-  if (cancelled) return;
+  if (cancelled || finished) return;
   try {
     const r = await fetch('/api/auth/status');
     const d = await r.json();
     if (!d.in_progress && d.has_character) {
+      finished = true;
       window.location.href = '/auth/sync';
       return;
     }
+    // Login flow ended (lock released) but no character was saved → it failed
+    // (bad callback, token exchange error, or cancelled elsewhere).
+    if (!d.in_progress && !d.has_character) {
+      showError('The login flow ended without adding a character. ' +
+                'The authorization may not have reached the app.');
+      return;
+    }
   } catch {}
+  // Backstop: the callback server can sit waiting for a redirect that never
+  // arrives (e.g. the browser couldn’t reach localhost). Don’t spin forever.
+  if (Date.now() - startedAt > TIMEOUT_MS) {
+    showError('No response from the browser within 90 seconds. ' +
+              'The sign-in page may not have been able to reach the app.');
+    return;
+  }
   setTimeout(pollStatus, 1500);
 }
 setTimeout(pollStatus, 1500);

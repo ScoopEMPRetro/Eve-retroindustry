@@ -13,6 +13,7 @@ import os
 import secrets
 import hashlib
 import base64
+import socket
 import sqlite3
 import webbrowser
 import threading
@@ -156,10 +157,55 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         pass  # suppress HTTP logs
 
 
+class _DualStackCallbackServer(HTTPServer):
+    """Callback server that accepts BOTH IPv4 (127.0.0.1) and IPv6 (::1) loopback.
+
+    EVE SSO redirects the browser to ``http://localhost:5173/callback``. On some
+    machines the browser resolves ``localhost`` to ``::1`` (IPv6), while a plain
+    ``HTTPServer(("localhost", ...))`` binds IPv4 only (127.0.0.1) — the redirect
+    then hits a closed IPv6 port, the code never arrives, and the app waits
+    forever. Binding a dual-stack IPv6 socket makes both loopback flavors reach
+    us regardless of how the browser resolves ``localhost``.
+    """
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        # Turn OFF v6-only so IPv4-mapped addresses (127.0.0.1) are accepted too.
+        # Must be set before bind(); ignore if the platform lacks the option.
+        try:
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        except (AttributeError, OSError):
+            pass
+        super().server_bind()
+
+
+def _is_addr_in_use(exc: OSError) -> bool:
+    import errno as _errno
+    return exc.errno in (_errno.EADDRINUSE, getattr(_errno, "WSAEADDRINUSE", 10048))
+
+
+def _make_callback_server() -> HTTPServer:
+    """Create the local callback server, preferring a dual-stack IPv6 socket that
+    catches both ``::1`` and ``127.0.0.1``. Fall back to IPv4-only if IPv6 is
+    disabled on this machine. Raises OSError if the port can't be bound (e.g. it
+    is already in use) — the caller logs that."""
+    try:
+        return _DualStackCallbackServer(("::", CALLBACK_PORT), _CallbackHandler)
+    except OSError as exc:
+        if _is_addr_in_use(exc):
+            raise  # port taken — IPv4 fallback would fail too; let caller report it
+        print(f"[auth] IPv6 dual-stack bind failed ({exc!r}); falling back to IPv4-only",
+              flush=True)
+        return HTTPServer(("127.0.0.1", CALLBACK_PORT), _CallbackHandler)
+
+
 def _wait_for_callback(timeout: int = 120) -> str | None:
-    server = HTTPServer(("localhost", CALLBACK_PORT), _CallbackHandler)
+    server = _make_callback_server()
     server.timeout = timeout
-    server.handle_request()
+    try:
+        server.handle_request()
+    finally:
+        server.server_close()
     return _CallbackHandler.code
 
 
@@ -310,16 +356,32 @@ def start_web_login() -> str | None:
     def _run_callback():
         global _active_server
         try:
-            server = HTTPServer(("localhost", CALLBACK_PORT), _CallbackHandler)
+            # Dual-stack callback server (accepts ::1 and 127.0.0.1) so the SSO
+            # redirect reaches us no matter how the browser resolves "localhost".
+            try:
+                server = _make_callback_server()
+            except OSError as exc:
+                if _is_addr_in_use(exc):
+                    print(f"[auth] callback FAILED: port {CALLBACK_PORT} is already in use "
+                          f"— another program is holding it. Close it and try again. ({exc!r})",
+                          flush=True)
+                else:
+                    print(f"[auth] callback FAILED: could not bind port {CALLBACK_PORT}: {exc!r}",
+                          flush=True)
+                return
             # serve_forever() instead of handle_request() so it can be interrupted via shutdown()
             # from `cancel_web_login()`. The handler sets the code and, after processing it,
             # shuts down the server.
             _active_server = server
+            print(f"[auth] callback server listening on {server.server_address} "
+                  f"(family={server.address_family.name}); waiting for SSO redirect", flush=True)
             # Watchdog — if the user doesn't come back within 15 min, shut down and release the lock.
             def _watchdog():
                 import time
                 time.sleep(15 * 60)
                 if _active_server is server:
+                    print("[auth] callback watchdog: no redirect within 15 min — giving up",
+                          flush=True)
                     try:
                         server.shutdown()
                     except Exception:
@@ -333,39 +395,58 @@ def start_web_login() -> str | None:
                 except Exception:
                     pass
 
-            if _cancelled or not _CallbackHandler.code:
-                return  # cancelled or no code received
+            if _cancelled:
+                print("[auth] login cancelled by user", flush=True)
+                return
+            if not _CallbackHandler.code:
+                print("[auth] callback FAILED: no authorization code received — the browser "
+                      "never reached the callback (IPv6/IPv4, firewall, or closed too early)",
+                      flush=True)
+                return
 
             code = _CallbackHandler.code
-            r = httpx.post(
-                TOKEN_URL,
-                data={
-                    "grant_type":    "authorization_code",
-                    "code":          code,
-                    "redirect_uri":  CALLBACK_URL,
-                    "client_id":     client_id,
-                    "code_verifier": verifier,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=15,
-            )
-            if r.status_code != 200:
-                return
-            data = r.json()
-            payload = jwt.decode(data["access_token"], options={"verify_signature": False})
-            sub = payload.get("sub", "")
-            character_id   = int(sub.split(":")[-1])
-            character_name = payload.get("name", "Unknown")
-            conn = _open_conn()
             try:
-                ensure_characters_table(conn)
-                save_tokens(
-                    conn,
-                    data["access_token"], data["refresh_token"],
-                    data.get("expires_in", 1200), character_id, character_name,
+                r = httpx.post(
+                    TOKEN_URL,
+                    data={
+                        "grant_type":    "authorization_code",
+                        "code":          code,
+                        "redirect_uri":  CALLBACK_URL,
+                        "client_id":     client_id,
+                        "code_verifier": verifier,
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=15,
                 )
-            finally:
-                conn.close()
+            except Exception as exc:
+                print(f"[auth] token exchange FAILED: request error {exc!r} "
+                      "(network down, or a proxy/AV doing TLS interception?)", flush=True)
+                return
+            if r.status_code != 200:
+                print(f"[auth] token exchange FAILED: HTTP {r.status_code} {r.text[:300]}",
+                      flush=True)
+                return
+            try:
+                data = r.json()
+                payload = jwt.decode(data["access_token"], options={"verify_signature": False})
+                sub = payload.get("sub", "")
+                character_id   = int(sub.split(":")[-1])
+                character_name = payload.get("name", "Unknown")
+                conn = _open_conn()
+                try:
+                    ensure_characters_table(conn)
+                    save_tokens(
+                        conn,
+                        data["access_token"], data["refresh_token"],
+                        data.get("expires_in", 1200), character_id, character_name,
+                    )
+                finally:
+                    conn.close()
+            except Exception as exc:
+                print(f"[auth] callback FAILED: could not store character after token "
+                      f"exchange: {exc!r}", flush=True)
+                return
+            print(f"[auth] login OK: {character_name} (ID {character_id})", flush=True)
         finally:
             _active_server = None
             _login_lock.release()
