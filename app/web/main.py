@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.56"
+APP_VERSION = "0.8.57"
 
 import asyncio
 import datetime
@@ -1174,10 +1174,12 @@ async def _compute_dashboard(request: Request, conn, *, live: bool) -> dict:
     char_rows: dict[int, dict] = {cid: (get_character_row(conn, cid) or {}) for cid, _ in chars}
 
     # Access tokens — fetched once per char, OFF the event loop (live only).
+    # return_exceptions so one char's refresh error can't blow up the endpoint.
     tokens: dict[int, str | None] = {}
     if live:
         _cids = [cid for cid, _ in chars]
-        tokens = dict(zip(_cids, await asyncio.gather(*[_valid_token_async(c) for c in _cids])))
+        _tok_res = await asyncio.gather(*[_valid_token_async(c) for c in _cids], return_exceptions=True)
+        tokens = {c: (t if isinstance(t, str) else None) for c, t in zip(_cids, _tok_res)}
 
     # Corporation names via ESI bulk (live only).
     if live:
@@ -1260,7 +1262,20 @@ async def _compute_dashboard(request: Request, conn, *, live: bool) -> dict:
                     fetch_skill_queue(client, cid, tok),
                 )
 
-        loc_sq = dict(zip(_char_ids, await asyncio.gather(*[_fetch_loc_sq(c) for c in _char_ids])))
+        _loc_res = await asyncio.gather(*[_fetch_loc_sq(c) for c in _char_ids], return_exceptions=True)
+        loc_sq = {
+            c: (r if isinstance(r, (list, tuple)) and len(r) == 2 else ({}, []))
+            for c, r in zip(_char_ids, _loc_res)
+        }
+
+        try:
+            _tok_ok = sum(1 for t in tokens.values() if t)
+            _loc_ok = sum(1 for v in loc_sq.values() if v[0])
+            _trn_ok = sum(1 for v in loc_sq.values() if v[1])
+            print(f"[dash-live] chars={len(chars)} tokens_ok={_tok_ok}/{len(chars)} "
+                  f"located={_loc_ok} training={_trn_ok}", flush=True)
+        except Exception:
+            pass
 
         _dock_ids: set[int] = set()
         _sys_ids: set[int] = set()

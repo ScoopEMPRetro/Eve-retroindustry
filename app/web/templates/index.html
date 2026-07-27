@@ -237,23 +237,42 @@
     });
   }
 
-  // Network/timeout failure: drop the spinners and show neutral fallbacks so
-  // nothing spins forever. Cache-derived values (asset value, corp id) remain.
+  function spinRow(icon, text) {
+    return `<i class="bi ${icon}" style="flex-shrink:0"></i><span class="text-muted">${text}</span>`
+      + `<span class="dash-spin spinner-border spinner-border-sm text-muted ms-auto" style="width:.75rem;height:.75rem"></span>`;
+  }
+  function restoreSpinners() {
+    const aw = document.getElementById('agg-wallet');
+    if (aw) aw.innerHTML = `<div class="d-flex align-items-center gap-2 mt-1">`
+      + `<span class="spinner-border spinner-border-sm text-muted" style="width:1rem;height:1rem"></span>`
+      + `<span class="text-muted small">Loading…</span></div>`;
+    document.querySelectorAll('[id^="loc-"]').forEach(el => el.innerHTML = spinRow('bi-geo-alt text-muted', 'Loading location…'));
+    document.querySelectorAll('[id^="train-"]').forEach(el => el.innerHTML = spinRow('bi-mortarboard text-info', 'Loading…'));
+  }
+
+  // Network/timeout failure: drop the spinners, show neutral fallbacks and a
+  // Retry (so a slow/rate-limited ESI is never a dead end). Cache-derived
+  // values (asset value, corp id) stay put.
   function fail() {
     const aw = document.getElementById('agg-wallet');
-    if (aw) aw.innerHTML = `<div class="fs-4 fw-bold text-muted">—</div>`
-      + `<div class="text-muted" style="font-size:.7rem">couldn't load live data</div>`;
+    if (aw) aw.innerHTML = `<div class="fs-6 fw-bold text-muted">—</div>`
+      + `<div class="text-muted" style="font-size:.7rem">couldn't load live data · `
+      + `<a href="#" onclick="return dashRetry()">retry</a></div>`;
     document.querySelectorAll('[id^="loc-"]').forEach(el => el.innerHTML = locHtml(null));
     document.querySelectorAll('[id^="train-"]').forEach(el => el.innerHTML = trainHtml(null));
     document.querySelectorAll('.dash-spin').forEach(s => s.remove());
   }
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25000);
-  fetch('/api/dashboard/live', { signal: ctrl.signal })
-    .then(r => r.json())
-    .then(d => { clearTimeout(timer); apply(d); })
-    .catch(() => { clearTimeout(timer); fail(); });
+  function loadLive() {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 45000);   // last-resort cap
+    fetch('/api/dashboard/live', { signal: ctrl.signal })
+      .then(r => r.json())
+      .then(d => { clearTimeout(timer); apply(d); })
+      .catch(() => { clearTimeout(timer); fail(); });
+  }
+  window.dashRetry = function () { restoreSpinners(); loadLive(); return false; };
+  loadLive();
 })();
 {% endif %}
 
