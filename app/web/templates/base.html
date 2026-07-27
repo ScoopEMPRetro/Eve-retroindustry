@@ -29,7 +29,7 @@
     /* Keep each nav item (icon + label) on a single line; compact padding so the
        whole row fits without a horizontal scrollbar. */
     .navbar-nav .nav-link { white-space: nowrap; padding-left: .5rem; padding-right: .5rem; }
-    .nav-label { margin-left: .35rem; }
+    .nav-label { margin-left: .35rem; white-space: nowrap; }
     /* Narrow widths → collapse the main nav to icons only (the full name shows
        as a tooltip on hover). Below 992px the navbar switches to the hamburger
        menu where full labels are used, so this only applies in between. */
@@ -162,7 +162,7 @@
         <li class="nav-item">
           <a class="nav-link d-flex align-items-center" href="#" onclick="kofiOpen(event)"
              style="font-size:.85rem;opacity:.7" title="Support me on Ko-fi">
-            <i class="bi bi-cup-hot-fill" style="color:#e3b341"></i>
+            <i class="bi bi-cup-hot-fill" style="color:#e3b341"></i><span class="nav-label">Support me</span>
           </a>
         </li>
         <li class="nav-item">
@@ -178,7 +178,7 @@
         <li class="nav-item">
           <button class="btn btn-sm btn-outline-secondary d-flex align-items-center"
                   onclick="syncAll(this)" title="Sync blueprints, assets, skills & wallet for all characters">
-            <i class="bi bi-arrow-clockwise"></i>
+            <i class="bi bi-arrow-clockwise"></i><span class="nav-label">Sync All</span>
           </button>
         </li>
         <li class="nav-item dropdown">
