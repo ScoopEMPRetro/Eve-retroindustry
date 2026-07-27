@@ -42,6 +42,74 @@ def test_dashboard_live_endpoint(client):
     assert c["location_name"]
 
 
+def test_token_refresh_is_serialized(app_module, monkeypatch):
+    # Concurrent refreshes of the same character must not race on the rotating
+    # refresh token: exactly one real refresh happens, nobody gets None.
+    import threading
+    from app.auth import token_store as ts
+    m = app_module
+    cid = 900000001
+
+    c = m.get_conn()
+    try:
+        c.execute("UPDATE characters SET token_expires_at=0 WHERE character_id=?", (cid,))
+        c.commit()
+    finally:
+        c.close()
+
+    calls = {"n": 0}
+    used: set[str] = set()
+    guard = threading.Lock()
+
+    class _Resp:
+        def __init__(self, a, r, code=200, text=""):
+            self.status_code, self.text, self._a, self._r = code, text, a, r
+        def json(self):
+            return {"access_token": self._a, "refresh_token": self._r, "expires_in": 1200}
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        with guard:
+            calls["n"] += 1
+            n = calls["n"]
+            rt = (data or {}).get("refresh_token")
+        if rt in used:                       # rotated token reused → EVE rejects
+            return _Resp(None, None, 400, "invalid_grant")
+        used.add(rt)
+        return _Resp(f"acc-{n}", f"ref-{n}")
+
+    monkeypatch.setattr(ts.httpx, "post", fake_post)
+
+    results: list = []
+    rlock = threading.Lock()
+
+    def worker():
+        cc = m.get_conn()
+        try:
+            tok = ts.get_valid_token(cc, cid)
+        finally:
+            cc.close()
+        with rlock:
+            results.append(tok)
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    try:
+        assert all(results), results          # nobody got None
+        assert calls["n"] == 1, f"expected 1 real refresh, got {calls['n']}"
+    finally:
+        c = m.get_conn()
+        try:
+            c.execute("UPDATE characters SET access_token='test', refresh_token='test', "
+                      "token_expires_at=? WHERE character_id=?", (2**31, cid))
+            c.commit()
+        finally:
+            c.close()
+
+
 def test_plan_contract_price_requires_login(client):
     # No active-character cookie -> not signed in / graceful error, never a 500.
     r = client.get("/api/plan/contract-price",

@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.57"
+APP_VERSION = "0.8.58"
 
 import asyncio
 import datetime
@@ -974,7 +974,10 @@ async def _bg_initial_sync():
         async with esi_client() as client:
             for char_id, _name in chars:
                 try:
-                    token = _get_valid_token_for(conn, char_id)
+                    # Off the event loop + serialized with the dashboard's token
+                    # fetch (shared per-char refresh lock) so the two can't
+                    # invalidate each other's rotating refresh token.
+                    token = await _valid_token_async(char_id)
                 except Exception as exc:
                     print(f"[sync] token refresh failed for {char_id}: {exc}", flush=True)
                     continue

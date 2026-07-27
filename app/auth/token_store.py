@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 import time
 import httpx
 
@@ -29,6 +30,23 @@ _APP_DIR = os.environ.get("EVE_APP_DIR") or os.path.join(
 CONFIG_PATH = os.path.join(_APP_DIR, ".eve_config.json")
 TOKEN_ENDPOINT = "https://login.eveonline.com/v2/oauth/token"
 _DEFAULT_CLIENT_ID = "50cc73daf13d4109a06821c143cb5ca4"
+
+# Per-character refresh locks. EVE rotates the refresh token on every use, so two
+# concurrent refreshes with the same token invalidate each other (one gets
+# invalid_grant → None). Serializing refreshes per character — whoever wins the
+# lock refreshes and stores the new token; everyone else re-reads it — removes
+# that race (e.g. "Sync All" running while the dashboard fetches live data).
+_refresh_locks: dict[int, threading.Lock] = {}
+_refresh_locks_guard = threading.Lock()
+
+
+def _refresh_lock_for(character_id: int) -> threading.Lock:
+    with _refresh_locks_guard:
+        lk = _refresh_locks.get(character_id)
+        if lk is None:
+            lk = threading.Lock()
+            _refresh_locks[character_id] = lk
+        return lk
 
 
 # ---------------------------------------------------------------------------
@@ -234,45 +252,70 @@ def update_last_sync(conn: sqlite3.Connection, character_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 def get_valid_token(conn: sqlite3.Connection, character_id: int) -> str | None:
-    """Return a valid access_token for the given char — auto-refresh on expiry."""
+    """Return a valid access_token for the given char — auto-refresh on expiry.
+
+    Refreshes are serialized per character (see _refresh_locks) so concurrent
+    callers — e.g. "Sync All" and the dashboard live fetch — can't invalidate
+    each other's rotating refresh token.
+    """
     row = get_character_row(conn, character_id)
     if not row:
         return None
 
     access = row["access_token"]
-    refresh = row["refresh_token"]
     expires = row["token_expires_at"] or 0
-
     if access and time.time() < expires:
         return access
 
     client_id = get_client_id()
-    if not client_id or not refresh:
+    if not client_id:
         return None
 
-    r = httpx.post(
-        TOKEN_ENDPOINT,
-        data={
-            "grant_type":    "refresh_token",
-            "refresh_token": refresh,
-            "client_id":     client_id,
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        timeout=15,
-    )
-    if r.status_code != 200:
-        return None
+    lock = _refresh_lock_for(int(character_id))
+    with lock:
+        # Re-read under the lock: another caller may have just refreshed and
+        # stored a fresh token, in which case we must NOT refresh again (that
+        # would use an already-rotated refresh token and fail).
+        row = get_character_row(conn, character_id)
+        if not row:
+            return None
+        access = row["access_token"]
+        refresh = row["refresh_token"]
+        expires = row["token_expires_at"] or 0
+        if access and time.time() < expires:
+            return access
+        if not refresh:
+            return None
 
-    resp = r.json()
-    new_access = resp["access_token"]
-    new_refresh = resp.get("refresh_token", refresh)
-    new_expires_at = time.time() + resp.get("expires_in", 1200) - 60
+        try:
+            r = httpx.post(
+                TOKEN_ENDPOINT,
+                data={
+                    "grant_type":    "refresh_token",
+                    "refresh_token": refresh,
+                    "client_id":     client_id,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=15,
+            )
+        except Exception as exc:
+            print(f"[token] refresh request failed for {character_id}: {exc!r}", flush=True)
+            return None
+        if r.status_code != 200:
+            print(f"[token] refresh rejected for {character_id}: HTTP {r.status_code} "
+                  f"{r.text[:200]}", flush=True)
+            return None
 
-    conn.execute(
-        """UPDATE characters
-           SET access_token=?, refresh_token=?, token_expires_at=?
-           WHERE character_id=?""",
-        (new_access, new_refresh, new_expires_at, int(character_id)),
-    )
-    conn.commit()
-    return new_access
+        resp = r.json()
+        new_access = resp["access_token"]
+        new_refresh = resp.get("refresh_token", refresh)
+        new_expires_at = time.time() + resp.get("expires_in", 1200) - 60
+
+        conn.execute(
+            """UPDATE characters
+               SET access_token=?, refresh_token=?, token_expires_at=?
+               WHERE character_id=?""",
+            (new_access, new_refresh, new_expires_at, int(character_id)),
+        )
+        conn.commit()
+        return new_access
