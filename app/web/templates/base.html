@@ -26,8 +26,18 @@
     .navbar-brand { font-weight: 700; letter-spacing: .04em; color: var(--eve-gold) !important; display:flex; align-items:center; gap:.5rem; }
     .nav-link.active { color: var(--eve-gold) !important; }
     .nav-link:hover  { color: var(--eve-gold) !important; }
-    /* Keep each nav item (icon + label) on a single line so the row stays aligned. */
-    .navbar-nav .nav-link { white-space: nowrap; }
+    /* Keep each nav item (icon + label) on a single line; compact padding so the
+       whole row fits without a horizontal scrollbar. */
+    .navbar-nav .nav-link { white-space: nowrap; padding-left: .5rem; padding-right: .5rem; }
+    .nav-label { margin-left: .35rem; }
+    /* Narrow widths → collapse the main nav to icons only (the full name shows
+       as a tooltip on hover). Below 992px the navbar switches to the hamburger
+       menu where full labels are used, so this only applies in between. */
+    @media (min-width: 992px) and (max-width: 1399.98px) {
+      .navbar-nav .nav-label { display: none; }
+    }
+    /* Cap the active character name (ellipsis) so a long name can't stretch the navbar. */
+    .nav-char-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* ── Cards / Tables ── */
     .card  { background: linear-gradient(180deg, #171e28, #131922); border: 1px solid var(--eve-border); border-radius: 12px; }
@@ -118,34 +128,34 @@
     <div class="collapse navbar-collapse" id="navmenu">
       <ul class="navbar-nav me-auto gap-1">
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path == '/' %}active{% endif %}" href="/"><i class="bi bi-speedometer2 me-1"></i>Dashboard</a>
+          <a class="nav-link {% if request.url.path == '/' %}active{% endif %}" href="/" title="Dashboard"><i class="bi bi-speedometer2"></i><span class="nav-label">Dashboard</span></a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/plan') %}active{% endif %}" href="/plan"><i class="bi bi-hammer me-1"></i>Production Plan</a>
+          <a class="nav-link {% if request.url.path.startswith('/plan') %}active{% endif %}" href="/plan" title="Production Plan"><i class="bi bi-hammer"></i><span class="nav-label">Plan</span></a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/assets') %}active{% endif %}" href="/assets"><i class="bi bi-box-seam me-1"></i>Assets</a>
+          <a class="nav-link {% if request.url.path.startswith('/assets') %}active{% endif %}" href="/assets" title="Assets"><i class="bi bi-box-seam"></i><span class="nav-label">Assets</span></a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/blueprints') %}active{% endif %}" href="/blueprints"><i class="bi bi-file-earmark-text me-1"></i>Blueprints</a>
+          <a class="nav-link {% if request.url.path.startswith('/blueprints') %}active{% endif %}" href="/blueprints" title="Blueprints"><i class="bi bi-file-earmark-text"></i><span class="nav-label">Blueprints</span></a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/prices') %}active{% endif %}" href="/prices"><i class="bi bi-currency-exchange me-1"></i>Prices</a>
+          <a class="nav-link {% if request.url.path.startswith('/prices') %}active{% endif %}" href="/prices" title="Prices"><i class="bi bi-currency-exchange"></i><span class="nav-label">Prices</span></a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/projects') %}active{% endif %}" href="/projects"><i class="bi bi-kanban me-1"></i>Projects</a>
+          <a class="nav-link {% if request.url.path.startswith('/projects') %}active{% endif %}" href="/projects" title="Projects"><i class="bi bi-kanban"></i><span class="nav-label">Projects</span></a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/wallet') %}active{% endif %}" href="/wallet"><i class="bi bi-wallet2 me-1"></i>Wallet</a>
+          <a class="nav-link {% if request.url.path.startswith('/wallet') %}active{% endif %}" href="/wallet" title="Wallet"><i class="bi bi-wallet2"></i><span class="nav-label">Wallet</span></a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/orders') %}active{% endif %}" href="/orders"><i class="bi bi-bag me-1"></i>Market Orders</a>
+          <a class="nav-link {% if request.url.path.startswith('/orders') %}active{% endif %}" href="/orders" title="Market Orders"><i class="bi bi-bag"></i><span class="nav-label">Orders</span></a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/contracts') %}active{% endif %}" href="/contracts"><i class="bi bi-file-earmark-ruled me-1"></i>Contracts</a>
+          <a class="nav-link {% if request.url.path.startswith('/contracts') %}active{% endif %}" href="/contracts" title="Contracts"><i class="bi bi-file-earmark-ruled"></i><span class="nav-label">Contracts</span></a>
         </li>
         <li class="nav-item">
-          <a class="nav-link {% if request.url.path.startswith('/jobs') %}active{% endif %}" href="/jobs"><i class="bi bi-gear-wide-connected me-1"></i>Jobs</a>
+          <a class="nav-link {% if request.url.path.startswith('/jobs') %}active{% endif %}" href="/jobs" title="Jobs"><i class="bi bi-gear-wide-connected"></i><span class="nav-label">Jobs</span></a>
         </li>
       </ul>
       <ul class="navbar-nav ms-auto align-items-center gap-2">
@@ -153,7 +163,6 @@
           <a class="nav-link d-flex align-items-center" href="#" onclick="kofiOpen(event)"
              style="font-size:.85rem;opacity:.7" title="Support me on Ko-fi">
             <i class="bi bi-cup-hot-fill" style="color:#e3b341"></i>
-            <span class="d-none d-xl-inline ms-1">Support me</span>
           </a>
         </li>
         <li class="nav-item">
@@ -167,9 +176,9 @@
 
         {% if all_characters %}
         <li class="nav-item">
-          <button class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
+          <button class="btn btn-sm btn-outline-secondary d-flex align-items-center"
                   onclick="syncAll(this)" title="Sync blueprints, assets, skills & wallet for all characters">
-            <i class="bi bi-arrow-clockwise"></i><span class="d-none d-xl-inline">Sync All</span>
+            <i class="bi bi-arrow-clockwise"></i>
           </button>
         </li>
         <li class="nav-item dropdown">
@@ -179,7 +188,7 @@
             {% if character %}
             <img src="https://images.evetech.net/characters/{{ character[0] }}/portrait?size=32"
                  width="24" height="24" class="rounded-circle" style="opacity:.9">
-            <span class="small">{{ character[1] }}</span>
+            <span class="small nav-char-name">{{ character[1] }}</span>
             {% else %}
             <i class="bi bi-person-circle"></i>
             <span class="small text-muted">Select character…</span>

@@ -266,13 +266,14 @@ def main() -> None:
     import webview
 
     url = f"http://127.0.0.1:{port}"
-    # Open wide enough that the whole UI (the wide navbar especially) fits with
-    # no horizontal scrollbar — 1400 was too narrow and clipped the nav row.
+    # Open wide enough that the whole UI (the wide nav row especially) fits on
+    # one line with no horizontal scrollbar. The active character name is capped
+    # with an ellipsis in CSS so it can't push the nav past this width.
     # Not maximized: keep it a normal, movable/resizable window.
     window = webview.create_window(
         title="EVE Retroindustry",
         url=url,
-        width=1600,
+        width=1680,
         height=1000,
         min_size=(900, 600),
     )
