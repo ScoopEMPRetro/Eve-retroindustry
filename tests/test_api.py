@@ -22,6 +22,26 @@ def test_open_external_allowlist(client, url, ok):
     assert d["ok"] is ok, d
 
 
+def test_dashboard_renders_instantly_from_cache(client):
+    # The dashboard must render from cache only (no ESI) so it can never hang;
+    # the live-data placeholders confirm the ESI work was deferred.
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "Loading location" in r.text
+    assert "/api/dashboard/live" in r.text
+
+
+def test_dashboard_live_endpoint(client):
+    d = client.get("/api/dashboard/live").json()
+    assert d["logged_in"] is True
+    # Both seeded characters are present.
+    assert "900000001" in d["chars"] and "900000002" in d["chars"]
+    c = d["chars"]["900000001"]
+    # Wallet from the seeded cache; location from the stubbed ESI fetcher (Jita 4-4).
+    assert c["wallet_str"]
+    assert c["location_name"]
+
+
 def test_plan_contract_price_requires_login(client):
     # No active-character cookie -> not signed in / graceful error, never a 500.
     r = client.get("/api/plan/contract-price",

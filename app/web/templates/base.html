@@ -98,9 +98,21 @@
     .htmx-indicator { display: none; }
     .htmx-request .htmx-indicator { display: inline-block; }
     .htmx-request.htmx-indicator  { display: inline-block; }
+    /* Global top progress bar — shown whenever the app is busy (navigation or a
+       slow fetch), so nothing ever looks frozen. */
+    #app-progress {
+      position: fixed; top: 0; left: 0; height: 3px; width: 0;
+      background: linear-gradient(90deg, var(--eve-gold, #e6b84a), #f7d987);
+      box-shadow: 0 0 8px rgba(230,184,74,.7);
+      z-index: 3000; opacity: 0;
+      transition: width .2s ease, opacity .35s ease;
+      pointer-events: none;
+    }
+    #app-progress.active { opacity: 1; }
   </style>
 </head>
 <body>
+<div id="app-progress" aria-hidden="true"></div>
 <nav class="navbar navbar-expand-lg navbar-dark sticky-top" style="background:#0f141b; border-bottom:1px solid var(--eve-border);">
   <div class="container-fluid px-4">
     <a class="navbar-brand" href="/">
@@ -319,6 +331,71 @@ async function syncAll(btn) {
   }).catch(() => {});
 })();
 {% endif %}
+</script>
+<script>
+// Global "app is busy" indicator: a thin gold top progress bar shown for slow
+// fetches and page navigations, so the app never looks frozen while working.
+(function () {
+  const bar = document.getElementById('app-progress');
+  if (!bar) return;
+  let pending = 0, showTimer = null, trickle = null, width = 0;
+
+  function paint() { bar.style.width = width + '%'; }
+  function run() {
+    clearInterval(trickle);
+    trickle = setInterval(() => { width += (92 - width) * 0.12; paint(); }, 400);
+  }
+  function begin() {
+    if (bar.classList.contains('active')) return;
+    width = 10; paint(); bar.classList.add('active'); run();
+  }
+  function finish() {
+    clearInterval(trickle); trickle = null;
+    width = 100; paint();
+    setTimeout(() => { bar.classList.remove('active'); width = 0; bar.style.width = '0'; }, 350);
+  }
+  // Delay ~250ms so quick polls (sync/auth status) don't flash the bar.
+  window.appBusy = function (on) {
+    if (on) {
+      pending++;
+      if (!showTimer && !bar.classList.contains('active'))
+        showTimer = setTimeout(() => { showTimer = null; if (pending > 0) begin(); }, 250);
+    } else {
+      pending = Math.max(0, pending - 1);
+      if (pending === 0) {
+        if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+        if (bar.classList.contains('active')) finish();
+      }
+    }
+  };
+
+  // Count in-flight fetch() calls.
+  const _fetch = window.fetch;
+  window.fetch = function () {
+    window.appBusy(true);
+    return _fetch.apply(this, arguments).finally(() => window.appBusy(false));
+  };
+
+  // Page navigations: show immediately on internal link clicks / form submits.
+  function navStart() { bar.classList.add('active'); width = 12; paint(); run(); }
+  document.addEventListener('click', function (e) {
+    const a = e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    const href = a.getAttribute('href') || '';
+    if (a.target === '_blank' || a.hasAttribute('download')) return;
+    if (href.startsWith('#') || href.toLowerCase().startsWith('javascript:')) return;
+    if (a.origin && a.origin !== location.origin) return;   // external link
+    navStart();
+  }, true);
+  document.addEventListener('submit', navStart, true);
+
+  // Reset when a page is shown (incl. back/forward cache).
+  window.addEventListener('pageshow', function () {
+    clearInterval(trickle); trickle = null;
+    if (showTimer) { clearTimeout(showTimer); showTimer = null; }
+    pending = 0; bar.classList.remove('active'); width = 0; bar.style.width = '0';
+  });
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>

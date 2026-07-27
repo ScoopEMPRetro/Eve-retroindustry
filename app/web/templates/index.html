@@ -36,25 +36,28 @@
   <div class="col">
     <div class="card stat-card h-100 p-3" style="border-left-color:#2f81f7">
       <div class="text-muted small mb-1"><i class="bi bi-cash-stack me-1"></i>Available Cash</div>
-      {% if agg_wallet is not none %}
-      <div class="fw-bold text-isk" style="font-size:1.05rem">{{ agg_wallet | isk }}</div>
-      <div class="text-muted" style="font-size:.7rem">ISK in wallets (all chars)</div>
-      {% else %}
-      <div class="fs-4 fw-bold text-muted">—</div>
-      <div class="text-muted" style="font-size:.7rem">Sync to load</div>
-      {% endif %}
+      {# Wallet is ESI-only → filled by loadLive(). #}
+      <div id="agg-wallet">
+        <div class="d-flex align-items-center gap-2 mt-1">
+          <span class="spinner-border spinner-border-sm text-muted" style="width:1rem;height:1rem"></span>
+          <span class="text-muted small">Loading…</span>
+        </div>
+      </div>
     </div>
   </div>
   <div class="col">
     <div class="card stat-card h-100 p-3" style="border-left-color:#e3b341">
       <div class="text-muted small mb-1"><i class="bi bi-coin me-1"></i>Est. Net Worth</div>
-      {% if agg_value %}
-      <div class="fw-bold text-isk" style="font-size:1.05rem">{{ agg_value | isk }}</div>
-      <div class="text-muted" style="font-size:.7rem">ISK (all chars)</div>
-      {% else %}
-      <div class="fs-4 fw-bold text-muted">—</div>
-      <div class="text-muted" style="font-size:.7rem">load prices first</div>
-      {% endif %}
+      {# Rendered from cached asset values now; upgraded to include wallets by loadLive(). #}
+      <div id="agg-value">
+        {% if agg_value %}
+        <div class="fw-bold text-isk" style="font-size:1.05rem">{{ agg_value | isk }}</div>
+        <div class="text-muted" style="font-size:.7rem">ISK (all chars)</div>
+        {% else %}
+        <div class="fs-4 fw-bold text-muted">—</div>
+        <div class="text-muted" style="font-size:.7rem">load prices first</div>
+        {% endif %}
+      </div>
     </div>
   </div>
   <div class="col">
@@ -85,61 +88,39 @@
               <span class="badge ms-1" style="font-size:.6rem;background:var(--eve-gold);color:#0d1117">Active</span>
               {% endif %}
             </div>
-            {% if c.corp_name %}
-            <div class="text-muted small">{{ c.corp_name }}</div>
-            {% elif c.corp_id %}
-            <div class="text-muted small" style="font-size:.75rem">Corp {{ c.corp_id }}</div>
-            {% endif %}
+            {# corp NAME comes from ESI → filled by loadLive(); id known from cache #}
+            <div class="text-muted small" id="corp-{{ c.char_id }}" style="font-size:.75rem">
+              {% if c.corp_id %}Corp {{ c.corp_id }}
+              <span class="dash-spin spinner-border spinner-border-sm" style="width:.6rem;height:.6rem;border-width:.1em"></span>
+              {% endif %}
+            </div>
           </div>
         </div>
 
         <div class="mb-3">
-          {# Location — docked station/structure, or system + undocked #}
-          <div class="d-flex align-items-center gap-2 mb-1" style="font-size:.82rem">
-            <i class="bi bi-geo-alt {% if c.location_state == 'docked' %}text-success{% elif c.location_state == 'undocked' %}text-warning{% else %}text-muted{% endif %}" style="flex-shrink:0"></i>
-            {% if c.location_name %}
-              <span class="text-truncate">{{ c.location_name }}</span>
-              {% if c.location_state == 'undocked' %}
-              <span class="badge bg-warning text-dark ms-auto" style="font-size:.58rem;flex-shrink:0">UNDOCKED</span>
-              {% endif %}
-            {% else %}
-              <span class="text-muted">Location unknown</span>
-            {% endif %}
+          {# Location — ESI-only, filled by loadLive() #}
+          <div class="d-flex align-items-center gap-2 mb-1" style="font-size:.82rem" id="loc-{{ c.char_id }}">
+            <i class="bi bi-geo-alt text-muted" style="flex-shrink:0"></i>
+            <span class="text-muted">Loading location…</span>
+            <span class="dash-spin spinner-border spinner-border-sm text-muted ms-auto" style="width:.75rem;height:.75rem"></span>
           </div>
-          {# Active training + remaining time #}
-          <div class="d-flex align-items-center gap-2" style="font-size:.82rem">
+          {# Active training — ESI-only, filled by loadLive() #}
+          <div class="d-flex align-items-center gap-2" style="font-size:.82rem" id="train-{{ c.char_id }}">
             <i class="bi bi-mortarboard text-info" style="flex-shrink:0"></i>
-            {% if c.training %}
-              <span class="text-truncate">{{ c.training.skill }} {{ c.training.level }}</span>
-              <span class="text-muted ms-auto skill-countdown" data-finish="{{ c.training.finish_iso }}"
-                    style="font-size:.72rem;white-space:nowrap;flex-shrink:0">{{ c.training.remaining }}</span>
-            {% else %}
-              <span class="text-muted">Not training</span>
-            {% endif %}
+            <span class="text-muted">Loading…</span>
+            <span class="dash-spin spinner-border spinner-border-sm text-muted ms-auto" style="width:.75rem;height:.75rem"></span>
           </div>
         </div>
 
-        {% if c.net_worth is not none %}
-        <div class="mb-3 p-2 rounded" style="background:#1c2128">
-          <div class="d-flex justify-content-between align-items-baseline mb-1">
-            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Est. Net Worth</div>
+        {# Worth block — asset value from cache now; upgraded to net worth (incl. wallet) by loadLive() #}
+        <div id="worth-{{ c.char_id }}"{% if c.asset_value is none %} style="display:none"{% endif %}>
+          {% if c.asset_value is not none %}
+          <div class="mb-3 p-2 rounded" style="background:#1c2128">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Asset Value</div>
+            <div class="text-isk fw-semibold">{{ c.asset_value | isk }} ISK</div>
           </div>
-          <div class="text-isk fw-semibold" style="font-size:1rem">{{ c.net_worth | isk }} ISK</div>
-          <div class="d-flex gap-3 mt-1" style="font-size:.72rem;color:#8b949e">
-            {% if c.asset_value is not none %}
-            <span title="Asset value"><i class="bi bi-box-seam me-1"></i>{{ c.asset_value | isk }}</span>
-            {% endif %}
-            {% if c.wallet is not none %}
-            <span title="Wallet ISK"><i class="bi bi-wallet2 me-1"></i>{{ c.wallet | isk }}</span>
-            {% endif %}
-          </div>
+          {% endif %}
         </div>
-        {% elif c.asset_value is not none %}
-        <div class="mb-3 p-2 rounded" style="background:#1c2128">
-          <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Asset Value</div>
-          <div class="text-isk fw-semibold">{{ c.asset_value | isk }} ISK</div>
-        </div>
-        {% endif %}
 
         <div class="d-flex align-items-center justify-content-between">
           {% if c.last_sync_at %}
@@ -174,6 +155,108 @@
 {% block scripts %}
 {# syncAll() is defined globally in base.html #}
 <script>
+// ── Live dashboard data (wallet, location, training, corp name, net worth) ──
+// The page renders instantly from cache; the ESI-backed fields load here so a
+// slow/rate-limited ESI can never make the dashboard look frozen.
+{% if logged_in %}
+(function () {
+  function esc(s) { const d = document.createElement('div'); d.textContent = (s == null ? '' : s); return d.innerHTML; }
+  function stripSpin(id) { const el = document.getElementById(id); if (el) el.querySelectorAll('.dash-spin').forEach(s => s.remove()); }
+
+  function locHtml(c) {
+    const st = c && c.location_state;
+    const icon = st === 'docked' ? 'text-success' : st === 'undocked' ? 'text-warning' : 'text-muted';
+    let h = `<i class="bi bi-geo-alt ${icon}" style="flex-shrink:0"></i>`;
+    if (c && c.location_name) {
+      h += `<span class="text-truncate">${esc(c.location_name)}</span>`;
+      if (st === 'undocked')
+        h += `<span class="badge bg-warning text-dark ms-auto" style="font-size:.58rem;flex-shrink:0">UNDOCKED</span>`;
+    } else {
+      h += `<span class="text-muted">Location unknown</span>`;
+    }
+    return h;
+  }
+  function trainHtml(c) {
+    let h = `<i class="bi bi-mortarboard text-info" style="flex-shrink:0"></i>`;
+    const t = c && c.training;
+    if (t) {
+      h += `<span class="text-truncate">${esc(t.skill)} ${esc(t.level)}</span>`;
+      h += `<span class="text-muted ms-auto skill-countdown" data-finish="${esc(t.finish_iso)}" `
+        + `style="font-size:.72rem;white-space:nowrap;flex-shrink:0">${esc(t.remaining)}</span>`;
+    } else {
+      h += `<span class="text-muted">Not training</span>`;
+    }
+    return h;
+  }
+  function worthHtml(c) {
+    if (c && c.net_worth_str) {
+      let h = `<div class="mb-3 p-2 rounded" style="background:#1c2128">`
+        + `<div class="d-flex justify-content-between align-items-baseline mb-1">`
+        + `<div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Est. Net Worth</div></div>`
+        + `<div class="text-isk fw-semibold" style="font-size:1rem">${esc(c.net_worth_str)} ISK</div>`
+        + `<div class="d-flex gap-3 mt-1" style="font-size:.72rem;color:#8b949e">`;
+      if (c.asset_value_str) h += `<span title="Asset value"><i class="bi bi-box-seam me-1"></i>${esc(c.asset_value_str)}</span>`;
+      if (c.wallet_str) h += `<span title="Wallet ISK"><i class="bi bi-wallet2 me-1"></i>${esc(c.wallet_str)}</span>`;
+      h += `</div></div>`;
+      return h;
+    }
+    if (c && c.asset_value_str) {
+      return `<div class="mb-3 p-2 rounded" style="background:#1c2128">`
+        + `<div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">Asset Value</div>`
+        + `<div class="text-isk fw-semibold">${esc(c.asset_value_str)} ISK</div></div>`;
+    }
+    return '';
+  }
+  function setAgg(id, valStr, sub) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (valStr) el.innerHTML = `<div class="fw-bold text-isk" style="font-size:1.05rem">${esc(valStr)}</div>`
+      + `<div class="text-muted" style="font-size:.7rem">${sub}</div>`;
+    else el.innerHTML = `<div class="fs-4 fw-bold text-muted">—</div>`
+      + `<div class="text-muted" style="font-size:.7rem">no wallet data</div>`;
+  }
+
+  function apply(d) {
+    if (!d || !d.logged_in) { fail(); return; }
+    setAgg('agg-wallet', d.agg_wallet_str, 'ISK in wallets (all chars)');
+    if (d.agg_value_str) {
+      const el = document.getElementById('agg-value');
+      if (el) el.innerHTML = `<div class="fw-bold text-isk" style="font-size:1.05rem">${esc(d.agg_value_str)}</div>`
+        + `<div class="text-muted" style="font-size:.7rem">ISK (all chars)</div>`;
+    }
+    const chars = d.chars || {};
+    Object.keys(chars).forEach(cid => {
+      const c = chars[cid];
+      const corp = document.getElementById('corp-' + cid);
+      if (corp) { if (c.corp_name) corp.textContent = c.corp_name; else stripSpin('corp-' + cid); }
+      const loc = document.getElementById('loc-' + cid);   if (loc) loc.innerHTML = locHtml(c);
+      const tr = document.getElementById('train-' + cid);  if (tr) tr.innerHTML = trainHtml(c);
+      const w = worthHtml(c);
+      const wl = document.getElementById('worth-' + cid);
+      if (wl && w) { wl.innerHTML = w; wl.style.display = ''; }
+    });
+  }
+
+  // Network/timeout failure: drop the spinners and show neutral fallbacks so
+  // nothing spins forever. Cache-derived values (asset value, corp id) remain.
+  function fail() {
+    const aw = document.getElementById('agg-wallet');
+    if (aw) aw.innerHTML = `<div class="fs-4 fw-bold text-muted">—</div>`
+      + `<div class="text-muted" style="font-size:.7rem">couldn't load live data</div>`;
+    document.querySelectorAll('[id^="loc-"]').forEach(el => el.innerHTML = locHtml(null));
+    document.querySelectorAll('[id^="train-"]').forEach(el => el.innerHTML = trainHtml(null));
+    document.querySelectorAll('.dash-spin').forEach(s => s.remove());
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 25000);
+  fetch('/api/dashboard/live', { signal: ctrl.signal })
+    .then(r => r.json())
+    .then(d => { clearTimeout(timer); apply(d); })
+    .catch(() => { clearTimeout(timer); fail(); });
+})();
+{% endif %}
+
 // Live countdown of remaining training time (per character card).
 (function () {
   function fmt(ms) {

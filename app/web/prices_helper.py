@@ -117,6 +117,25 @@ async def get_prices_for_ids(
     return result
 
 
+def get_cached_prices_for_ids(
+    conn: sqlite3.Connection,
+    type_ids: list[int],
+) -> dict[int, tuple[float | None, float | None]]:
+    """Like :func:`get_prices_for_ids` but NEVER touches ESI — cached Jita/Forge
+    sell prices plus custom overrides only. Types with no cached price simply get
+    no entry. Synchronous and instant, so the dashboard can render immediately;
+    the ``/api/dashboard/live`` endpoint fills in ESI-derived values afterwards."""
+    ensure_price_table(conn)
+    result: dict[int, tuple[float | None, float | None]] = dict(
+        get_cached_jita_prices(conn, type_ids)
+    )
+    custom = _load_custom_overrides(conn, type_ids)
+    for tid, price in custom.items():
+        buy = result.get(tid, (None, None))[1]
+        result[tid] = (price, buy)
+    return result
+
+
 def get_all_price_items(
     conn: sqlite3.Connection,
     relevant_ids: set[int] | None = None,

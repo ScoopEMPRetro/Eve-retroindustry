@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.55"
+APP_VERSION = "0.8.56"
 
 import asyncio
 import datetime
@@ -50,6 +50,7 @@ from app.bom.resolver import BOMResolver
 from app.market.prices import ensure_price_table, fetch_station_volumes, get_cached_station_volumes, fetch_structure_market
 from app.web.prices_helper import (
     get_prices_for_ids,
+    get_cached_prices_for_ids,
     get_price_cache_stats,
     refresh_jita_prices_all,
     get_all_price_items,
@@ -1127,27 +1128,60 @@ def _fmt_remaining(finish_iso: str, now) -> str:
         return ""
 
 
-@app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    conn = get_conn()
+async def _valid_token_async(char_id: int) -> str | None:
+    """Fetch (refreshing if expired) a character's access token WITHOUT blocking
+    the event loop. get_valid_token() does a synchronous httpx.post on expiry;
+    calling it inline on the async loop froze the whole app. Run it in a worker
+    thread with its own SQLite connection (sqlite objects are single-thread)."""
+    def _work() -> str | None:
+        c = get_conn()
+        try:
+            return _get_valid_token_for(c, char_id)
+        finally:
+            try:
+                c.close()
+            except Exception:
+                pass
+    return await asyncio.to_thread(_work)
+
+
+async def _compute_dashboard(request: Request, conn, *, live: bool) -> dict:
+    """Build the dashboard context.
+
+    live=False → everything from the local cache/DB, NO ESI call, renders
+    instantly. live=True → also fetch the ESI-backed fields (corp/system names,
+    wallet, location, skill queue, adjusted prices); used by /api/dashboard/live.
+    Splitting it this way means a slow or rate-limited ESI can never make the
+    dashboard (or the whole app) appear frozen.
+    """
     logged_in = has_any_character(conn)
-    price_stats = {}
+    price_stats: dict = {}
     char_cards: list[dict] = []
     corp_names: dict[int, str] = {}
     agg_bps = agg_assets = agg_locations = 0
     agg_value: float | None = None
-    agg_wallet: float | None = None   # all cash — sum of every character's wallet
+    agg_wallet: float | None = None
 
-    if logged_in:
-        chars = list_characters(conn)
-        active_char_id = get_active_character_id(request, conn)
+    if not logged_in:
+        return {
+            "logged_in": False, "char_cards": [], "agg_bps": 0, "agg_assets": 0,
+            "agg_locations": 0, "agg_value": None, "agg_wallet": None,
+            "price_stats": price_stats, "live_pending": False,
+        }
 
-        # Resolve corporation names via ESI bulk
-        corp_ids = list({
-            row["corporation_id"]
-            for row in [get_character_row(conn, cid) for cid, _ in chars]
-            if row and row.get("corporation_id")
-        })
+    chars = list_characters(conn)
+    active_char_id = get_active_character_id(request, conn)
+    char_rows: dict[int, dict] = {cid: (get_character_row(conn, cid) or {}) for cid, _ in chars}
+
+    # Access tokens — fetched once per char, OFF the event loop (live only).
+    tokens: dict[int, str | None] = {}
+    if live:
+        _cids = [cid for cid, _ in chars]
+        tokens = dict(zip(_cids, await asyncio.gather(*[_valid_token_async(c) for c in _cids])))
+
+    # Corporation names via ESI bulk (live only).
+    if live:
+        corp_ids = list({row.get("corporation_id") for row in char_rows.values() if row.get("corporation_id")})
         if corp_ids:
             try:
                 async with esi_client(timeout=5) as client:
@@ -1162,58 +1196,62 @@ async def dashboard(request: Request):
             except Exception:
                 pass
 
-        # Collect prices once for all assets
-        # all_assets_by_char: everything incl. singletons — for value calculation
-        # assets_by_char: non-singletons only — for location/count display stats
-        all_type_ids_set: set[int] = set()
-        assets_by_char: dict[int, list[dict]] = {}
-        all_assets_by_char: dict[int, list[dict]] = {}
-        char_rows: dict[int, dict] = {}
-        for cid, _ in chars:
-            raw = _load_assets_from_cache(conn, cid)
-            all_assets_by_char[cid] = raw
-            assets_by_char[cid] = [a for a in raw if not a.get("is_singleton", False)]
-            all_type_ids_set.update(a["type_id"] for a in raw)
-            char_rows[cid] = get_character_row(conn, cid) or {}
+    # Assets from cache (always).
+    # all_assets_by_char: everything incl. singletons — for value calculation
+    # assets_by_char: non-singletons only — for location/count display stats
+    all_type_ids_set: set[int] = set()
+    assets_by_char: dict[int, list[dict]] = {}
+    all_assets_by_char: dict[int, list[dict]] = {}
+    for cid, _ in chars:
+        raw = _load_assets_from_cache(conn, cid)
+        all_assets_by_char[cid] = raw
+        assets_by_char[cid] = [a for a in raw if not a.get("is_singleton", False)]
+        all_type_ids_set.update(a["type_id"] for a in raw)
 
-        prices: dict[int, tuple] = {}
-        if all_type_ids_set:
+    # Prices: full (ESI adjusted for missing) when live, cache-only otherwise.
+    prices: dict[int, tuple] = {}
+    if all_type_ids_set:
+        if live:
             prices = await get_prices_for_ids(conn, list(all_type_ids_set))
+        else:
+            prices = get_cached_prices_for_ids(conn, list(all_type_ids_set))
 
-        # Blueprint group_ids — exclude from net worth (matches in-game behavior)
-        bp_group_ids: set[int] = {
-            r[0] for r in conn.execute(
-                "SELECT group_id FROM sde_groups WHERE name LIKE '%Blueprint%'"
-            ).fetchall()
-        }
-        type_group: dict[int, int] = {
-            r[0]: r[1] for r in conn.execute(
-                f"SELECT type_id, group_id FROM sde_types WHERE type_id IN ({','.join('?' * len(all_type_ids_set))})",
-                list(all_type_ids_set),
-            ).fetchall()
-        } if all_type_ids_set else {}
+    # Blueprint group_ids — exclude from net worth (matches in-game behavior)
+    bp_group_ids: set[int] = {
+        r[0] for r in conn.execute(
+            "SELECT group_id FROM sde_groups WHERE name LIKE '%Blueprint%'"
+        ).fetchall()
+    }
+    type_group: dict[int, int] = {
+        r[0]: r[1] for r in conn.execute(
+            f"SELECT type_id, group_id FROM sde_types WHERE type_id IN ({','.join('?' * len(all_type_ids_set))})",
+            list(all_type_ids_set),
+        ).fetchall()
+    } if all_type_ids_set else {}
 
-        # Fetch wallet balances concurrently (5-min cache)
-        wallet_balances: dict[int, float | None] = dict(
-            zip(
-                [cid for cid, _ in chars],
-                await asyncio.gather(*[
-                    _fetch_wallet_balance(conn, cid, _get_valid_token_for(conn, cid))
-                    for cid, _ in chars
-                ]),
-            )
-        )
+    # Wallet balances (live only, 5-min cache).
+    wallet_balances: dict[int, float | None] = {cid: None for cid, _ in chars}
+    if live:
+        _cids = [cid for cid, _ in chars]
+        wallet_balances = dict(zip(_cids, await asyncio.gather(*[
+            _fetch_wallet_balance(conn, c, tokens.get(c)) for c in _cids
+        ])))
         _wallets = [w for w in wallet_balances.values() if w is not None]
         if _wallets:
             agg_wallet = sum(_wallets)
 
-        # Current location + skill training (live from ESI, concurrently for all characters).
-        import datetime as _dt
-        _now_utc = _dt.datetime.now(_dt.timezone.utc)
+    # Current location + skill training (live only, concurrently for all chars).
+    import datetime as _dt
+    _now_utc = _dt.datetime.now(_dt.timezone.utc)
+    loc_sq: dict[int, tuple] = {cid: ({}, []) for cid, _ in chars}
+    dock_names: dict[int, str] = {}
+    sys_names: dict[int, str] = {}
+    skill_names: dict[int, str] = {}
+    if live:
         _char_ids = [cid for cid, _ in chars]
 
         async def _fetch_loc_sq(cid: int):
-            tok = _get_valid_token_for(conn, cid)
+            tok = tokens.get(cid)
             if not tok:
                 return {}, []
             async with esi_client() as client:
@@ -1224,7 +1262,7 @@ async def dashboard(request: Request):
 
         loc_sq = dict(zip(_char_ids, await asyncio.gather(*[_fetch_loc_sq(c) for c in _char_ids])))
 
-        _dock_ids: set[int] = set()   # station / structure
+        _dock_ids: set[int] = set()
         _sys_ids: set[int] = set()
         _skill_ids: set[int] = set()
         for _cid in _char_ids:
@@ -1238,15 +1276,12 @@ async def dashboard(request: Request):
             if _sq and _sq[0].get("skill_id"):
                 _skill_ids.add(_sq[0]["skill_id"])
 
-        dock_names: dict[int, str] = {}
         if _dock_ids:
-            _any_tok = next((_get_valid_token_for(conn, c) for c in _char_ids
-                             if _get_valid_token_for(conn, c)), None)
+            _any_tok = next((t for t in tokens.values() if t), None)
             try:
                 dock_names = await resolve_station_names_bulk(list(_dock_ids), token=_any_tok, conn=conn)
             except Exception:
                 dock_names = {}
-        sys_names: dict[int, str] = {}
         if _sys_ids:
             try:
                 async with esi_client(timeout=5) as client:
@@ -1259,97 +1294,95 @@ async def dashboard(request: Request):
                             sys_names[it["id"]] = it["name"]
             except Exception:
                 pass
-        skill_names: dict[int, str] = {}
         if _skill_ids:
             _ph = ",".join("?" * len(_skill_ids))
             skill_names = {r[0]: r[1] for r in conn.execute(
                 f"SELECT type_id, name FROM sde_types WHERE type_id IN ({_ph})", list(_skill_ids)
             ).fetchall()}
 
-        for cid, cname in chars:
-            char_row = char_rows[cid]
-            bp_row = conn.execute(
-                "SELECT json_array_length(data_json) FROM char_blueprints_cache WHERE character_id=?",
-                (cid,),
-            ).fetchone()
-            bp_count = bp_row[0] if bp_row and bp_row[0] else 0
+    # Per-character cards.
+    for cid, cname in chars:
+        char_row = char_rows[cid]
+        bp_row = conn.execute(
+            "SELECT json_array_length(data_json) FROM char_blueprints_cache WHERE character_id=?",
+            (cid,),
+        ).fetchone()
+        bp_count = bp_row[0] if bp_row and bp_row[0] else 0
 
-            assets = assets_by_char.get(cid, [])         # non-singleton, for counts
-            all_assets = all_assets_by_char.get(cid, [])  # all items, for value
-            locs = {a["location_id"] for a in assets}
+        assets = assets_by_char.get(cid, [])         # non-singleton, for counts
+        all_assets = all_assets_by_char.get(cid, [])  # all items, for value
 
-            char_value: float | None = None
-            # Exclude blueprints from value (matches in-game "Total Net Worth" behavior)
-            priced_assets = [
-                (a, prices.get(a["type_id"], (None, None))[0])
-                for a in all_assets
-                if type_group.get(a["type_id"]) not in bp_group_ids
-            ]
-            priced_sum = sum(p * a.get("quantity", 1) for a, p in priced_assets if p is not None)
-            if any(p is not None for _, p in priced_assets):
-                char_value = priced_sum
+        char_value: float | None = None
+        # Exclude blueprints from value (matches in-game "Total Net Worth" behavior)
+        priced_assets = [
+            (a, prices.get(a["type_id"], (None, None))[0])
+            for a in all_assets
+            if type_group.get(a["type_id"]) not in bp_group_ids
+        ]
+        priced_sum = sum(p * a.get("quantity", 1) for a, p in priced_assets if p is not None)
+        if any(p is not None for _, p in priced_assets):
+            char_value = priced_sum
 
-            wallet = wallet_balances.get(cid)
-            net_worth: float | None = None
-            if char_value is not None or wallet is not None:
-                net_worth = (char_value or 0.0) + (wallet or 0.0)
+        wallet = wallet_balances.get(cid)
+        net_worth: float | None = None
+        if char_value is not None or wallet is not None:
+            net_worth = (char_value or 0.0) + (wallet or 0.0)
 
-            last_sync_at = char_row.get("last_sync_at")
-            corp_id = char_row.get("corporation_id")
+        last_sync_at = char_row.get("last_sync_at")
+        corp_id = char_row.get("corporation_id")
 
-            # Location: docked station/structure, or system + "undocked".
-            _loc, _sq = loc_sq.get(cid, ({}, []))
-            location_name = None
-            location_state = None
-            if _loc.get("station_id"):
-                location_name = dock_names.get(_loc["station_id"]) or f"#{_loc['station_id']}"
-                location_state = "docked"
-            elif _loc.get("structure_id"):
-                location_name = dock_names.get(_loc["structure_id"]) or f"#{_loc['structure_id']}"
-                location_state = "docked"
-            elif _loc.get("solar_system_id"):
-                location_name = sys_names.get(_loc["solar_system_id"]) or f"#{_loc['solar_system_id']}"
-                location_state = "undocked"
+        # Location: docked station/structure, or system + "undocked".
+        _loc, _sq = loc_sq.get(cid, ({}, []))
+        location_name = None
+        location_state = None
+        if _loc.get("station_id"):
+            location_name = dock_names.get(_loc["station_id"]) or f"#{_loc['station_id']}"
+            location_state = "docked"
+        elif _loc.get("structure_id"):
+            location_name = dock_names.get(_loc["structure_id"]) or f"#{_loc['structure_id']}"
+            location_state = "docked"
+        elif _loc.get("solar_system_id"):
+            location_name = sys_names.get(_loc["solar_system_id"]) or f"#{_loc['solar_system_id']}"
+            location_state = "undocked"
 
-            # Active training: the first queue entry with a finish_date.
-            training = None
-            _act = _sq[0] if _sq else None
-            if _act and _act.get("skill_id") and _act.get("finish_date"):
-                training = {
-                    "skill":     skill_names.get(_act["skill_id"], f"#{_act['skill_id']}"),
-                    "level":     _roman(_act.get("finished_level", 0)),
-                    "remaining": _fmt_remaining(_act["finish_date"], _now_utc),
-                    "finish_iso": _act["finish_date"],   # live countdown on the client
-                }
+        # Active training: the first queue entry with a finish_date.
+        training = None
+        _act = _sq[0] if _sq else None
+        if _act and _act.get("skill_id") and _act.get("finish_date"):
+            training = {
+                "skill":     skill_names.get(_act["skill_id"], f"#{_act['skill_id']}"),
+                "level":     _roman(_act.get("finished_level", 0)),
+                "remaining": _fmt_remaining(_act["finish_date"], _now_utc),
+                "finish_iso": _act["finish_date"],   # live countdown on the client
+            }
 
-            char_cards.append({
-                "char_id":     cid,
-                "char_name":   cname,
-                "corp_id":     corp_id,
-                "corp_name":   corp_names.get(corp_id, "") if corp_id else "",
-                "asset_value": char_value,
-                "wallet":      wallet,
-                "net_worth":   net_worth,
-                "last_sync_at": last_sync_at,
-                "is_active":   cid == active_char_id,
-                "location_name":  location_name,
-                "location_state": location_state,
-                "training":       training,
-            })
+        char_cards.append({
+            "char_id":     cid,
+            "char_name":   cname,
+            "corp_id":     corp_id,
+            "corp_name":   corp_names.get(corp_id, "") if corp_id else "",
+            "asset_value": char_value,
+            "wallet":      wallet,
+            "net_worth":   net_worth,
+            "last_sync_at": last_sync_at,
+            "is_active":   cid == active_char_id,
+            "location_name":  location_name,
+            "location_state": location_state,
+            "training":       training,
+        })
 
-            agg_bps += bp_count
-            agg_assets += len(assets)
-            agg_locations = len({loc for c in assets_by_char.values() for a in c for loc in [a["location_id"]]})
-            if net_worth is not None:
-                agg_value = (agg_value or 0.0) + net_worth
-            elif char_value is not None:
-                agg_value = (agg_value or 0.0) + char_value
+        agg_bps += bp_count
+        agg_assets += len(assets)
+        agg_locations = len({loc for c in assets_by_char.values() for a in c for loc in [a["location_id"]]})
+        if net_worth is not None:
+            agg_value = (agg_value or 0.0) + net_worth
+        elif char_value is not None:
+            agg_value = (agg_value or 0.0) + char_value
 
-        price_stats = get_price_cache_stats(conn)
+    price_stats = get_price_cache_stats(conn)
 
-    conn.close()
-    return _tr("index.html", request, {
-        "logged_in": logged_in,
+    return {
+        "logged_in": True,
         "char_cards": char_cards,
         "agg_bps": agg_bps,
         "agg_assets": agg_assets,
@@ -1357,8 +1390,57 @@ async def dashboard(request: Request):
         "agg_value": agg_value,
         "agg_wallet": agg_wallet,
         "price_stats": price_stats,
-        "login_busy": request.query_params.get("login_busy") == "1",
-    })
+        "live_pending": not live,
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """Instant render from cache/DB only — no ESI. The ESI-backed fields load
+    afterwards via /api/dashboard/live, so a slow or rate-limited ESI can never
+    make the dashboard (and the app) look frozen."""
+    conn = get_conn()
+    try:
+        ctx = await _compute_dashboard(request, conn, live=False)
+    finally:
+        conn.close()
+    ctx["login_busy"] = request.query_params.get("login_busy") == "1"
+    return _tr("index.html", request, ctx)
+
+
+@app.get("/api/dashboard/live")
+async def api_dashboard_live(request: Request):
+    """ESI-backed dashboard data (corp names, wallet, location, skill queue,
+    refined prices), fetched by the dashboard right after the instant render."""
+    conn = get_conn()
+    try:
+        ctx = await _compute_dashboard(request, conn, live=True)
+    finally:
+        conn.close()
+    if not ctx["logged_in"]:
+        return {"logged_in": False}
+
+    def _s(v):
+        return _isk(v) if v is not None else None
+
+    chars_out: dict[str, dict] = {}
+    for c in ctx["char_cards"]:
+        chars_out[str(c["char_id"])] = {
+            "corp_name":       c["corp_name"],
+            "wallet_str":      _s(c["wallet"]),
+            "asset_value_str": _s(c["asset_value"]),
+            "net_worth_str":   _s(c["net_worth"]),
+            "has_worth":       c["net_worth"] is not None or c["asset_value"] is not None,
+            "location_name":   c["location_name"],
+            "location_state":  c["location_state"],
+            "training":        c["training"],
+        }
+    return {
+        "logged_in": True,
+        "agg_wallet_str": _s(ctx["agg_wallet"]),
+        "agg_value_str": _isk(ctx["agg_value"]) if ctx["agg_value"] else None,
+        "chars": chars_out,
+    }
 
 
 # ---------------------------------------------------------------------------
