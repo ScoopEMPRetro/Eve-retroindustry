@@ -246,7 +246,7 @@
                  onerror="this.style.visibility='hidden'">
           </td>
           <td class="py-1 align-middle">
-            {{ item.name }}
+            <span class="item-hist" role="button" tabindex="0" title="Show price history">{{ item.name }}</span>
             {% if not item.fresh %}
               <span class="badge bg-secondary ms-1" style="font-size:.65em">stale</span>
             {% endif %}
@@ -280,6 +280,48 @@
   <div id="price-no-results" class="text-muted text-center py-3 d-none">No results.</div>
 </div>
 {% endif %}
+
+<style>
+  .item-hist { cursor: pointer; }
+  .item-hist:hover { color: var(--eve-gold); text-decoration: underline; text-underline-offset: 2px; }
+  #histModal .modal-content { background: linear-gradient(180deg,#171e28,#131922); border:1px solid var(--eve-border); }
+  #hist-host canvas { display:block; width:100%; }
+  #hist-host .tip {
+    position:absolute; pointer-events:none; background:#0d1117ee; border:1px solid var(--eve-border);
+    border-radius:8px; padding:.4rem .55rem; font-size:.74rem; line-height:1.5; white-space:nowrap;
+    transform:translate(-50%,-115%); opacity:0; transition:opacity .08s; z-index:5;
+  }
+  #hist-host .tip b { color:#e6edf3; }
+  #hist-host .tip .k { color:#8b949e; }
+  #hist-host .tip .g { color:var(--eve-gold); }
+  #hist-host .tip .v { color:#8fc3ff; }
+</style>
+<div class="modal fade" id="histModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <div class="me-auto">
+          <h6 class="modal-title mb-0" id="hist-title">Price history</h6>
+          <div class="text-muted" style="font-size:.75rem" id="hist-sub">Jita · The Forge — daily market history</div>
+        </div>
+        <div class="btn-group btn-group-sm me-2" id="hist-ranges">
+          <button class="btn btn-outline-secondary" data-days="7">7d</button>
+          <button class="btn btn-outline-secondary" data-days="30">30d</button>
+          <button class="btn btn-outline-secondary active" data-days="90">90d</button>
+          <button class="btn btn-outline-secondary" data-days="365">1y</button>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="position-relative" id="hist-host" style="min-height:340px">
+          <canvas id="hist-cv"></canvas>
+          <div class="tip" id="hist-tip"></div>
+          <div id="hist-loading" class="text-muted small" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -461,7 +503,7 @@
              onerror="this.style.visibility='hidden'">
       </td>
       <td class="py-1 align-middle">
-        ${item.name}
+        <span class="item-hist" role="button" tabindex="0" title="Show price history">${item.name}</span>
         ${item.fresh === false ? '<span class="badge bg-secondary ms-1" style="font-size:.65em">stale</span>' : ''}
         ${item.group_name && item.group_name !== data_group_name
           ? `<span class="badge bg-secondary ms-1" style="font-size:.65em">${item.group_name}</span>`
@@ -777,6 +819,122 @@
         allBtns.forEach(b => b.disabled = false);
       };
     });
+  });
+
+  // ── Price-history chart — opens from an item name (Canvas, app-native) ──────
+  (function () {
+    const modalEl = document.getElementById('histModal');
+    if (!modalEl) return;
+    const hcv = document.getElementById('hist-cv');
+    const hhost = document.getElementById('hist-host');
+    const htip = document.getElementById('hist-tip');
+    const hloading = document.getElementById('hist-loading');
+    const hctx = hcv.getContext('2d');
+    let series = [], days = 90, hover = null, geom = null;
+
+    const iskC = v => v >= 1e9 ? (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(2) + 'M'
+                    : v >= 1e3 ? (v / 1e3).toFixed(2) + 'k' : Math.round(v).toString();
+    const intS = v => Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    const dt = s => new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+
+    function draw() {
+      if (!series.length) return;
+      const v = series.slice(-days), n = v.length;
+      const cssW = hhost.clientWidth || 640, cssH = 340;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      hcv.width = cssW * dpr; hcv.height = cssH * dpr; hcv.style.height = cssH + 'px';
+      hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      hctx.clearRect(0, 0, cssW, cssH);
+      const padL = 64, padR = 14, padT = 12, padB = 22, gap = 16;
+      const priceH = (cssH - padT - padB - gap) * 0.66, volH = (cssH - padT - padB - gap) * 0.34;
+      const px0 = padL, px1 = cssW - padR, py0 = padT, py1 = padT + priceH, vy0 = py1 + gap, vy1 = py1 + gap + volH;
+      const lo = Math.min(...v.map(p => p.low ?? p.avg)), hi = Math.max(...v.map(p => p.high ?? p.avg));
+      const rg = (hi - lo) || 1, pMin = lo - rg * 0.08, pMax = hi + rg * 0.08;
+      const vMax = Math.max(...v.map(p => p.vol || 0)) * 1.1 || 1;
+      const X = i => px0 + (px1 - px0) * (n === 1 ? 0.5 : i / (n - 1));
+      const PY = val => py1 - (py1 - py0) * (val - pMin) / (pMax - pMin);
+      const VY = val => vy1 - (vy1 - vy0) * (val / vMax);
+      const grid = 'rgba(255,255,255,0.06)', axis = '#8b949e', gold = '#e6b84a';
+      hctx.font = '11px system-ui,sans-serif'; hctx.textBaseline = 'middle';
+      for (let t = 0; t <= 4; t++) { const val = pMin + (pMax - pMin) * t / 4, y = PY(val);
+        hctx.strokeStyle = grid; hctx.lineWidth = 1; hctx.beginPath(); hctx.moveTo(px0, y); hctx.lineTo(px1, y); hctx.stroke();
+        hctx.fillStyle = axis; hctx.textAlign = 'right'; hctx.fillText(iskC(val), px0 - 8, y); }
+      hctx.strokeStyle = grid; hctx.beginPath(); hctx.moveTo(px0, vy1); hctx.lineTo(px1, vy1); hctx.stroke();
+      hctx.fillStyle = axis; hctx.textAlign = 'right'; hctx.fillText(iskC(vMax), px0 - 8, vy0 + 6);
+      hctx.textAlign = 'center';
+      const ticks = 5; for (let t = 0; t < ticks; t++) { const i = Math.round((n - 1) * t / (ticks - 1));
+        hctx.fillStyle = axis; hctx.fillText(dt(v[i].d), X(i), cssH - 8); }
+      hctx.fillStyle = 'rgba(230,184,74,0.12)'; hctx.beginPath();
+      v.forEach((p, i) => { const x = X(i), y = PY(p.high ?? p.avg); i ? hctx.lineTo(x, y) : hctx.moveTo(x, y); });
+      for (let i = n - 1; i >= 0; i--) hctx.lineTo(X(i), PY(v[i].low ?? v[i].avg));
+      hctx.closePath(); hctx.fill();
+      hctx.fillStyle = 'rgba(88,140,196,0.75)';
+      const bw = Math.max(1, (px1 - px0) / n * 0.72);
+      v.forEach((p, i) => { const y = VY(p.vol || 0); hctx.fillRect(X(i) - bw / 2, y, bw, vy1 - y); });
+      hctx.strokeStyle = gold; hctx.lineWidth = 2; hctx.lineJoin = 'round'; hctx.beginPath();
+      v.forEach((p, i) => { const x = X(i), y = PY(p.avg); i ? hctx.lineTo(x, y) : hctx.moveTo(x, y); }); hctx.stroke();
+      geom = { X, PY, n, px0, px1, py0, vy1, v };
+      if (hover != null) crosshair();
+    }
+    function crosshair() {
+      if (hover == null || !geom) return;
+      const p = geom.v[hover], x = geom.X(hover);
+      hctx.strokeStyle = 'rgba(255,255,255,0.28)'; hctx.lineWidth = 1;
+      hctx.beginPath(); hctx.moveTo(x, geom.py0); hctx.lineTo(x, geom.vy1); hctx.stroke();
+      hctx.fillStyle = '#e6b84a'; hctx.beginPath(); hctx.arc(x, geom.PY(p.avg), 3.2, 0, 7); hctx.fill();
+      hctx.strokeStyle = '#0b0e13'; hctx.lineWidth = 1.5; hctx.stroke();
+    }
+    hhost.addEventListener('mousemove', e => {
+      if (!geom) return;
+      const r = hcv.getBoundingClientRect();
+      const frac = (e.clientX - r.left - geom.px0) / (geom.px1 - geom.px0);
+      let i = Math.round(frac * (geom.n - 1));
+      i = Math.max(0, Math.min(geom.n - 1, i)); hover = i; draw();
+      const p = geom.v[i];
+      htip.innerHTML = `<b>${dt(p.d)}</b><br><span class="k">avg</span> <span class="g">${iskC(p.avg)}</span>  `
+        + `<span class="k">lo–hi</span> ${iskC(p.low ?? p.avg)}–${iskC(p.high ?? p.avg)}<br>`
+        + `<span class="k">volume</span> <span class="v">${intS(p.vol || 0)}</span>`;
+      htip.style.left = geom.X(i) + 'px'; htip.style.top = geom.PY(p.avg) + 'px'; htip.style.opacity = '1';
+    });
+    hhost.addEventListener('mouseleave', () => { hover = null; htip.style.opacity = '0'; draw(); });
+    document.getElementById('hist-ranges').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      days = +b.dataset.days;
+      document.querySelectorAll('#hist-ranges button').forEach(x => x.classList.toggle('active', x === b));
+      hover = null; htip.style.opacity = '0'; draw();
+    });
+    modalEl.addEventListener('shown.bs.modal', draw);
+    window.addEventListener('resize', () => { if (modalEl.classList.contains('show')) draw(); });
+
+    window.openHistory = function (typeId, name) {
+      document.getElementById('hist-title').textContent = name || ('Type #' + typeId);
+      series = []; hover = null; htip.style.opacity = '0';
+      days = 90;
+      document.querySelectorAll('#hist-ranges button').forEach(x => x.classList.toggle('active', x.dataset.days === '90'));
+      hloading.textContent = 'Loading…'; hloading.style.display = 'flex';
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      fetch('/api/prices/history?type_id=' + encodeURIComponent(typeId))
+        .then(r => r.json())
+        .then(d => {
+          series = (d.series || []).filter(p => p && p.avg != null);
+          if (!series.length) { hloading.textContent = 'No market history available.'; hloading.style.display = 'flex'; return; }
+          hloading.style.display = 'none'; draw();
+        })
+        .catch(() => { hloading.textContent = 'Failed to load history.'; hloading.style.display = 'flex'; });
+    };
+  })();
+
+  // Open the history chart when an item name is clicked or activated.
+  function _openHistFromEl(el) {
+    const tr = el.closest('tr'); if (!tr) return;
+    window.openHistory(tr.dataset.id, el.textContent.trim());
+  }
+  priceTable && priceTable.addEventListener('click', e => {
+    const el = e.target.closest('.item-hist'); if (el) _openHistFromEl(el);
+  });
+  priceTable && priceTable.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const el = e.target.closest('.item-hist'); if (el) { e.preventDefault(); _openHistFromEl(el); }
   });
 })();
 </script>

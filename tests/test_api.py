@@ -226,6 +226,45 @@ def test_hub_refresh_unknown_region_404(client):
     assert r.status_code == 404
 
 
+def test_price_history_endpoint(app_module, client):
+    # Served from a fresh cache row → no ESI call needed (hermetic).
+    import json
+    import time as _t
+    from app.market.prices import ensure_price_table, JITA_REGION
+    m = app_module
+    c = m.get_conn()
+    try:
+        ensure_price_table(c)
+        series = [
+            {"d": "2026-07-20", "avg": 100.0, "low": 95.0, "high": 110.0, "vol": 5000},
+            {"d": "2026-07-21", "avg": 102.0, "low": 97.0, "high": 112.0, "vol": 6000},
+        ]
+        c.execute("INSERT OR REPLACE INTO price_history_cache (region_id, type_id, data_json, cached_at) "
+                  "VALUES (?,?,?,?)", (JITA_REGION, 34, json.dumps(series), _t.time()))
+        c.commit()
+    finally:
+        c.close()
+    try:
+        d = client.get("/api/prices/history?type_id=34").json()
+        assert d["region_id"] == JITA_REGION
+        assert len(d["series"]) == 2 and d["series"][0]["avg"] == 100.0
+    finally:
+        c = m.get_conn()
+        try:
+            c.execute("DELETE FROM price_history_cache WHERE type_id=34")
+            c.commit()
+        finally:
+            c.close()
+
+
+def test_prices_item_name_is_clickable(client):
+    # The item name opens the history chart; the modal + hook must be present.
+    r = client.get("/prices")
+    assert r.status_code == 200
+    assert 'class="item-hist"' in r.text
+    assert 'id="histModal"' in r.text
+
+
 def test_plan_contract_price_requires_login(client):
     # No active-character cookie -> not signed in / graceful error, never a 500.
     r = client.get("/api/plan/contract-price",

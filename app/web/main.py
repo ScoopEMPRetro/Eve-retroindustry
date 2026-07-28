@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.69"
+APP_VERSION = "0.8.70"
 
 import asyncio
 import datetime
@@ -47,7 +47,7 @@ from app.cache.blueprint_cache import resolve_type
 from app.db.database import get_session
 from app.manufacturing.planner import build_plan, find_blueprint_for_product, calc_job_time, format_duration
 from app.bom.resolver import BOMResolver
-from app.market.prices import ensure_price_table, fetch_station_volumes, get_cached_station_volumes, fetch_structure_market, TRADE_HUBS
+from app.market.prices import ensure_price_table, fetch_station_volumes, get_cached_station_volumes, fetch_structure_market, TRADE_HUBS, JITA_REGION
 from app.web.prices_helper import (
     get_prices_for_ids,
     get_cached_prices_for_ids,
@@ -59,6 +59,7 @@ from app.web.prices_helper import (
     stream_hub_refresh,
     get_hub_cache_stats,
     get_all_hub_prices,
+    get_price_history,
 )
 from app.web.location_resolver import (
     resolve_station_names_bulk,
@@ -4171,6 +4172,18 @@ async def prices_refresh_hub_stream(region_id: int):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/api/prices/history")
+async def api_price_history(type_id: int, region_id: int = JITA_REGION):
+    """Daily market history (~1 year) for a type — powers the price-history chart
+    opened from the Prices table. Defaults to Jita / The Forge."""
+    conn = get_conn()
+    try:
+        series = await get_price_history(conn, region_id, type_id)
+    finally:
+        conn.close()
+    return {"type_id": type_id, "region_id": region_id, "series": series}
 
 
 @app.get("/api/prices/search")

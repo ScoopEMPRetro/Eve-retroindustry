@@ -84,6 +84,16 @@ def ensure_price_table(conn: sqlite3.Connection):
     hub_cols = {r[1] for r in conn.execute("PRAGMA table_info(hub_price_cache)")}
     if "available" not in hub_cols:
         conn.execute("ALTER TABLE hub_price_cache ADD COLUMN available INTEGER")
+    # Full daily market history (~1 year) per (region, type) for the price chart.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS price_history_cache (
+            region_id INTEGER NOT NULL,
+            type_id   INTEGER NOT NULL,
+            data_json TEXT NOT NULL,
+            cached_at REAL,
+            PRIMARY KEY (region_id, type_id)
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS station_volume_cache (
             location_id    INTEGER NOT NULL,
@@ -154,6 +164,32 @@ def _save_cached_price(
         (type_id, sell, buy, volume, jita_available, time.time())
     )
     conn.commit()
+
+
+async def fetch_region_history(client: httpx.AsyncClient, region_id: int, type_id: int) -> list[dict] | None:
+    """Full daily market history (~1 year) for a type in a region. Returns a list
+    of {d, avg, low, high, vol} oldest→newest, or None on error. Same ESI endpoint
+    the 7-day volume already uses — we just keep the whole series."""
+    async with _HIST_SEM:
+        try:
+            r = await client.get(
+                f"{ESI_BASE}/markets/{region_id}/history/",
+                params={"type_id": type_id, "datasource": "tranquility"},
+                timeout=20,
+            )
+            if r.status_code != 200:
+                return None
+            hist = r.json()
+            if not isinstance(hist, list):
+                return None
+            return [
+                {"d": e.get("date"), "avg": e.get("average"),
+                 "low": e.get("lowest"), "high": e.get("highest"),
+                 "vol": e.get("volume", 0)}
+                for e in hist
+            ]
+        except Exception:
+            return None
 
 
 async def _fetch_region_volume(client: httpx.AsyncClient, region_id: int, type_id: int) -> int | None:

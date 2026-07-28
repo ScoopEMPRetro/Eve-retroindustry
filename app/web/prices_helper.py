@@ -543,6 +543,46 @@ def get_all_hub_prices(
     return out
 
 
+HISTORY_TTL = 60 * 60 * 8  # 8 h — market history updates about once a day
+
+
+async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: int) -> list[dict]:
+    """Daily market history (~1 year) for the price chart, cached per (region, type).
+    Falls back to any stale cached copy if a fresh fetch fails."""
+    ensure_price_table(conn)
+    row = conn.execute(
+        "SELECT data_json, cached_at FROM price_history_cache WHERE region_id=? AND type_id=?",
+        (region_id, type_id),
+    ).fetchone()
+    if row and (time.time() - (row[1] or 0)) < HISTORY_TTL:
+        try:
+            return _json.loads(row[0])
+        except Exception:
+            pass
+
+    from app.market.prices import fetch_region_history
+    async with esi_client() as client:
+        series = await fetch_region_history(client, region_id, type_id)
+
+    if series is None:  # fetch failed — serve stale if we have it
+        if row:
+            try:
+                return _json.loads(row[0])
+            except Exception:
+                return []
+        return []
+
+    conn.execute(
+        """INSERT INTO price_history_cache (region_id, type_id, data_json, cached_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(region_id, type_id) DO UPDATE SET
+             data_json = excluded.data_json, cached_at = excluded.cached_at""",
+        (region_id, type_id, _json.dumps(series), time.time()),
+    )
+    conn.commit()
+    return series
+
+
 def _fmt_ts(ts: float | None) -> str:
     if not ts:
         return "never"
