@@ -209,6 +209,7 @@ def test_prices_hub_columns_render(app_module, client):
         assert "1 234 567.50" in r.text        # European format: space thousands
         assert "1,234,567.50" not in r.text    # not American commas
         assert "Custom price" not in r.text    # custom price column removed
+        assert "Prices last fetched" in r.text # freshness strip present
     finally:
         c = m.get_conn()
         try:

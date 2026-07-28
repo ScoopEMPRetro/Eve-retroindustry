@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.66"
+APP_VERSION = "0.8.67"
 
 import asyncio
 import datetime
@@ -349,9 +349,26 @@ def _ts_to_str(ts: float) -> str:
         return ""
 
 
+def _age_short(ts) -> str:
+    """Compact relative age of a timestamp: 'now' / '5m' / '10h' / '2d'.
+    Returns '—' when there's no timestamp (never fetched)."""
+    try:
+        delta = int(_time.time() - float(ts))
+    except (TypeError, ValueError):
+        return "—"
+    if delta < 60:
+        return "now"
+    if delta < 3600:
+        return f"{delta // 60}m"
+    if delta < 86400:
+        return f"{delta // 3600}h"
+    return f"{delta // 86400}d"
+
+
 templates.env.filters["isk"] = _isk
 templates.env.filters["format_number"] = _format_number
 templates.env.filters["format_date"] = _format_date
+templates.env.filters["age_short"] = _age_short
 templates.env.filters["ts_ago"] = _ts_ago
 templates.env.filters["ts_to_str"] = _ts_to_str
 

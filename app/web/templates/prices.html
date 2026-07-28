@@ -16,32 +16,23 @@
 </div>
 {% endif %}
 
-<div class="row g-3 mb-4">
-  <div class="col-sm-6 col-lg-3">
-    <div class="card stat-card p-3">
-      <div class="text-muted small mb-1">Types in cache</div>
-      <div class="fs-3 fw-bold">{{ stats.total }}</div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card p-3" style="border-left:3px solid #3fb950">
-      <div class="text-muted small mb-1">Fresh (&lt; 30 min)</div>
-      <div class="fs-3 fw-bold text-success">{{ stats.fresh }}</div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card p-3" style="border-left:3px solid #f85149">
-      <div class="text-muted small mb-1">Stale (outdated)</div>
-      <div class="fs-3 fw-bold text-danger">{{ stats.stale }}</div>
-    </div>
-  </div>
-  <div class="col-sm-6 col-lg-3">
-    <div class="card p-3" style="border-left:3px solid #e3b341">
-      <div class="text-muted small mb-1">Last updated</div>
-      <div class="fs-6 fw-bold mt-1">{{ stats.last_update_str }}</div>
-    </div>
+{# Freshness strip — how long ago each market's prices were fetched (age, not date) #}
+<div class="card p-3 mb-4">
+  <div class="d-flex flex-wrap align-items-center gap-2" style="font-size:.9rem">
+    <span class="text-muted me-1"><i class="bi bi-clock-history me-1"></i>Prices last fetched</span>
+    <span class="fresh-chip"><strong>Jita</strong> <span class="{% if not stats.last_update %}text-muted{% endif %}">{{ stats.last_update | age_short }}</span></span>
+    {% for h in hubs %}
+    <span class="fresh-chip"><strong>{{ h.name }}</strong> <span class="{% if not h.last_update %}text-muted{% endif %}">{{ h.last_update | age_short }}</span></span>
+    {% endfor %}
+    <span id="freshness-station" class="fresh-chip d-none"><strong class="stn-fresh-label"></strong> <span class="stn-fresh-age"></span></span>
   </div>
 </div>
+<style>
+  .fresh-chip { display:inline-flex; gap:.35rem; align-items:baseline;
+    background:#1c2128; border:1px solid var(--eve-border,#30363d);
+    border-radius:20px; padding:.15rem .7rem; white-space:nowrap; }
+  .fresh-chip strong { font-weight:600; }
+</style>
 
 <div class="row g-3 mb-4">
   <div class="col-lg-4">
@@ -77,17 +68,11 @@
         Fetch sell/buy + 7-day volume for another hub to compare against Jita. Downloaded
         on demand — smaller regions than Jita, so faster. Loaded hubs add columns below.
       </p>
-      <div class="d-flex flex-column gap-2">
+      <div class="d-flex flex-wrap gap-2">
         {% for h in hubs %}
-        <div class="d-flex align-items-center justify-content-between gap-2">
-          <button class="btn btn-sm btn-outline-primary hub-fetch-btn text-start flex-shrink-0"
-                  data-region="{{ h.region_id }}" data-name="{{ h.name }}" style="min-width:118px">
-            <i class="bi bi-download me-1"></i>{{ h.name }}
-          </button>
-          <span class="text-muted text-end text-truncate" style="font-size:.78em">
-            {% if h.has_data %}{{ h.last_update_str }}{% else %}not loaded{% endif %}
-          </span>
-        </div>
+        <button class="btn btn-sm btn-outline-primary hub-fetch-btn" data-region="{{ h.region_id }}" data-name="{{ h.name }}">
+          <i class="bi bi-download me-1"></i>{{ h.name }}
+        </button>
         {% endfor %}
       </div>
       <div id="hub-progress" class="d-none mt-3">
@@ -672,6 +657,14 @@
       const stationShortName = stationDisplay.value.split(' - ')[0];
       document.querySelectorAll('.stn-name').forEach(el => el.textContent = stationShortName);
       document.querySelectorAll('.station-col').forEach(el => el.style.display = '');
+
+      // Add the custom station to the freshness strip at the top.
+      const stnChip = document.getElementById('freshness-station');
+      if (stnChip) {
+        stnChip.querySelector('.stn-fresh-label').textContent = stationShortName;
+        stnChip.querySelector('.stn-fresh-age').textContent = json.cached ? '<30m' : 'now';
+        stnChip.classList.remove('d-none');
+      }
 
       // Fill the cells — always re-read tbody (may be null on first initialization)
       const liveTable = document.getElementById('price-table');
