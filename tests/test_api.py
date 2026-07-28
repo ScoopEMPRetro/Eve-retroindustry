@@ -110,6 +110,61 @@ def test_token_refresh_is_serialized(app_module, monkeypatch):
             c.close()
 
 
+def test_bpc_detected_via_blueprints_endpoint(app_module, client):
+    # A blueprint whose assets flag says is_blueprint_copy=False (the ESI assets
+    # endpoint is unreliable) but which the blueprints endpoint marks as a copy
+    # (quantity -2) must be treated as a BPC: shown with a BPC badge, not priced.
+    import json
+    import time as _t
+    m = app_module
+    cid = 900000002
+    orig_a = orig_b = None
+    c = m.get_conn()
+    try:
+        bp = c.execute(
+            "SELECT type_id, name FROM sde_types WHERE name LIKE '%Blueprint%' "
+            "ORDER BY type_id LIMIT 1"
+        ).fetchone()
+        bp_type, bp_name = bp[0], bp[1]
+        now = _t.time()
+        orig_a = c.execute("SELECT data_json, cached_at FROM char_assets_cache WHERE character_id=?", (cid,)).fetchone()
+        orig_b = c.execute("SELECT data_json, cached_at FROM char_blueprints_cache WHERE character_id=?", (cid,)).fetchone()
+
+        assets = [{"item_id": 777001, "type_id": bp_type, "quantity": 1,
+                   "location_id": 60003760, "location_flag": "Hangar",
+                   "is_singleton": True, "is_blueprint_copy": False}]
+        bps = [{"item_id": 777001, "type_id": bp_type, "location_id": 60003760,
+                "location_flag": "Hangar", "quantity": -2, "runs": 10,
+                "material_efficiency": 0, "time_efficiency": 0}]
+        # These caches have no UNIQUE(character_id), so mirror _save_cache: DELETE + INSERT.
+        c.execute("DELETE FROM char_assets_cache WHERE character_id=?", (cid,))
+        c.execute("INSERT INTO char_assets_cache (character_id, data_json, cached_at) VALUES (?,?,?)", (cid, json.dumps(assets), now))
+        c.execute("DELETE FROM char_blueprints_cache WHERE character_id=?", (cid,))
+        c.execute("INSERT INTO char_blueprints_cache (character_id, data_json, cached_at) VALUES (?,?,?)", (cid, json.dumps(bps), now))
+        c.execute("INSERT OR REPLACE INTO market_price_cache (type_id, sell_price, buy_price, cached_at) VALUES (?,?,?,?)", (bp_type, 750_000_000.0, 0.0, now))
+        c.commit()
+    finally:
+        c.close()
+
+    try:
+        r = client.get(f"/assets?view={cid}")
+        assert r.status_code == 200
+        assert bp_name in r.text
+        assert "badge-bpc" in r.text          # detected as a copy despite the asset flag
+    finally:
+        c = m.get_conn()
+        try:
+            c.execute("DELETE FROM char_assets_cache WHERE character_id=?", (cid,))
+            if orig_a:
+                c.execute("INSERT INTO char_assets_cache (character_id, data_json, cached_at) VALUES (?,?,?)", (cid, orig_a[0], orig_a[1]))
+            c.execute("DELETE FROM char_blueprints_cache WHERE character_id=?", (cid,))
+            if orig_b:
+                c.execute("INSERT INTO char_blueprints_cache (character_id, data_json, cached_at) VALUES (?,?,?)", (cid, orig_b[0], orig_b[1]))
+            c.commit()
+        finally:
+            c.close()
+
+
 def test_plan_contract_price_requires_login(client):
     # No active-character cookie -> not signed in / graceful error, never a 500.
     r = client.get("/api/plan/contract-price",

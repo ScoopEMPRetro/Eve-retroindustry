@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.59"
+APP_VERSION = "0.8.60"
 
 import asyncio
 import datetime
@@ -2455,6 +2455,10 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
     # Per-char fetch (uses cache; ESI refresh only when stale)
     char_assets: dict[int, list] = {}            # char_id → personal assets list
     corp_data: dict[int, tuple[int, list]] = {}  # char_id → (corp_id, assets list)
+    # item_ids of blueprint COPIES (BPCs). The assets endpoint's is_blueprint_copy
+    # flag is unreliable (often missing), so we trust the blueprints endpoint,
+    # which authoritatively marks BPO vs BPC — matched to assets by item_id.
+    bpc_item_ids: set[int] = set()
     primary_token: str | None = None
     if selected_chars:
         async with esi_client() as client:
@@ -2467,6 +2471,11 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                     char_assets[cid] = await fetch_assets(client, cid, tok, conn)
                 except Exception:
                     char_assets[cid] = []
+                try:
+                    bps = await fetch_blueprints(client, cid, tok, conn)
+                    bpc_item_ids.update(bp.item_id for bp in bps if not bp.is_original)
+                except Exception:
+                    pass
                 try:
                     corp_id, corp_list = await fetch_corp_assets(client, cid, tok, conn)
                     if corp_id:
@@ -2522,8 +2531,13 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                 sid, cid = _hierarchy(a)
                 st = _get_st(sid)
                 bucket = st["hangar"] if cid is None else st["containers"].setdefault(cid, {})
-                # Key by (type_id, owner) so different chars stay separate
-                key = (a.type_id, owner_id)
+                # BPC status from the authoritative blueprints endpoint (matched by
+                # item_id), falling back to the asset flag. A BPC has no market price.
+                is_copy = a.is_blueprint_copy or (a.item_id in bpc_item_ids)
+                # Key by (type_id, owner, is_copy) so different chars stay separate
+                # AND a BPO never merges with a BPC of the same type (which would
+                # otherwise price the copy at the original's market value).
+                key = (a.type_id, owner_id, is_copy)
                 if key in bucket:
                     bucket[key]["quantity"] += a.quantity
                 else:
@@ -2531,7 +2545,7 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                         "type_id": a.type_id,
                         "name": item_name,
                         "quantity": a.quantity,
-                        "is_blueprint_copy": a.is_blueprint_copy,
+                        "is_blueprint_copy": is_copy,
                         "character_id": owner_id,
                         "character_name": owner_name,
                     }
@@ -2619,14 +2633,19 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                 sid, div_flag, cid = _corp_hierarchy(a)
                 div = _get_corp_div(sid, div_flag)
                 bucket = div["hangar"] if cid is None else div["containers"].setdefault(cid, {})
-                if a.type_id in bucket:
-                    bucket[a.type_id]["quantity"] += a.quantity
+                # Keep BPO and BPC of the same type as separate rows (see personal
+                # assets above). Corp blueprints aren't fetched, so the copy flag
+                # here relies on the asset endpoint / any matched char BPC item_id.
+                is_copy = a.is_blueprint_copy or (a.item_id in bpc_item_ids)
+                ckey = (a.type_id, is_copy)
+                if ckey in bucket:
+                    bucket[ckey]["quantity"] += a.quantity
                 else:
-                    bucket[a.type_id] = {
+                    bucket[ckey] = {
                         "type_id": a.type_id,
                         "name": item_name,
                         "quantity": a.quantity,
-                        "is_blueprint_copy": a.is_blueprint_copy,
+                        "is_blueprint_copy": is_copy,
                     }
 
         # ── Prices (shared for both personal and corp) ───────────────────────
