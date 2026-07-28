@@ -882,18 +882,33 @@
     const hloading = document.getElementById('hist-loading');
     const hctx = hcv.getContext('2d');
     const marketSel = document.getElementById('hist-market');
-    let series = [], days = 90, hover = null, geom = null, curType = null, histRefSell = {};
+    let series = [], days = 90, hover = null, geom = null, curType = null, histRefSell = {}, curRefSell = null;
 
     const allMarkets = () => histCustomStation ? HIST_MARKETS.concat([histCustomStation]) : HIST_MARKETS;
     const marketName = id => { const m = allMarkets().find(x => x.id === id); return m ? m.name : ('Region ' + id); };
-    function populateMarkets(sel) {
+    function populateMarkets() {
       marketSel.innerHTML = '';
       allMarkets().forEach(m => {
         const o = document.createElement('option');
-        o.value = m.id; o.textContent = m.name; if (m.id === sel) o.selected = true;
+        o.value = m.id; o.textContent = m.name;
         if (histCustomStation && m === histCustomStation) o.dataset.station = '1';
         marketSel.appendChild(o);
       });
+    }
+    function saveLastMarket() {
+      const o = marketSel.selectedOptions[0];
+      if (!o) return;
+      try { localStorage.setItem('histMarket', JSON.stringify({ region: +o.value, station: o.dataset.station === '1' })); } catch {}
+    }
+    function selectMarket() {   // restore the last-used market (persisted across opens)
+      let pref = null;
+      try { pref = JSON.parse(localStorage.getItem('histMarket')); } catch {}
+      const opts = [...marketSel.options];
+      let target = null;
+      if (pref && pref.station) target = opts.find(o => o.dataset.station === '1');
+      else if (pref) target = opts.find(o => !o.dataset.station && +o.value === pref.region);
+      if (!target) target = opts.find(o => +o.value === 10000002 && !o.dataset.station) || opts[0];
+      if (target) target.selected = true;
     }
     function loadSeries() {
       const rid = +marketSel.value;
@@ -909,7 +924,7 @@
         })
         .catch(() => { hloading.textContent = 'Failed to load history.'; hloading.style.display = 'flex'; });
     }
-    marketSel.addEventListener('change', loadSeries);
+    marketSel.addEventListener('change', () => { saveLastMarket(); loadSeries(); });
 
     const iskC = v => v >= 1e9 ? (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(2) + 'M'
                     : v >= 1e3 ? (v / 1e3).toFixed(2) + 'k' : Math.round(v).toString();
@@ -932,6 +947,7 @@
       const opt = marketSel.selectedOptions[0];
       let refSell = (opt && opt.dataset.station === '1') ? histRefSell['station'] : histRefSell[String(+marketSel.value)];
       if (refSell == null || isNaN(refSell) || refSell <= 0) refSell = null;
+      curRefSell = refSell;
       let lo = Math.min(...v.map(p => p.low ?? p.avg)), hi = Math.max(...v.map(p => p.high ?? p.avg));
       if (refSell != null) { lo = Math.min(lo, refSell); hi = Math.max(hi, refSell); }
       const rg = (hi - lo) || 1, pMin = lo - rg * 0.08, pMax = hi + rg * 0.08;
@@ -988,7 +1004,8 @@
       i = Math.max(0, Math.min(geom.n - 1, i)); hover = i; draw();
       const p = geom.v[i];
       htip.innerHTML = `<b>${dt(p.d)}</b><br><span class="k">avg</span> <span class="g">${fmtNum(p.avg, true, false)}</span><br>`
-        + `<span class="k">volume</span> <span class="v">${intS(p.vol || 0)}</span>`;
+        + `<span class="k">volume</span> <span class="v">${intS(p.vol || 0)}</span>`
+        + (curRefSell != null ? `<br><span class="k">current sell</span> <span style="color:#58a6ff">${fmtNum(curRefSell, true, false)}</span>` : '');
       htip.style.left = geom.X(i) + 'px'; htip.style.top = geom.PY(p.avg) + 'px'; htip.style.opacity = '1';
     });
     hhost.addEventListener('mouseleave', () => { hover = null; htip.style.opacity = '0'; draw(); });
@@ -1018,7 +1035,8 @@
       document.getElementById('hist-title').textContent = name || ('Type #' + typeId);
       days = 90;
       document.querySelectorAll('#hist-ranges button').forEach(x => x.classList.toggle('active', x.dataset.days === '90'));
-      populateMarkets(10000002);   // default to Jita
+      populateMarkets();
+      selectMarket();   // default to the last market the user picked
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
       loadSeries();
     };
