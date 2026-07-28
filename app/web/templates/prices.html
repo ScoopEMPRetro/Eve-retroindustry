@@ -44,7 +44,7 @@
 </div>
 
 <div class="row g-3 mb-4">
-  <div class="col-lg-6">
+  <div class="col-lg-4">
     <div class="card p-4 h-100">
       <h6 class="mb-1"><i class="bi bi-arrow-repeat me-2 text-primary"></i>Refresh Jita Prices</h6>
       <p class="text-muted small mb-3">
@@ -70,7 +70,34 @@
       </p>
     </div>
   </div>
-  <div class="col-lg-6">
+  <div class="col-lg-4">
+    <div class="card p-4 h-100">
+      <h6 class="mb-1"><i class="bi bi-shop me-2 text-primary"></i>Secondary Trade Hubs</h6>
+      <p class="text-muted small mb-3">
+        Fetch sell/buy + 7-day volume for another hub to compare against Jita. Downloaded
+        on demand — smaller regions than Jita, so faster. Loaded hubs add columns below.
+      </p>
+      <div class="d-flex flex-wrap gap-2">
+        {% for h in hubs %}
+        <button class="btn btn-sm btn-outline-primary hub-fetch-btn" data-region="{{ h.region_id }}" data-name="{{ h.name }}">
+          <i class="bi bi-download me-1"></i>{{ h.name }}
+          <span class="text-muted ms-1" style="font-size:.75em">{% if h.has_data %}· {{ h.last_update_str }}{% else %}· —{% endif %}</span>
+        </button>
+        {% endfor %}
+      </div>
+      <div id="hub-progress" class="d-none mt-3">
+        <div class="d-flex justify-content-between mb-1">
+          <small id="hub-progress-text" class="text-muted">Preparing…</small>
+          <small id="hub-progress-pct" class="text-muted">0%</small>
+        </div>
+        <div class="progress" style="height:8px">
+          <div id="hub-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+               role="progressbar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
     <div class="card p-4 h-100">
       <h6 class="mb-1"><i class="bi bi-geo-alt me-2 text-primary"></i>Custom Station Prices</h6>
       <p class="text-muted small mb-3">
@@ -107,37 +134,6 @@
   </div>
 </div>
 
-<div class="row g-3 mb-4">
-  <div class="col-12">
-    <div class="card p-4">
-      <h6 class="mb-1"><i class="bi bi-shop me-2 text-primary"></i>Secondary Trade Hubs</h6>
-      <p class="text-muted small mb-3">
-        Fetch sell/buy + 7-day volume for another hub to compare against Jita. Data is
-        downloaded on demand (per hub) — smaller regions than Jita, so it's faster.
-        Once loaded, the hub's columns appear in the table; toggle which columns show below.
-      </p>
-      <div class="d-flex flex-wrap gap-2">
-        {% for h in hubs %}
-        <button class="btn btn-sm btn-outline-primary hub-fetch-btn" data-region="{{ h.region_id }}" data-name="{{ h.name }}">
-          <i class="bi bi-download me-1"></i>Fetch {{ h.name }}
-          <span class="text-muted ms-1" style="font-size:.75em">{% if h.has_data %}· {{ h.last_update_str }}{% else %}· not loaded{% endif %}</span>
-        </button>
-        {% endfor %}
-      </div>
-      <div id="hub-progress" class="d-none mt-3">
-        <div class="d-flex justify-content-between mb-1">
-          <small id="hub-progress-text" class="text-muted">Preparing…</small>
-          <small id="hub-progress-pct" class="text-muted">0%</small>
-        </div>
-        <div class="progress" style="height:8px">
-          <div id="hub-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
-               role="progressbar" style="width:0%"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
 {% if not items %}
 <div class="card p-4 text-center text-muted">
   <i class="bi bi-currency-exchange mb-3" style="font-size:2.5rem;opacity:.3"></i>
@@ -166,22 +162,39 @@
     </div>
   </div>
 
-  <div id="col-picker" class="d-flex flex-wrap align-items-center gap-3 mb-3 small">
-    <span class="text-muted"><i class="bi bi-sliders me-1"></i>Columns:</span>
-    <span class="d-inline-flex align-items-center gap-2">
-      <span class="text-muted">Metric</span>
-      <label class="mb-0"><input type="checkbox" class="metric-cb form-check-input me-1" value="sell">Sell</label>
-      <label class="mb-0"><input type="checkbox" class="metric-cb form-check-input me-1" value="buy">Buy</label>
-      <label class="mb-0"><input type="checkbox" class="metric-cb form-check-input me-1" value="vol">Vol 7d</label>
-      <label class="mb-0"><input type="checkbox" class="metric-cb form-check-input me-1" value="avail">Available</label>
-    </span>
-    <span class="d-inline-flex align-items-center gap-2">
-      <span class="text-muted">Hub</span>
-      <label class="mb-0"><input type="checkbox" class="hub-cb form-check-input me-1" value="jita">Jita</label>
-      {% for h in downloaded_hubs %}
-      <label class="mb-0"><input type="checkbox" class="hub-cb form-check-input me-1" value="{{ h.region_id }}">{{ h.name }}</label>
-      {% endfor %}
-    </span>
+  <div id="col-picker" class="mb-3 small">
+    <div class="text-muted mb-2"><i class="bi bi-sliders me-1"></i>Compare columns
+      <span class="opacity-50">— tick any price × hub to show it side by side</span>
+    </div>
+    <table class="table table-sm table-borderless w-auto mb-0" style="font-size:.85em">
+      <thead>
+        <tr class="text-muted">
+          <th class="fw-normal pe-3"></th>
+          <th class="fw-normal text-center px-2">Sell</th>
+          <th class="fw-normal text-center px-2">Buy</th>
+          <th class="fw-normal text-center px-2">Vol 7d</th>
+          <th class="fw-normal text-center px-2">Avail</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="pe-3 fw-semibold align-middle">Jita</td>
+          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="sell"></td>
+          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="buy"></td>
+          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="vol"></td>
+          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="avail"></td>
+        </tr>
+        {% for h in downloaded_hubs %}
+        <tr>
+          <td class="pe-3 fw-semibold align-middle">{{ h.name }}</td>
+          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="sell"></td>
+          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="buy"></td>
+          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="vol"></td>
+          <td class="text-center px-2 text-muted opacity-25" title="Hubs have no per-station availability">—</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
   <div style="max-height:520px; overflow-y:auto;">
@@ -307,36 +320,29 @@
   // Downloaded secondary hubs (region_id + name) — server-rendered.
   const DL_HUBS = [{% for h in downloaded_hubs %}{id:{{ h.region_id }}, name:{{ h.name|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}];
 
-  // ── Column preferences: which metric × hub columns are visible (localStorage) ──
+  // ── Column preferences: each (hub × metric) column toggled independently ──
   function loadColPrefs() {
     let p = {};
     try { p = JSON.parse(localStorage.getItem('priceColPrefs')) || {}; } catch {}
-    p.metrics = p.metrics || {}; p.hubs = p.hubs || {};
+    p.cells = p.cells || {};
     return p;
   }
   const colPrefs = loadColPrefs();
-  const metricOn = m => colPrefs.metrics[m] !== false;   // default visible
-  const hubOn    = h => colPrefs.hubs[h]    !== false;   // default visible
+  const cellKey = (h, m) => h + ':' + m;
+  const cellOn  = (h, m) => colPrefs.cells[cellKey(h, m)] !== false;   // default visible
   function applyColumnPrefs() {
     document.querySelectorAll('.pricecol').forEach(el => {
       let m = null, h = null;
       el.classList.forEach(c => { if (c.startsWith('pm-')) m = c.slice(3); else if (c.startsWith('ph-')) h = c.slice(3); });
-      el.style.display = ((m ? metricOn(m) : true) && (h ? hubOn(h) : true)) ? '' : 'none';
+      el.style.display = (h && m && !cellOn(h, m)) ? 'none' : '';
     });
   }
   (function initColPicker() {
-    document.querySelectorAll('.metric-cb').forEach(cb => {
-      cb.checked = metricOn(cb.value);
+    document.querySelectorAll('.col-cb').forEach(cb => {
+      const h = cb.dataset.hub, m = cb.dataset.metric;
+      cb.checked = cellOn(h, m);
       cb.addEventListener('change', () => {
-        colPrefs.metrics[cb.value] = cb.checked;
-        localStorage.setItem('priceColPrefs', JSON.stringify(colPrefs));
-        applyColumnPrefs();
-      });
-    });
-    document.querySelectorAll('.hub-cb').forEach(cb => {
-      cb.checked = hubOn(cb.value);
-      cb.addEventListener('change', () => {
-        colPrefs.hubs[cb.value] = cb.checked;
+        colPrefs.cells[cellKey(h, m)] = cb.checked;
         localStorage.setItem('priceColPrefs', JSON.stringify(colPrefs));
         applyColumnPrefs();
       });
