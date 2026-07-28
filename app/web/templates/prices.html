@@ -188,6 +188,21 @@
   </div>
 
   <div style="max-height:520px; overflow-y:auto;">
+    <style>
+      /* Compact price table: proportional tabular figures instead of wide
+         monospace, smaller font, tighter rows, smaller icon. Scoped to
+         #price-table so the rest of the app is untouched. */
+      #price-table { font-size: .8rem; line-height: 1.15; }
+      #price-table .small { font-size: 1em; }              /* don't compound the shrink */
+      #price-table th { font-size: .72rem; padding-top: .3rem; padding-bottom: .3rem; }
+      #price-table td { padding-top: .12rem; padding-bottom: .12rem; }
+      #price-table .font-monospace {
+        font-family: var(--bs-body-font-family) !important;  /* drop the wide monospace */
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: "tnum" 1;
+      }
+      #price-table td img { width: 20px !important; height: 20px !important; }
+    </style>
     <table class="table table-sm table-hover mb-0" id="price-table">
       <thead class="sticky-top" style="top:0; background:var(--bs-body-bg);">
         {% set ns = namespace(c=6) %}
