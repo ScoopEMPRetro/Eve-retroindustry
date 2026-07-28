@@ -882,7 +882,7 @@
     const hloading = document.getElementById('hist-loading');
     const hctx = hcv.getContext('2d');
     const marketSel = document.getElementById('hist-market');
-    let series = [], days = 90, hover = null, geom = null, curType = null;
+    let series = [], days = 90, hover = null, geom = null, curType = null, histRefSell = {};
 
     const allMarkets = () => histCustomStation ? HIST_MARKETS.concat([histCustomStation]) : HIST_MARKETS;
     const marketName = id => { const m = allMarkets().find(x => x.id === id); return m ? m.name : ('Region ' + id); };
@@ -891,6 +891,7 @@
       allMarkets().forEach(m => {
         const o = document.createElement('option');
         o.value = m.id; o.textContent = m.name; if (m.id === sel) o.selected = true;
+        if (histCustomStation && m === histCustomStation) o.dataset.station = '1';
         marketSel.appendChild(o);
       });
     }
@@ -926,7 +927,13 @@
       const padL = 64, padR = 14, padT = 12, padB = 22, gap = 16;
       const priceH = (cssH - padT - padB - gap) * 0.66, volH = (cssH - padT - padB - gap) * 0.34;
       const px0 = padL, px1 = cssW - padR, py0 = padT, py1 = padT + priceH, vy0 = py1 + gap, vy1 = py1 + gap + volH;
-      const lo = Math.min(...v.map(p => p.low ?? p.avg)), hi = Math.max(...v.map(p => p.high ?? p.avg));
+      // Current sell price for the selected market (from the table row) — drawn
+      // as a reference line so history can be compared to today's asking price.
+      const opt = marketSel.selectedOptions[0];
+      let refSell = (opt && opt.dataset.station === '1') ? histRefSell['station'] : histRefSell[String(+marketSel.value)];
+      if (refSell == null || isNaN(refSell) || refSell <= 0) refSell = null;
+      let lo = Math.min(...v.map(p => p.low ?? p.avg)), hi = Math.max(...v.map(p => p.high ?? p.avg));
+      if (refSell != null) { lo = Math.min(lo, refSell); hi = Math.max(hi, refSell); }
       const rg = (hi - lo) || 1, pMin = lo - rg * 0.08, pMax = hi + rg * 0.08;
       const vMax = Math.max(...v.map(p => p.vol || 0)) * 1.1 || 1;
       const X = i => px0 + (px1 - px0) * (n === 1 ? 0.5 : i / (n - 1));
@@ -951,6 +958,17 @@
       v.forEach((p, i) => { const y = VY(p.vol || 0); hctx.fillRect(X(i) - bw / 2, y, bw, vy1 - y); });
       hctx.strokeStyle = gold; hctx.lineWidth = 2; hctx.lineJoin = 'round'; hctx.beginPath();
       v.forEach((p, i) => { const x = X(i), y = PY(p.avg); i ? hctx.lineTo(x, y) : hctx.moveTo(x, y); }); hctx.stroke();
+      // Current sell-price reference line (dashed).
+      if (refSell != null) {
+        const y = PY(refSell);
+        hctx.save();
+        hctx.strokeStyle = '#58a6ff'; hctx.lineWidth = 1.5; hctx.setLineDash([5, 4]);
+        hctx.beginPath(); hctx.moveTo(px0, y); hctx.lineTo(px1, y); hctx.stroke();
+        hctx.setLineDash([]);
+        hctx.fillStyle = '#58a6ff'; hctx.textAlign = 'left'; hctx.textBaseline = 'bottom';
+        hctx.fillText('current sell ' + iskC(refSell), px0 + 4, y - 3);
+        hctx.restore();
+      }
       geom = { X, PY, n, px0, px1, py0, vy1, v };
       if (hover != null) crosshair();
     }
@@ -983,8 +1001,20 @@
     modalEl.addEventListener('shown.bs.modal', draw);
     window.addEventListener('resize', () => { if (modalEl.classList.contains('show')) draw(); });
 
-    window.openHistory = function (typeId, name) {
+    window.openHistory = function (typeId, name, rowEl) {
       curType = typeId;
+      // Current sell prices from the table row, for the reference marker.
+      histRefSell = {};
+      if (rowEl) {
+        const js = rowEl.querySelector('.pm-sell.ph-jita');
+        if (js && js.dataset.v) histRefSell['10000002'] = parseFloat(js.dataset.v);
+        DL_HUBS.forEach(h => {
+          const c = rowEl.querySelector('.pm-sell.ph-' + h.id);
+          if (c && c.dataset.v) histRefSell[String(h.id)] = parseFloat(c.dataset.v);
+        });
+        const st = rowEl.querySelector('.station-sell-cell');
+        if (st && st.dataset.v) histRefSell['station'] = parseFloat(st.dataset.v);
+      }
       document.getElementById('hist-title').textContent = name || ('Type #' + typeId);
       days = 90;
       document.querySelectorAll('#hist-ranges button').forEach(x => x.classList.toggle('active', x.dataset.days === '90'));
@@ -997,7 +1027,7 @@
   // Open the history chart when an item name is clicked or activated.
   function _openHistFromEl(el) {
     const tr = el.closest('tr'); if (!tr) return;
-    window.openHistory(tr.dataset.id, el.textContent.trim());
+    window.openHistory(tr.dataset.id, el.textContent.trim(), tr);
   }
   priceTable && priceTable.addEventListener('click', e => {
     const el = e.target.closest('.item-hist'); if (el) _openHistFromEl(el);
