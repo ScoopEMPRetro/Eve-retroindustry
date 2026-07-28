@@ -35,7 +35,7 @@
 </style>
 
 <div class="row g-3 mb-4">
-  <div class="col-lg-4">
+  <div class="col-xl-3 col-md-6">
     <div class="card p-4 h-100">
       <h6 class="mb-1"><i class="bi bi-arrow-repeat me-2 text-primary"></i>Refresh Jita Prices</h6>
       <p class="text-muted small mb-3">
@@ -61,7 +61,7 @@
       </p>
     </div>
   </div>
-  <div class="col-lg-4">
+  <div class="col-xl-3 col-md-6">
     <div class="card p-4 h-100">
       <h6 class="mb-1"><i class="bi bi-shop me-2 text-primary"></i>Secondary Trade Hubs</h6>
       <p class="text-muted small mb-3">
@@ -87,7 +87,49 @@
       </div>
     </div>
   </div>
-  <div class="col-lg-4">
+  <div class="col-xl-3 col-md-6">
+    <div class="card p-4 h-100" id="col-picker">
+      <h6 class="mb-1"><i class="bi bi-sliders me-2 text-primary"></i>Displayed Columns</h6>
+      <p class="text-muted small mb-2">Tick any price × hub to show it side by side.</p>
+      <div class="mb-2 small">
+        <label class="mb-0" title="Show large numbers abbreviated (362.50k · 365.00M · 4.36B). Prices under 10 000 keep decimals.">
+          <input type="checkbox" id="compact-numbers-cb" class="form-check-input me-1">Compact numbers (K / M / B)
+        </label>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="table table-sm table-borderless w-auto mb-0 small">
+          <thead>
+            <tr class="text-muted">
+              <th class="fw-normal pe-3"></th>
+              <th class="fw-normal text-center px-2">Sell</th>
+              <th class="fw-normal text-center px-2">Buy</th>
+              <th class="fw-normal text-center px-2">Vol</th>
+              <th class="fw-normal text-center px-2">Avail</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="pe-3 fw-semibold align-middle">Jita</td>
+              <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="sell"></td>
+              <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="buy"></td>
+              <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="vol"></td>
+              <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="avail"></td>
+            </tr>
+            {% for h in downloaded_hubs %}
+            <tr>
+              <td class="pe-3 fw-semibold align-middle">{{ h.name }}</td>
+              <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="sell"></td>
+              <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="buy"></td>
+              <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="vol"></td>
+              <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="avail"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-3 col-md-6">
     <div class="card p-4 h-100">
       <h6 class="mb-1"><i class="bi bi-geo-alt me-2 text-primary"></i>Custom Station Prices</h6>
       <p class="text-muted small mb-3">
@@ -150,46 +192,6 @@
       <input type="search" id="price-search" class="form-control form-control-sm"
              placeholder="Search item or group…" style="width:220px" autocomplete="off">
     </div>
-  </div>
-
-  <div id="col-picker" class="mb-3 small">
-    <div class="text-muted mb-2"><i class="bi bi-sliders me-1"></i>Compare columns
-      <span class="opacity-50">— tick any price × hub to show it side by side</span>
-    </div>
-    <div class="mb-2">
-      <label class="mb-0" title="Show large numbers abbreviated (362.50k · 365.00M · 4.36B). Prices under 10 000 keep decimals.">
-        <input type="checkbox" id="compact-numbers-cb" class="form-check-input me-1">Compact numbers (K / M / B)
-      </label>
-    </div>
-    <table class="table table-sm table-borderless w-auto mb-0" style="font-size:.85em">
-      <thead>
-        <tr class="text-muted">
-          <th class="fw-normal pe-3"></th>
-          <th class="fw-normal text-center px-2">Sell</th>
-          <th class="fw-normal text-center px-2">Buy</th>
-          <th class="fw-normal text-center px-2">Vol 7d</th>
-          <th class="fw-normal text-center px-2">Avail</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="pe-3 fw-semibold align-middle">Jita</td>
-          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="sell"></td>
-          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="buy"></td>
-          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="vol"></td>
-          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="jita" data-metric="avail"></td>
-        </tr>
-        {% for h in downloaded_hubs %}
-        <tr>
-          <td class="pe-3 fw-semibold align-middle">{{ h.name }}</td>
-          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="sell"></td>
-          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="buy"></td>
-          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="vol"></td>
-          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="avail"></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
   </div>
 
   <div style="max-height:520px; overflow-y:auto;">
