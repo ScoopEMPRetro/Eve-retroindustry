@@ -223,8 +223,7 @@
           </th>{% set ns.c = ns.c + 1 %}
           <th class="text-end station-col sortable" data-col="{{ ns.c }}" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Available units in sell orders at station">
             <span class="stn-name">Station</span> available <span class="sort-indicator"></span>
-          </th>{% set ns.c = ns.c + 1 %}
-          <th class="sortable" data-col="{{ ns.c }}" data-sort-type="num" style="width:210px;cursor:pointer;user-select:none">Custom price <span class="sort-indicator"></span></th>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -241,34 +240,31 @@
             {% if not item.fresh %}
               <span class="badge bg-secondary ms-1" style="font-size:.65em">stale</span>
             {% endif %}
-            {% if item.custom_price is not none %}
-              <span class="badge bg-warning text-dark ms-1 custom-badge" style="font-size:.65em">custom</span>
-            {% endif %}
           </td>
           <td class="text-end py-1 align-middle font-monospace small pricecol pm-sell ph-jita">
             {% if item.sell_price is not none %}
-              {{ "{:,.2f}".format(item.sell_price) }}
+              {{ "{:,.2f}".format(item.sell_price).replace(",", " ") }}
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
           </td>
           <td class="text-end py-1 align-middle font-monospace small pricecol pm-buy ph-jita">
             {% if item.buy_price is not none %}
-              {{ "{:,.2f}".format(item.buy_price) }}
+              {{ "{:,.2f}".format(item.buy_price).replace(",", " ") }}
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
           </td>
           <td class="text-end py-1 align-middle font-monospace small pricecol pm-vol ph-jita">
             {% if item.volume is not none %}
-              {{ "{:,}".format(item.volume) }}
+              {{ "{:,}".format(item.volume).replace(",", " ") }}
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
           </td>
           <td class="text-end py-1 align-middle font-monospace small pricecol pm-avail ph-jita">
             {% if item.jita_available is not none %}
-              {{ "{:,}".format(item.jita_available) }}
+              {{ "{:,}".format(item.jita_available).replace(",", " ") }}
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
@@ -276,10 +272,10 @@
           {% set ihubs = item.get('hubs') or {} %}
           {% for h in downloaded_hubs %}
           {% set hd = ihubs.get(h.region_id) %}
-          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-{{ h.region_id }}">{% if hd and hd.sell is not none %}{{ "{:,.2f}".format(hd.sell) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-{{ h.region_id }}">{% if hd and hd.buy is not none %}{{ "{:,.2f}".format(hd.buy) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-{{ h.region_id }}">{% if hd and hd.volume is not none %}{{ "{:,}".format(hd.volume) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-avail ph-{{ h.region_id }}">{% if hd and hd.available is not none %}{{ "{:,}".format(hd.available) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-{{ h.region_id }}">{% if hd and hd.sell is not none %}{{ "{:,.2f}".format(hd.sell).replace(",", " ") }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-{{ h.region_id }}">{% if hd and hd.buy is not none %}{{ "{:,.2f}".format(hd.buy).replace(",", " ") }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-{{ h.region_id }}">{% if hd and hd.volume is not none %}{{ "{:,}".format(hd.volume).replace(",", " ") }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-avail ph-{{ h.region_id }}">{% if hd and hd.available is not none %}{{ "{:,}".format(hd.available).replace(",", " ") }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           {% endfor %}
           <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">
             <span class="text-muted">—</span>
@@ -289,24 +285,6 @@
           </td>
           <td class="text-end py-1 align-middle font-monospace small station-col station-avail-cell" style="display:none">
             <span class="text-muted">—</span>
-          </td>
-          <td class="py-1">
-            <div class="input-group input-group-sm">
-              <input type="number" class="form-control custom-price-input font-monospace"
-                     min="0" step="0.01"
-                     value="{{ item.custom_price if item.custom_price is not none else '' }}"
-                     placeholder="Jita sell"
-                     data-id="{{ item.type_id }}">
-              <button class="btn btn-outline-secondary custom-price-save" type="button"
-                      data-id="{{ item.type_id }}" title="Save custom price">
-                <i class="bi bi-check-lg"></i>
-              </button>
-              <button class="btn btn-outline-warning custom-price-reset" type="button"
-                      data-id="{{ item.type_id }}" title="Reset to Jita price"
-                      {% if item.custom_price is none %}style="display:none"{% endif %}>
-                <i class="bi bi-arrow-counterclockwise"></i>
-              </button>
-            </div>
           </td>
         </tr>
         {% endfor %}
@@ -417,25 +395,26 @@
       const sell   = entry?.best_sell;
       const traded = entry?.traded_volume;
       const vol    = entry?.volume;
-      sellCell.innerHTML   = sell   != null ? sell.toLocaleString('cs-CZ', {minimumFractionDigits:2, maximumFractionDigits:2}) : na;
-      tr.querySelector('.station-traded-cell').innerHTML = traded != null && traded > 0 ? traded.toLocaleString('cs-CZ') : na;
-      tr.querySelector('.station-avail-cell').innerHTML  = vol    != null && vol   > 0  ? vol.toLocaleString('cs-CZ')    : na;
+      sellCell.innerHTML   = sell   != null ? euro(sell, true) : na;
+      tr.querySelector('.station-traded-cell').innerHTML = traded != null && traded > 0 ? euro(traded, false) : na;
+      tr.querySelector('.station-avail-cell').innerHTML  = vol    != null && vol   > 0  ? euro(vol, false)    : na;
     });
   }
 
-  const fmt = n => n != null
-    ? n.toLocaleString('cs-CZ', {minimumFractionDigits:2, maximumFractionDigits:2})
-    : '<span class="text-muted">—</span>';
-  const fmtInt = n => n != null && n > 0
-    ? n.toLocaleString('cs-CZ')
-    : '<span class="text-muted">—</span>';
+  // European number format: space thousands separator, dot decimal (matches the
+  // app-wide `isk` filter used everywhere else).
+  const euro = (n, dec) => {
+    if (n == null || isNaN(n)) return null;
+    const s = dec ? Number(n).toFixed(2) : Math.round(n).toString();
+    const p = s.split('.');
+    p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return p.join('.');
+  };
+  const fmt = n => n != null ? euro(n, true) : '<span class="text-muted">—</span>';
+  const fmtInt = n => n != null && n > 0 ? euro(n, false) : '<span class="text-muted">—</span>';
   const na = '<span class="text-muted">—</span>';
 
   function makeGroupRow(item) {
-    const customVal = item.custom_price != null ? item.custom_price : '';
-    const customBadge = item.custom_price != null
-      ? `<span class="badge bg-warning text-dark ms-1 custom-badge" style="font-size:.65em">custom</span>` : '';
-    const resetBtnStyle = item.custom_price != null ? '' : 'style="display:none"';
     return `<tr data-name="${item.name.toLowerCase()}" data-id="${item.type_id}"
                 data-jita-sell="${item.sell_price != null ? item.sell_price : ''}">
       <td class="py-1">
@@ -446,7 +425,6 @@
       <td class="py-1 align-middle">
         ${item.name}
         ${item.fresh === false ? '<span class="badge bg-secondary ms-1" style="font-size:.65em">stale</span>' : ''}
-        ${customBadge}
         ${item.group_name && item.group_name !== data_group_name
           ? `<span class="badge bg-secondary ms-1" style="font-size:.65em">${item.group_name}</span>`
           : ''}
@@ -459,21 +437,6 @@
       <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-traded-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-avail-cell" style="display:none">${na}</td>
-      <td class="py-1">
-        <div class="input-group input-group-sm">
-          <input type="number" class="form-control custom-price-input font-monospace"
-                 min="0" step="0.01" value="${customVal}" placeholder="Jita sell"
-                 data-id="${item.type_id}">
-          <button class="btn btn-outline-secondary custom-price-save" type="button"
-                  data-id="${item.type_id}" title="Save custom price">
-            <i class="bi bi-check-lg"></i>
-          </button>
-          <button class="btn btn-outline-warning custom-price-reset" type="button"
-                  data-id="${item.type_id}" title="Reset to Jita price" ${resetBtnStyle}>
-            <i class="bi bi-arrow-counterclockwise"></i>
-          </button>
-        </div>
-      </td>
     </tr>`;
   }
 
@@ -525,7 +488,7 @@
           if (data.fetching_prices) {
             const fetchingBanner = document.createElement('tr');
             fetchingBanner.id = 'fetching-banner';
-            fetchingBanner.innerHTML = '<td colspan="7" class="text-center text-muted py-2" style="font-size:.8rem"><span class="spinner-border spinner-border-sm me-1"></span>Fetching prices… results will update automatically.</td>';
+            fetchingBanner.innerHTML = '<td colspan="30" class="text-center text-muted py-2" style="font-size:.8rem"><span class="spinner-border spinner-border-sm me-1"></span>Fetching prices… results will update automatically.</td>';
             tbody.insertBefore(fetchingBanner, tbody.firstChild);
             setTimeout(async () => {
               try {
@@ -549,74 +512,6 @@
         applyNameFilter(q);
       }
     }, 350);
-  });
-
-  // --- Custom price (event delegation — survives tbody replacement) ---
-  async function saveCustomPrice(typeId, price) {
-    const resp = await fetch('/api/prices/custom', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({type_id: typeId, price: price === '' || price === null ? null : parseFloat(price)}),
-    });
-    return resp.ok;
-  }
-
-  function setCustomBadge(row, hasCustom) {
-    const nameTd = row.querySelector('td:nth-child(2)');
-    if (!nameTd) return;
-    nameTd.querySelectorAll('.custom-badge').forEach(b => b.remove());
-    if (hasCustom) {
-      const badge = document.createElement('span');
-      badge.className = 'badge bg-warning text-dark ms-1 custom-badge';
-      badge.style.fontSize = '.65em';
-      badge.textContent = 'custom';
-      nameTd.appendChild(badge);
-    }
-  }
-
-  priceTable && priceTable.addEventListener('click', async (e) => {
-    const saveBtn  = e.target.closest('.custom-price-save');
-    const resetBtn = e.target.closest('.custom-price-reset');
-    if (!saveBtn && !resetBtn) return;
-
-    if (saveBtn) {
-      const id    = saveBtn.dataset.id;
-      const input = priceTable.querySelector(`.custom-price-input[data-id="${id}"]`);
-      const val   = input?.value.trim() ?? '';
-      const ok    = await saveCustomPrice(id, val);
-      if (ok) {
-        saveBtn.innerHTML = '<i class="bi bi-check-lg text-success"></i>';
-        setTimeout(() => saveBtn.innerHTML = '<i class="bi bi-check-lg"></i>', 1200);
-        const row = saveBtn.closest('tr');
-        const hasCustom = val !== '';
-        setCustomBadge(row, hasCustom);
-        const resetEl = row.querySelector('.custom-price-reset');
-        if (resetEl) resetEl.style.display = hasCustom ? '' : 'none';
-      } else {
-        saveBtn.innerHTML = '<i class="bi bi-x-lg text-danger"></i>';
-        setTimeout(() => saveBtn.innerHTML = '<i class="bi bi-check-lg"></i>', 1200);
-      }
-    }
-
-    if (resetBtn) {
-      const id    = resetBtn.dataset.id;
-      const row   = resetBtn.closest('tr');
-      const input = priceTable.querySelector(`.custom-price-input[data-id="${id}"]`);
-      const ok    = await saveCustomPrice(id, null);
-      if (ok && input) {
-        input.value = row.dataset.jitaSell || '';
-        setCustomBadge(row, false);
-        resetBtn.style.display = 'none';
-      }
-    }
-  });
-
-  priceTable && priceTable.addEventListener('keydown', e => {
-    const input = e.target.closest('.custom-price-input');
-    if (input && e.key === 'Enter') {
-      e.preventDefault();
-      priceTable.querySelector(`.custom-price-save[data-id="${input.dataset.id}"]`)?.click();
-    }
   });
 
   // --- Jita refresh (SSE) ---
@@ -796,9 +691,9 @@
           const sell   = entry?.best_sell;
           const traded = entry?.traded_volume;
 
-          sellCell.innerHTML   = sell   != null ? sell.toLocaleString('cs-CZ', {minimumFractionDigits:2, maximumFractionDigits:2}) : na;
-          tradedCell.innerHTML = traded != null && traded > 0 ? traded.toLocaleString('cs-CZ') : na;
-          availCell.innerHTML  = vol    != null && vol   > 0  ? vol.toLocaleString('cs-CZ')    : na;
+          sellCell.innerHTML   = sell   != null ? euro(sell, true) : na;
+          tradedCell.innerHTML = traded != null && traded > 0 ? euro(traded, false) : na;
+          availCell.innerHTML  = vol    != null && vol   > 0  ? euro(vol, false)    : na;
         });
       }
     } catch(e) {

@@ -195,7 +195,7 @@ def test_prices_hub_columns_render(app_module, client):
         ensure_price_table(c)
         c.execute(
             "INSERT OR REPLACE INTO hub_price_cache (region_id, type_id, sell_price, buy_price, volume, available, cached_at) "
-            "VALUES (?,?,?,?,?,?,?)", (10000043, 34, 6.5, 5.5, 1234, 999, _t.time()))
+            "VALUES (?,?,?,?,?,?,?)", (10000043, 34, 1234567.5, 5.5, 1234, 999, _t.time()))
         c.commit()
     finally:
         c.close()
@@ -206,6 +206,9 @@ def test_prices_hub_columns_render(app_module, client):
         assert "Amarr available" in r.text     # incl. per-hub available column
         assert "hub-fetch-btn" in r.text       # per-hub fetch buttons present
         assert "col-picker" in r.text          # metric/hub column picker present
+        assert "1 234 567.50" in r.text        # European format: space thousands
+        assert "1,234,567.50" not in r.text    # not American commas
+        assert "Custom price" not in r.text    # custom price column removed
     finally:
         c = m.get_conn()
         try:
