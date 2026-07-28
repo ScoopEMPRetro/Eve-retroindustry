@@ -156,6 +156,11 @@
     <div class="text-muted mb-2"><i class="bi bi-sliders me-1"></i>Compare columns
       <span class="opacity-50">— tick any price × hub to show it side by side</span>
     </div>
+    <div class="mb-2">
+      <label class="mb-0" title="Show large numbers abbreviated (362.50k · 365.00M · 4.36B). Prices under 10 000 keep decimals.">
+        <input type="checkbox" id="compact-numbers-cb" class="form-check-input me-1">Compact numbers (K / M / B)
+      </label>
+    </div>
     <table class="table table-sm table-borderless w-auto mb-0" style="font-size:.85em">
       <thead>
         <tr class="text-muted">
@@ -246,41 +251,17 @@
               <span class="badge bg-secondary ms-1" style="font-size:.65em">stale</span>
             {% endif %}
           </td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol pm-sell ph-jita">
-            {% if item.sell_price is not none %}
-              {{ "{:,.2f}".format(item.sell_price).replace(",", " ") }}
-            {% else %}
-              <span class="text-muted">—</span>
-            {% endif %}
-          </td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol pm-buy ph-jita">
-            {% if item.buy_price is not none %}
-              {{ "{:,.2f}".format(item.buy_price).replace(",", " ") }}
-            {% else %}
-              <span class="text-muted">—</span>
-            {% endif %}
-          </td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol pm-vol ph-jita">
-            {% if item.volume is not none %}
-              {{ "{:,}".format(item.volume).replace(",", " ") }}
-            {% else %}
-              <span class="text-muted">—</span>
-            {% endif %}
-          </td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol pm-avail ph-jita">
-            {% if item.jita_available is not none %}
-              {{ "{:,}".format(item.jita_available).replace(",", " ") }}
-            {% else %}
-              <span class="text-muted">—</span>
-            {% endif %}
-          </td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol pm-sell ph-jita" data-v="{{ item.sell_price if item.sell_price is not none else '' }}">{% if item.sell_price is not none %}{{ item.sell_price | price_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol pm-buy ph-jita" data-v="{{ item.buy_price if item.buy_price is not none else '' }}">{% if item.buy_price is not none %}{{ item.buy_price | price_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol pm-vol ph-jita" data-v="{{ item.volume if item.volume is not none else '' }}">{% if item.volume is not none %}{{ item.volume | count_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol pm-avail ph-jita" data-v="{{ item.jita_available if item.jita_available is not none else '' }}">{% if item.jita_available is not none %}{{ item.jita_available | count_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           {% set ihubs = item.get('hubs') or {} %}
           {% for h in downloaded_hubs %}
           {% set hd = ihubs.get(h.region_id) %}
-          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-{{ h.region_id }}">{% if hd and hd.sell is not none %}{{ "{:,.2f}".format(hd.sell).replace(",", " ") }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-{{ h.region_id }}">{% if hd and hd.buy is not none %}{{ "{:,.2f}".format(hd.buy).replace(",", " ") }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-{{ h.region_id }}">{% if hd and hd.volume is not none %}{{ "{:,}".format(hd.volume).replace(",", " ") }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
-          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-avail ph-{{ h.region_id }}">{% if hd and hd.available is not none %}{{ "{:,}".format(hd.available).replace(",", " ") }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-{{ h.region_id }}" data-v="{{ hd.sell if hd and hd.sell is not none else '' }}">{% if hd and hd.sell is not none %}{{ hd.sell | price_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-{{ h.region_id }}" data-v="{{ hd.buy if hd and hd.buy is not none else '' }}">{% if hd and hd.buy is not none %}{{ hd.buy | price_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-{{ h.region_id }}" data-v="{{ hd.volume if hd and hd.volume is not none else '' }}">{% if hd and hd.volume is not none %}{{ hd.volume | count_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-avail ph-{{ h.region_id }}" data-v="{{ hd.available if hd and hd.available is not none else '' }}">{% if hd and hd.available is not none %}{{ hd.available | count_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           {% endfor %}
           <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">
             <span class="text-muted">—</span>
@@ -335,6 +316,50 @@
   })();
   applyColumnPrefs();
 
+  // ── Number formatting: default (≥10k prices lose decimals, <10k keep them;
+  //    counts are integers) with an optional compact K/M/B mode. Cells carry the
+  //    raw value in data-v, so formatting is display-only and sorting is unaffected. ──
+  const NA_HTML = '<span class="text-muted">—</span>';
+  const compactNumbersOn = () => colPrefs.compact === true;
+  const spaceThousands = s => s.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  function fmtNum(v, isPrice, compact) {
+    if (v == null || v === '' || isNaN(v)) return NA_HTML;
+    v = +v;
+    if (compact && Math.abs(v) >= 10000) {
+      if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+      if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+      return (v / 1e3).toFixed(2) + 'k';
+    }
+    if (isPrice && Math.abs(v) < 10000) {
+      const p = v.toFixed(2).split('.');
+      return spaceThousands(p[0]) + '.' + p[1];
+    }
+    return spaceThousands(Math.round(v).toString());
+  }
+  function applyNumberFormat() {
+    const compact = compactNumbersOn();
+    const t = document.getElementById('price-table');
+    if (!t) return;
+    t.querySelectorAll('td[data-v]').forEach(td => {
+      const dv = td.getAttribute('data-v');
+      const v = (dv === '' || dv == null) ? null : parseFloat(dv);
+      const isPrice = td.classList.contains('pm-sell') || td.classList.contains('pm-buy')
+                   || td.classList.contains('station-sell-cell');
+      td.innerHTML = fmtNum(v, isPrice, compact);
+    });
+  }
+  (function initCompactToggle() {
+    const cb = document.getElementById('compact-numbers-cb');
+    if (!cb) return;
+    cb.checked = compactNumbersOn();
+    cb.addEventListener('change', () => {
+      colPrefs.compact = cb.checked;
+      localStorage.setItem('priceColPrefs', JSON.stringify(colPrefs));
+      applyNumberFormat();
+    });
+  })();
+  applyNumberFormat();
+
   // --- Search ---
   const search    = document.getElementById('price-search');
   const priceTable = document.getElementById('price-table');
@@ -351,6 +376,13 @@
         return row.dataset.name || (row.children[col]?.textContent || '').trim().toLowerCase();
       const cell = row.children[col];
       if (!cell) return null;
+      // Prefer the raw value in data-v — format-independent, so sorting works the
+      // same whether numbers are shown full or in compact K/M/B form.
+      if (cell.hasAttribute('data-v')) {
+        const dv = cell.getAttribute('data-v');
+        const n = dv === '' ? NaN : parseFloat(dv);
+        return isNaN(n) ? null : n;
+      }
       const inp = cell.querySelector('input');
       const raw = ((inp ? inp.value : cell.textContent) || '').replace(/\s/g, '').replace(',', '.');
       const n = parseFloat(raw);
@@ -388,22 +420,23 @@
 
   function applyStationDataToTbody() {
     applyColumnPrefs();   // re-apply metric/hub column visibility after any tbody rebuild
-    if (!loadedStationData || !tbody) return;
-    tbody.querySelectorAll('tr').forEach(tr => {
-      const tid = tr.dataset.id;
-      const sellCell   = tr.querySelector('.station-sell-cell');
-      if (!sellCell) return;
-      sellCell.style.display = '';
-      tr.querySelector('.station-traded-cell').style.display = '';
-      tr.querySelector('.station-avail-cell').style.display = '';
-      const entry  = loadedStationData[tid];
-      const sell   = entry?.best_sell;
-      const traded = entry?.traded_volume;
-      const vol    = entry?.volume;
-      sellCell.innerHTML   = sell   != null ? euro(sell, true) : na;
-      tr.querySelector('.station-traded-cell').innerHTML = traded != null && traded > 0 ? euro(traded, false) : na;
-      tr.querySelector('.station-avail-cell').innerHTML  = vol    != null && vol   > 0  ? euro(vol, false)    : na;
-    });
+    if (loadedStationData && tbody) {
+      tbody.querySelectorAll('tr').forEach(tr => {
+        const sellCell = tr.querySelector('.station-sell-cell');
+        if (!sellCell) return;
+        const tradedCell = tr.querySelector('.station-traded-cell');
+        const availCell  = tr.querySelector('.station-avail-cell');
+        sellCell.style.display = ''; tradedCell.style.display = ''; availCell.style.display = '';
+        const entry  = loadedStationData[tr.dataset.id];
+        const sell   = entry?.best_sell;
+        const traded = entry?.traded_volume;
+        const vol    = entry?.volume;
+        sellCell.setAttribute('data-v', sell != null ? sell : '');
+        tradedCell.setAttribute('data-v', (traded != null && traded > 0) ? traded : '');
+        availCell.setAttribute('data-v', (vol != null && vol > 0) ? vol : '');
+      });
+    }
+    applyNumberFormat();   // (re)format all data-v cells, incl. station, per compact pref
   }
 
   // European number format: space thousands separator, dot decimal (matches the
@@ -434,11 +467,11 @@
           ? `<span class="badge bg-secondary ms-1" style="font-size:.65em">${item.group_name}</span>`
           : ''}
       </td>
-      <td class="text-end py-1 align-middle font-monospace small pricecol pm-sell ph-jita">${fmt(item.sell_price)}</td>
-      <td class="text-end py-1 align-middle font-monospace small pricecol pm-buy ph-jita">${fmt(item.buy_price)}</td>
-      <td class="text-end py-1 align-middle font-monospace small pricecol pm-vol ph-jita">${fmtInt(item.volume)}</td>
-      <td class="text-end py-1 align-middle font-monospace small pricecol pm-avail ph-jita">${fmtInt(item.jita_available)}</td>
-      ${DL_HUBS.map(h => { const hd=(item.hubs||{})[h.id]||{}; return `<td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-${h.id}">${fmt(hd.sell)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-${h.id}">${fmt(hd.buy)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-${h.id}">${fmtInt(hd.volume)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-avail ph-${h.id}">${fmtInt(hd.available)}</td>`; }).join('')}
+      <td class="text-end py-1 align-middle font-monospace small pricecol pm-sell ph-jita" data-v="${item.sell_price != null ? item.sell_price : ''}"></td>
+      <td class="text-end py-1 align-middle font-monospace small pricecol pm-buy ph-jita" data-v="${item.buy_price != null ? item.buy_price : ''}"></td>
+      <td class="text-end py-1 align-middle font-monospace small pricecol pm-vol ph-jita" data-v="${item.volume != null ? item.volume : ''}"></td>
+      <td class="text-end py-1 align-middle font-monospace small pricecol pm-avail ph-jita" data-v="${item.jita_available != null ? item.jita_available : ''}"></td>
+      ${DL_HUBS.map(h => { const hd=(item.hubs||{})[h.id]||{}; const dv=x=>x!=null?x:''; return `<td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-${h.id}" data-v="${dv(hd.sell)}"></td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-${h.id}" data-v="${dv(hd.buy)}"></td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-${h.id}" data-v="${dv(hd.volume)}"></td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-avail ph-${h.id}" data-v="${dv(hd.available)}"></td>`; }).join('')}
       <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-traded-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-avail-cell" style="display:none">${na}</td>
@@ -681,33 +714,15 @@
         stnChip.classList.remove('d-none');
       }
 
-      // Fill the cells — always re-read tbody (may be null on first initialization)
-      const liveTable = document.getElementById('price-table');
-      const liveTbody = liveTable?.querySelector('tbody');
+      // Persist + render via the shared path (sets data-v and applies the
+      // current number format, incl. compact mode).
       loadedStationData = json.data;
-      const data = json.data;
-      const na = '<span class="text-muted">—</span>';
-
+      const liveTbody = document.getElementById('price-table')?.querySelector('tbody');
       if (!liveTbody) {
-        stationStatus.textContent = `Loaded ${Object.keys(data).length} items. Refresh the page to see station prices.`;
+        stationStatus.textContent = `Loaded ${Object.keys(json.data).length} items. Refresh the page to see station prices.`;
         stationStatus.classList.remove('d-none');
       } else {
-        liveTbody.querySelectorAll('tr').forEach(tr => {
-          const tid = tr.dataset.id;
-          const sellCell   = tr.querySelector('.station-sell-cell');
-          if (!sellCell) return;
-          const tradedCell = tr.querySelector('.station-traded-cell');
-          const availCell  = tr.querySelector('.station-avail-cell');
-
-          const entry  = data[tid];
-          const vol    = entry?.volume;
-          const sell   = entry?.best_sell;
-          const traded = entry?.traded_volume;
-
-          sellCell.innerHTML   = sell   != null ? euro(sell, true) : na;
-          tradedCell.innerHTML = traded != null && traded > 0 ? euro(traded, false) : na;
-          availCell.innerHTML  = vol    != null && vol   > 0  ? euro(vol, false)    : na;
-        });
+        applyStationDataToTbody();
       }
     } catch(e) {
       clearInterval(fakeInterval);

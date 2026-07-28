@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.68"
+APP_VERSION = "0.8.69"
 
 import asyncio
 import datetime
@@ -349,6 +349,25 @@ def _ts_to_str(ts: float) -> str:
         return ""
 
 
+def _price_eu(v) -> str:
+    """Default price format: <10k keeps 2 decimals, >=10k drops them. Space thousands."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    s = f"{v:,.2f}" if abs(v) < 10000 else f"{v:,.0f}"
+    return s.replace(",", " ")
+
+
+def _count_eu(v) -> str:
+    """Integer count (volume / available): no decimals, space thousands."""
+    try:
+        v = int(round(float(v)))
+    except (TypeError, ValueError):
+        return "—"
+    return f"{v:,}".replace(",", " ")
+
+
 def _age_short(ts) -> str:
     """Compact relative age of a timestamp: 'now' / '5m' / '10h' / '2d'.
     Returns '—' when there's no timestamp (never fetched)."""
@@ -369,6 +388,8 @@ templates.env.filters["isk"] = _isk
 templates.env.filters["format_number"] = _format_number
 templates.env.filters["format_date"] = _format_date
 templates.env.filters["age_short"] = _age_short
+templates.env.filters["price_eu"] = _price_eu
+templates.env.filters["count_eu"] = _count_eu
 templates.env.filters["ts_ago"] = _ts_ago
 templates.env.filters["ts_to_str"] = _ts_to_str
 
