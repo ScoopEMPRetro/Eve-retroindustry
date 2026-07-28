@@ -546,12 +546,16 @@ def get_all_hub_prices(
 HISTORY_TTL = 60 * 60 * 8  # 8 h — market history updates about once a day
 
 
-def _densify_history(series: list[dict]) -> list[dict]:
+def _densify_history(series: list[dict], end_date: str | None = None) -> list[dict]:
     """ESI market history omits days with no trades. For the chart we want a true
-    daily timeline, so fill each missing calendar day between the first and last
-    entry with volume 0 and the last known price carried forward. Without this an
-    illiquid item (e.g. a 3B ISK SKIN that sells once a week) looks like it traded
-    every day, and the range selector counts trades instead of days."""
+    daily timeline, so fill each missing calendar day with volume 0 and the last
+    known price carried forward. Without this an illiquid item (e.g. a 3B ISK SKIN
+    that sells once a week) looks like it traded every day and the range selector
+    counts trades instead of days.
+
+    `end_date` (YYYY-MM-DD) extends the timeline past the last trade up to that day
+    (normally today) — so the chart ends at 'now', not at the last sale, making a
+    long no-trade streak visible. Defaults to the last entry's date."""
     import datetime
     if not series:
         return series
@@ -566,6 +570,13 @@ def _densify_history(series: list[dict]) -> list[dict]:
     out: list[dict] = []
     last = valid[0]
     cur, end = pd(valid[0]["d"]), pd(valid[-1]["d"])
+    if end_date:
+        try:
+            ed = pd(end_date)
+            if ed > end:
+                end = ed
+        except Exception:
+            pass
     step = datetime.timedelta(days=1)
     while cur <= end:
         key = cur.isoformat()
@@ -582,6 +593,8 @@ def _densify_history(series: list[dict]) -> list[dict]:
 async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: int) -> list[dict]:
     """Daily market history (~1 year) for the price chart, cached per (region, type).
     Falls back to any stale cached copy if a fresh fetch fails."""
+    import datetime
+    _today = datetime.date.today().isoformat()   # extend the timeline to today
     ensure_price_table(conn)
     row = conn.execute(
         "SELECT data_json, cached_at FROM price_history_cache WHERE region_id=? AND type_id=?",
@@ -591,7 +604,7 @@ async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: i
     # for cache rows written before densifying existed. It's idempotent.
     if row and (time.time() - (row[1] or 0)) < HISTORY_TTL:
         try:
-            return _densify_history(_json.loads(row[0]))
+            return _densify_history(_json.loads(row[0]), _today)
         except Exception:
             pass
 
@@ -602,7 +615,7 @@ async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: i
     if series is None:  # fetch failed — serve stale if we have it
         if row:
             try:
-                return _densify_history(_json.loads(row[0]))
+                return _densify_history(_json.loads(row[0]), _today)
             except Exception:
                 return []
         return []
@@ -615,7 +628,7 @@ async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: i
         (region_id, type_id, _json.dumps(series), time.time()),
     )
     conn.commit()
-    return _densify_history(series)
+    return _densify_history(series, _today)
 
 
 def _fmt_ts(ts: float | None) -> str:

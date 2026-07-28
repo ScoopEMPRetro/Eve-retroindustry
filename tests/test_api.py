@@ -231,6 +231,11 @@ def test_densify_history_fills_no_trade_days():
     assert out[1]["avg"] == 100.0                        # price carried forward
     assert out[3]["vol"] == 2
 
+    # end_date extends the timeline past the last trade (chart ends at "today").
+    ext = _densify_history(s, "2026-01-07")
+    assert [e["d"] for e in ext][-1] == "2026-01-07"
+    assert ext[-1]["vol"] == 0 and ext[-1]["avg"] == 120.0   # trailing no-trade days
+
 
 def test_hub_refresh_unknown_region_404(client):
     r = client.get("/prices/refresh/hub/999/stream")
@@ -258,7 +263,11 @@ def test_price_history_endpoint(app_module, client):
     try:
         d = client.get("/api/prices/history?type_id=34").json()
         assert d["region_id"] == JITA_REGION
-        assert len(d["series"]) == 2 and d["series"][0]["avg"] == 100.0
+        # Densified + extended to today: first entry kept, gaps/tail filled.
+        assert d["series"][0]["avg"] == 100.0
+        by_date = {e["d"]: e for e in d["series"]}
+        assert by_date["2026-07-21"]["vol"] == 6000
+        assert len(d["series"]) >= 2
     finally:
         c = m.get_conn()
         try:
