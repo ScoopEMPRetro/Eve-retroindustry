@@ -263,6 +263,7 @@ def test_prices_item_name_is_clickable(client):
     assert r.status_code == 200
     assert 'class="item-hist"' in r.text
     assert 'id="histModal"' in r.text
+    assert 'id="hist-market"' in r.text   # region/hub switcher present
 
 
 def test_plan_contract_price_requires_login(client):

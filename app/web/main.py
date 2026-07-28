@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.70"
+APP_VERSION = "0.8.71"
 
 import asyncio
 import datetime
@@ -4325,12 +4325,18 @@ async def api_station_volume(request: Request):
     conn = get_conn()
     token = get_active_token(request, conn)
     ensure_price_table(conn)
+    # Region of this location — returned so the price-history chart can offer
+    # "custom station" (history is region-wide; ESI has no per-structure history).
+    try:
+        region_id = await get_region_for_location(conn, location_id, token)
+    except Exception:
+        region_id = None
 
     # Try the cache
     cached = get_cached_station_volumes(conn, location_id)
     if cached is not None:
         conn.close()
-        return {"ok": True, "cached": True, "data": {
+        return {"ok": True, "cached": True, "region_id": region_id, "data": {
             str(k): {"volume": v[0], "best_sell": v[1], "traded_volume": v[2]}
             for k, v in cached.items()
         }}
@@ -4340,7 +4346,7 @@ async def api_station_volume(request: Request):
         type_ids = _refresh_type_ids(conn)
 
     def _fmt(result):
-        return {"ok": True, "cached": False, "data": {
+        return {"ok": True, "cached": False, "region_id": region_id, "data": {
             str(k): {"volume": v[0], "best_sell": v[1], "traded_volume": v[2]}
             for k, v in result.items()
         }}
@@ -4350,7 +4356,6 @@ async def api_station_volume(request: Request):
         if not token:
             conn.close()
             return {"ok": False, "error": "Sign-in is required to access the structure market."}
-        region_id = await get_region_for_location(conn, location_id, token)
         try:
             result = await fetch_structure_market(conn, location_id, token, set(type_ids), region_id)
         except PermissionError as e:
@@ -4360,7 +4365,6 @@ async def api_station_volume(request: Request):
         return _fmt(result)
 
     # NPC station — regional public endpoint
-    region_id = await get_region_for_location(conn, location_id, token)
     if not region_id:
         conn.close()
         return {"ok": False, "error": "Could not determine the region for this location."}

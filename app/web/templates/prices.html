@@ -302,17 +302,20 @@
       <div class="modal-header py-2">
         <div class="me-auto">
           <h6 class="modal-title mb-0" id="hist-title">Price history</h6>
-          <div class="text-muted" style="font-size:.75rem" id="hist-sub">Jita · The Forge — daily market history</div>
-        </div>
-        <div class="btn-group btn-group-sm me-2" id="hist-ranges">
-          <button class="btn btn-outline-secondary" data-days="7">7d</button>
-          <button class="btn btn-outline-secondary" data-days="30">30d</button>
-          <button class="btn btn-outline-secondary active" data-days="90">90d</button>
-          <button class="btn btn-outline-secondary" data-days="365">1y</button>
+          <div class="text-muted" style="font-size:.75rem" id="hist-sub">daily market history · region-wide</div>
         </div>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
+        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-2">
+          <select id="hist-market" class="form-select form-select-sm" style="width:auto;min-width:150px"></select>
+          <div class="btn-group btn-group-sm" id="hist-ranges">
+            <button class="btn btn-outline-secondary" data-days="7">7d</button>
+            <button class="btn btn-outline-secondary" data-days="30">30d</button>
+            <button class="btn btn-outline-secondary active" data-days="90">90d</button>
+            <button class="btn btn-outline-secondary" data-days="365">1y</button>
+          </div>
+        </div>
         <div class="position-relative" id="hist-host" style="min-height:340px">
           <canvas id="hist-cv"></canvas>
           <div class="tip" id="hist-tip"></div>
@@ -327,6 +330,10 @@
 (function () {
   // Downloaded secondary hubs (region_id + name) — server-rendered.
   const DL_HUBS = [{% for h in downloaded_hubs %}{id:{{ h.region_id }}, name:{{ h.name|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}];
+  // Markets available in the price-history chart (region-level). Jita + all hubs;
+  // a loaded custom station is appended at runtime as histCustomStation.
+  const HIST_MARKETS = [{id: 10000002, name: 'Jita'}{% for h in hubs %}, {id: {{ h.region_id }}, name: {{ h.name|tojson }}}{% endfor %}];
+  let histCustomStation = null;   // {id: region_id, name} once a custom station is loaded
 
   // ── Column preferences: each (hub × metric) column toggled independently ──
   function loadColPrefs() {
@@ -759,6 +766,8 @@
       // Persist + render via the shared path (sets data-v and applies the
       // current number format, incl. compact mode).
       loadedStationData = json.data;
+      // Make this station's region available to the price-history chart.
+      if (json.region_id) histCustomStation = { id: json.region_id, name: stationShortName };
       const liveTbody = document.getElementById('price-table')?.querySelector('tbody');
       if (!liveTbody) {
         stationStatus.textContent = `Loaded ${Object.keys(json.data).length} items. Refresh the page to see station prices.`;
@@ -830,7 +839,34 @@
     const htip = document.getElementById('hist-tip');
     const hloading = document.getElementById('hist-loading');
     const hctx = hcv.getContext('2d');
-    let series = [], days = 90, hover = null, geom = null;
+    const marketSel = document.getElementById('hist-market');
+    let series = [], days = 90, hover = null, geom = null, curType = null;
+
+    const allMarkets = () => histCustomStation ? HIST_MARKETS.concat([histCustomStation]) : HIST_MARKETS;
+    const marketName = id => { const m = allMarkets().find(x => x.id === id); return m ? m.name : ('Region ' + id); };
+    function populateMarkets(sel) {
+      marketSel.innerHTML = '';
+      allMarkets().forEach(m => {
+        const o = document.createElement('option');
+        o.value = m.id; o.textContent = m.name; if (m.id === sel) o.selected = true;
+        marketSel.appendChild(o);
+      });
+    }
+    function loadSeries() {
+      const rid = +marketSel.value;
+      document.getElementById('hist-sub').textContent = marketName(rid) + ' · region-wide daily history';
+      series = []; hover = null; htip.style.opacity = '0';
+      hloading.textContent = 'Loading…'; hloading.style.display = 'flex';
+      fetch('/api/prices/history?type_id=' + encodeURIComponent(curType) + '&region_id=' + rid)
+        .then(r => r.json())
+        .then(d => {
+          series = (d.series || []).filter(p => p && p.avg != null);
+          if (!series.length) { hloading.textContent = 'No market history for this region.'; hloading.style.display = 'flex'; return; }
+          hloading.style.display = 'none'; draw();
+        })
+        .catch(() => { hloading.textContent = 'Failed to load history.'; hloading.style.display = 'flex'; });
+    }
+    marketSel.addEventListener('change', loadSeries);
 
     const iskC = v => v >= 1e9 ? (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(2) + 'M'
                     : v >= 1e3 ? (v / 1e3).toFixed(2) + 'k' : Math.round(v).toString();
@@ -907,20 +943,13 @@
     window.addEventListener('resize', () => { if (modalEl.classList.contains('show')) draw(); });
 
     window.openHistory = function (typeId, name) {
+      curType = typeId;
       document.getElementById('hist-title').textContent = name || ('Type #' + typeId);
-      series = []; hover = null; htip.style.opacity = '0';
       days = 90;
       document.querySelectorAll('#hist-ranges button').forEach(x => x.classList.toggle('active', x.dataset.days === '90'));
-      hloading.textContent = 'Loading…'; hloading.style.display = 'flex';
+      populateMarkets(10000002);   // default to Jita
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
-      fetch('/api/prices/history?type_id=' + encodeURIComponent(typeId))
-        .then(r => r.json())
-        .then(d => {
-          series = (d.series || []).filter(p => p && p.avg != null);
-          if (!series.length) { hloading.textContent = 'No market history available.'; hloading.style.display = 'flex'; return; }
-          hloading.style.display = 'none'; draw();
-        })
-        .catch(() => { hloading.textContent = 'Failed to load history.'; hloading.style.display = 'flex'; });
+      loadSeries();
     };
   })();
 
