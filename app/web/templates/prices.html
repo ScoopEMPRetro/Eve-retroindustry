@@ -768,6 +768,12 @@
       loadedStationData = json.data;
       // Make this station's region available to the price-history chart.
       if (json.region_id) histCustomStation = { id: json.region_id, name: stationShortName };
+      // Remember it so it's restored (with age) on the next page load.
+      try {
+        localStorage.setItem('eveCustomStation', JSON.stringify({
+          location_id: parseInt(locId), name: stationShortName, region_id: json.region_id || null,
+        }));
+      } catch {}
       const liveTbody = document.getElementById('price-table')?.querySelector('tbody');
       if (!liveTbody) {
         stationStatus.textContent = `Loaded ${Object.keys(json.data).length} items. Refresh the page to see station prices.`;
@@ -785,6 +791,40 @@
     stationLoad.disabled = false;
     stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Load';
   });
+
+  // --- Restore the last custom station from a previous session (cache, any age) ---
+  function ageShort(ts) {
+    if (!ts) return '—';
+    const d = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+    if (d < 60) return 'now';
+    if (d < 3600) return Math.floor(d / 60) + 'm';
+    if (d < 86400) return Math.floor(d / 3600) + 'h';
+    return Math.floor(d / 86400) + 'd';
+  }
+  (function restoreCustomStation() {
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem('eveCustomStation')); } catch {}
+    if (!saved || !saved.location_id) return;
+    fetch('/api/prices/station-volume/cached?location_id=' + saved.location_id)
+      .then(r => r.json())
+      .then(j => {
+        if (!j.ok || !j.data) return;
+        loadedStationData = j.data;
+        const shortName = saved.name || 'Station';
+        document.querySelectorAll('.stn-name').forEach(el => el.textContent = shortName);
+        document.querySelectorAll('.station-col').forEach(el => el.style.display = '');
+        applyStationDataToTbody();
+        if (saved.region_id) histCustomStation = { id: saved.region_id, name: shortName };
+        const chip = document.getElementById('freshness-station');
+        if (chip) {
+          chip.querySelector('.stn-fresh-label').textContent = shortName;
+          chip.querySelector('.stn-fresh-age').textContent = ageShort(j.cached_at);
+          chip.classList.remove('d-none');
+        }
+        if (stationDisplay) stationDisplay.value = shortName;
+      })
+      .catch(() => {});
+  })();
 
   // --- Secondary trade hub refresh (SSE, one hub at a time) ---
   document.querySelectorAll('.hub-fetch-btn').forEach(btn => {
@@ -927,8 +967,7 @@
       let i = Math.round(frac * (geom.n - 1));
       i = Math.max(0, Math.min(geom.n - 1, i)); hover = i; draw();
       const p = geom.v[i];
-      htip.innerHTML = `<b>${dt(p.d)}</b><br><span class="k">avg</span> <span class="g">${iskC(p.avg)}</span>  `
-        + `<span class="k">lo–hi</span> ${iskC(p.low ?? p.avg)}–${iskC(p.high ?? p.avg)}<br>`
+      htip.innerHTML = `<b>${dt(p.d)}</b><br><span class="k">avg</span> <span class="g">${fmtNum(p.avg, true, false)}</span><br>`
         + `<span class="k">volume</span> <span class="v">${intS(p.vol || 0)}</span>`;
       htip.style.left = geom.X(i) + 'px'; htip.style.top = geom.PY(p.avg) + 'px'; htip.style.opacity = '1';
     });

@@ -257,6 +257,35 @@ def test_price_history_endpoint(app_module, client):
             c.close()
 
 
+def test_station_volume_cached_served_regardless_of_age(app_module, client):
+    # An 8-hour-old custom-station cache is still served (used to restore the
+    # station on page load instead of forcing a re-fetch).
+    import time as _t
+    from app.market.prices import ensure_price_table
+    m = app_module
+    c = m.get_conn()
+    try:
+        ensure_price_table(c)
+        c.execute("INSERT OR REPLACE INTO station_volume_cache "
+                  "(location_id, type_id, volume, best_sell, traded_volume, cached_at) "
+                  "VALUES (?,?,?,?,?,?)", (60003760, 34, 1000, 7.5, 500, _t.time() - 3600 * 8))
+        c.commit()
+    finally:
+        c.close()
+    try:
+        d = client.get("/api/prices/station-volume/cached?location_id=60003760").json()
+        assert d["ok"] is True
+        assert d["data"]["34"]["best_sell"] == 7.5
+        assert d["cached_at"]                      # age available even 8h later
+    finally:
+        c = m.get_conn()
+        try:
+            c.execute("DELETE FROM station_volume_cache WHERE location_id=60003760")
+            c.commit()
+        finally:
+            c.close()
+
+
 def test_prices_item_name_is_clickable(client):
     # The item name opens the history chart; the modal + hook must be present.
     r = client.get("/prices")

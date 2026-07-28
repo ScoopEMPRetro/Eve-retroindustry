@@ -691,3 +691,21 @@ def get_cached_station_volumes(
     if has_stock and all_traded_null:
         return None
     return {r[0]: (r[1], r[2], r[3]) for r in rows}
+
+
+def get_station_volumes_any_age(
+    conn: sqlite3.Connection,
+    location_id: int,
+) -> tuple[dict[int, tuple[int | None, float | None, int | None]], float] | None:
+    """Cached station volumes regardless of age — for restoring a previously
+    loaded custom station on page load (like the never-expiring Jita cache).
+    Returns (data, newest_cached_at) or None if nothing is cached."""
+    rows = conn.execute(
+        "SELECT type_id, volume, best_sell, traded_volume, cached_at FROM station_volume_cache WHERE location_id=?",
+        (location_id,)
+    ).fetchall()
+    if not rows:
+        return None
+    data = {r[0]: (r[1], r[2], r[3]) for r in rows}
+    cached_at = max((r[4] or 0) for r in rows)
+    return data, cached_at

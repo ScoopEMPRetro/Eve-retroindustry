@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.71"
+APP_VERSION = "0.8.72"
 
 import asyncio
 import datetime
@@ -47,7 +47,7 @@ from app.cache.blueprint_cache import resolve_type
 from app.db.database import get_session
 from app.manufacturing.planner import build_plan, find_blueprint_for_product, calc_job_time, format_duration
 from app.bom.resolver import BOMResolver
-from app.market.prices import ensure_price_table, fetch_station_volumes, get_cached_station_volumes, fetch_structure_market, TRADE_HUBS, JITA_REGION
+from app.market.prices import ensure_price_table, fetch_station_volumes, get_cached_station_volumes, get_station_volumes_any_age, fetch_structure_market, TRADE_HUBS, JITA_REGION
 from app.web.prices_helper import (
     get_prices_for_ids,
     get_cached_prices_for_ids,
@@ -4315,6 +4315,24 @@ async def api_set_custom_price(request: Request):
     set_custom_price(conn, type_id, price)
     conn.close()
     return {"ok": True, "type_id": type_id, "price": price}
+
+
+@app.get("/api/prices/station-volume/cached")
+async def api_station_volume_cached(location_id: int):
+    """Cache-only station volumes (any age) + newest cached_at — used to restore a
+    previously loaded custom station on page load without a fresh ESI fetch."""
+    conn = get_conn()
+    try:
+        res = get_station_volumes_any_age(conn, location_id)
+    finally:
+        conn.close()
+    if not res:
+        return {"ok": False}
+    data, cached_at = res
+    return {"ok": True, "cached_at": cached_at, "data": {
+        str(k): {"volume": v[0], "best_sell": v[1], "traded_volume": v[2]}
+        for k, v in data.items()
+    }}
 
 
 @app.post("/api/prices/station-volume")
