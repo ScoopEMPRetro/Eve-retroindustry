@@ -546,6 +546,39 @@ def get_all_hub_prices(
 HISTORY_TTL = 60 * 60 * 8  # 8 h — market history updates about once a day
 
 
+def _densify_history(series: list[dict]) -> list[dict]:
+    """ESI market history omits days with no trades. For the chart we want a true
+    daily timeline, so fill each missing calendar day between the first and last
+    entry with volume 0 and the last known price carried forward. Without this an
+    illiquid item (e.g. a 3B ISK SKIN that sells once a week) looks like it traded
+    every day, and the range selector counts trades instead of days."""
+    import datetime
+    if not series:
+        return series
+    def pd(s):
+        y, m, d = (int(x) for x in s.split("-"))
+        return datetime.date(y, m, d)
+    valid = [e for e in series if e.get("d")]
+    if not valid:
+        return series
+    valid.sort(key=lambda e: e["d"])
+    by_date = {e["d"]: e for e in valid}
+    out: list[dict] = []
+    last = valid[0]
+    cur, end = pd(valid[0]["d"]), pd(valid[-1]["d"])
+    step = datetime.timedelta(days=1)
+    while cur <= end:
+        key = cur.isoformat()
+        e = by_date.get(key)
+        if e is not None:
+            out.append(e); last = e
+        else:
+            avg = last.get("avg")
+            out.append({"d": key, "avg": avg, "low": avg, "high": avg, "vol": 0})
+        cur += step
+    return out
+
+
 async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: int) -> list[dict]:
     """Daily market history (~1 year) for the price chart, cached per (region, type).
     Falls back to any stale cached copy if a fresh fetch fails."""
@@ -563,6 +596,9 @@ async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: i
     from app.market.prices import fetch_region_history
     async with esi_client() as client:
         series = await fetch_region_history(client, region_id, type_id)
+
+    if series is not None:
+        series = _densify_history(series)   # fill no-trade days with volume 0
 
     if series is None:  # fetch failed — serve stale if we have it
         if row:

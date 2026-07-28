@@ -221,6 +221,17 @@ def test_prices_hub_columns_render(app_module, client):
             c.close()
 
 
+def test_densify_history_fills_no_trade_days():
+    from app.web.prices_helper import _densify_history
+    s = [{"d": "2026-01-01", "avg": 100.0, "low": 90, "high": 110, "vol": 1},
+         {"d": "2026-01-04", "avg": 120.0, "low": 115, "high": 125, "vol": 2}]
+    out = _densify_history(s)
+    assert [e["d"] for e in out] == ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"]
+    assert out[1]["vol"] == 0 and out[2]["vol"] == 0   # gap days get zero volume
+    assert out[1]["avg"] == 100.0                        # price carried forward
+    assert out[3]["vol"] == 2
+
+
 def test_hub_refresh_unknown_region_404(client):
     r = client.get("/prices/refresh/hub/999/stream")
     assert r.status_code == 404
