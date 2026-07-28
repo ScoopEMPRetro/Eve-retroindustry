@@ -367,6 +367,176 @@ async def stream_jita_refresh(conn: sqlite3.Connection, type_ids: list[int]):
     yield f"data: {_json.dumps({'pct': 100, 'done': True, 'refreshed': refreshed, 'total': len(wanted), 'volume_updated': updated_vol})}\n\n"
 
 
+# ---------------------------------------------------------------------------
+# Secondary trade hubs (Amarr / Dodixie / Rens / Hek) — same pipeline as Jita,
+# fetched on demand per hub, stored in hub_price_cache keyed by region_id.
+# ---------------------------------------------------------------------------
+
+def _persist_hub_bulk_orders(
+    conn: sqlite3.Connection,
+    region_id: int,
+    bulk: dict[int, dict],
+    wanted: set[int],
+) -> tuple[int, list[int]]:
+    """Write region-wide best sell/buy into hub_price_cache. Mirrors
+    _persist_bulk_orders but keyed by (region_id, type_id) and keeps any existing
+    volume (filled separately). Returns (refreshed_count, traded_type_ids)."""
+    now = time.time()
+    rows: list[tuple] = []
+    refreshed = 0
+    traded: list[int] = []
+    for tid in wanted:
+        d = bulk.get(tid)
+        if d is None:
+            rows.append((region_id, tid, None, None, now))
+            continue
+        sell = d.get("sell")
+        buy = d.get("buy")
+        if sell is not None or buy is not None:
+            refreshed += 1
+            traded.append(tid)
+        rows.append((region_id, tid, sell, buy, now))
+    conn.executemany(
+        """INSERT INTO hub_price_cache (region_id, type_id, sell_price, buy_price, cached_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(region_id, type_id) DO UPDATE SET
+             sell_price = excluded.sell_price,
+             buy_price = excluded.buy_price,
+             cached_at = excluded.cached_at""",
+        rows,
+    )
+    conn.commit()
+    return refreshed, traded
+
+
+async def _fill_hub_volumes(
+    conn: sqlite3.Connection,
+    region_id: int,
+    type_ids: list[int],
+    progress_cb=None,
+) -> int:
+    """7-day region volume for a hub, stored in hub_price_cache. Mirrors
+    _fill_volumes but for an arbitrary region."""
+    from app.market.prices import _fetch_region_volume  # type: ignore
+    if not type_ids:
+        return 0
+    done_holder = [0]
+    total = len(type_ids)
+    BATCH = 200
+
+    async def _one(client: httpx.AsyncClient, tid: int) -> tuple[int, int | None]:
+        vol = await _fetch_region_volume(client, region_id, tid)
+        return tid, vol
+
+    updated = 0
+    async with esi_client() as client:
+        for start in range(0, total, BATCH):
+            batch = type_ids[start:start + BATCH]
+            results = await asyncio.gather(
+                *[_one(client, tid) for tid in batch], return_exceptions=True
+            )
+            rows = [(vol, region_id, tid) for r in results if not isinstance(r, Exception)
+                    for tid, vol in [r] if vol is not None]
+            if rows:
+                conn.executemany(
+                    "UPDATE hub_price_cache SET volume=? WHERE region_id=? AND type_id=?", rows
+                )
+                conn.commit()
+                updated += len(rows)
+            done_holder[0] = start + len(batch)
+            if progress_cb:
+                await _maybe_call(progress_cb, done_holder[0], total)
+    return updated
+
+
+async def stream_hub_refresh(conn: sqlite3.Connection, type_ids: list[int], region_id: int):
+    """SSE generator for a single trade hub. Same two phases as Jita
+    (region orders → 7-day volumes), writing to hub_price_cache."""
+    ensure_price_table(conn)
+    wanted = set(type_ids)
+    total_pages_holder = [0]
+    completed_holder = [0]
+
+    async def _progress(done: int, total: int):
+        total_pages_holder[0] = total
+        completed_holder[0] = done
+
+    bulk_holder: dict = {}
+
+    async def _run():
+        async with esi_client() as client:
+            bulk_holder.update(
+                await fetch_region_orders_bulk(client, region_id, progress_cb=_progress)
+            )
+
+    task = asyncio.create_task(_run())
+    while not task.done():
+        total = total_pages_holder[0]
+        done = completed_holder[0]
+        pct = int(done * 80 / total) if total else 0
+        yield f"data: {_json.dumps({'current': done, 'total': total, 'pct': pct, 'phase': 'orders'})}\n\n"
+        await asyncio.sleep(0.5)
+    await task
+
+    refreshed, traded = _persist_hub_bulk_orders(conn, region_id, bulk_holder, wanted)
+
+    vol_done_holder = [0]
+    vol_total = len(traded)
+    yield f"data: {_json.dumps({'pct': 80, 'phase': 'volumes', 'vol_done': 0, 'vol_total': vol_total})}\n\n"
+
+    async def _vol_progress(done: int, total: int):
+        vol_done_holder[0] = done
+
+    vol_task = asyncio.create_task(_fill_hub_volumes(conn, region_id, traded, progress_cb=_vol_progress))
+    while not vol_task.done():
+        d = vol_done_holder[0]
+        pct = 80 + int(d * 20 / vol_total) if vol_total else 100
+        yield f"data: {_json.dumps({'phase': 'volumes', 'vol_done': d, 'vol_total': vol_total, 'pct': pct})}\n\n"
+        await asyncio.sleep(0.5)
+    updated_vol = await vol_task
+
+    yield f"data: {_json.dumps({'pct': 100, 'done': True, 'refreshed': refreshed, 'total': len(wanted), 'volume_updated': updated_vol})}\n\n"
+
+
+def get_hub_cache_stats(conn: sqlite3.Connection, region_id: int) -> dict:
+    """Row count + last-update timestamp for one hub's cache."""
+    row = conn.execute(
+        "SELECT COUNT(*), MAX(cached_at) FROM hub_price_cache "
+        "WHERE region_id=? AND sell_price IS NOT NULL",
+        (region_id,),
+    ).fetchone()
+    count = row[0] or 0
+    last_update = row[1]
+    return {
+        "total": count,
+        "has_data": count > 0,
+        "last_update": last_update,
+        "last_update_str": _fmt_ts(last_update),
+    }
+
+
+def get_all_hub_prices(
+    conn: sqlite3.Connection,
+    type_ids: list[int],
+) -> dict[int, dict[int, dict]]:
+    """For the given type_ids, return {type_id: {region_id: {sell, buy, volume}}}
+    across every cached hub — used to attach comparison columns to price rows."""
+    if not type_ids:
+        return {}
+    out: dict[int, dict[int, dict]] = {}
+    ph = ",".join("?" * len(type_ids))
+    rows = conn.execute(
+        f"SELECT type_id, region_id, sell_price, buy_price, volume "
+        f"FROM hub_price_cache WHERE type_id IN ({ph})",
+        list(type_ids),
+    ).fetchall()
+    for tid, rid, sell, buy, vol in rows:
+        if sell is None and buy is None and vol is None:
+            continue
+        out.setdefault(tid, {})[rid] = {"sell": sell, "buy": buy, "volume": vol}
+    return out
+
+
 def _fmt_ts(ts: float | None) -> str:
     if not ts:
         return "never"

@@ -185,6 +185,40 @@ def test_blueprint_badges_bpo_bpc_rxn(app_module, client):
             c.close()
 
 
+def test_prices_hub_columns_render(app_module, client):
+    # A downloaded trade hub (Amarr / Domain) shows its comparison columns.
+    import time as _t
+    from app.market.prices import ensure_price_table
+    m = app_module
+    c = m.get_conn()
+    try:
+        ensure_price_table(c)
+        c.execute(
+            "INSERT OR REPLACE INTO hub_price_cache (region_id, type_id, sell_price, buy_price, volume, cached_at) "
+            "VALUES (?,?,?,?,?,?)", (10000043, 34, 6.5, 5.5, 1234, _t.time()))
+        c.commit()
+    finally:
+        c.close()
+    try:
+        r = client.get("/prices")
+        assert r.status_code == 200
+        assert "Amarr sell" in r.text        # hub column header rendered
+        assert "hub-fetch-btn" in r.text      # per-hub fetch buttons present
+        assert "col-picker" in r.text          # metric/hub column picker present
+    finally:
+        c = m.get_conn()
+        try:
+            c.execute("DELETE FROM hub_price_cache WHERE region_id=10000043")
+            c.commit()
+        finally:
+            c.close()
+
+
+def test_hub_refresh_unknown_region_404(client):
+    r = client.get("/prices/refresh/hub/999/stream")
+    assert r.status_code == 404
+
+
 def test_plan_contract_price_requires_login(client):
     # No active-character cookie -> not signed in / graceful error, never a 500.
     r = client.get("/api/plan/contract-price",

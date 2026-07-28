@@ -15,6 +15,17 @@ ESI_BASE = "https://esi.evetech.net/latest"
 JITA_REGION = 10000002   # The Forge
 JITA_STATION = 60003760  # Jita 4-4 CNAP
 PRICE_CACHE_TTL = 60 * 60 * 12  # 12 hours
+
+# Secondary trade hubs — region_id → display name. Jita stays the app-wide
+# reference (market_price_cache); these are fetched on demand per hub into
+# hub_price_cache and shown as comparison columns on the Prices page. Prices are
+# region-wide best (as with Jita/The Forge), which the hub station dominates.
+TRADE_HUBS: dict[int, str] = {
+    10000043: "Amarr",     # Domain
+    10000032: "Dodixie",   # Sinq Laison
+    10000030: "Rens",      # Heimatar
+    10000042: "Hek",       # Metropolis
+}
 # Used ONLY for the UI freshness indicator (green/red badge on /prices,
 # `fresh` flag in the API). For price calculations (`get_prices_for_ids`) the
 # cache does NOT expire — the last fetched Jita / The Forge sell value is always
@@ -55,6 +66,19 @@ def ensure_price_table(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE market_price_cache ADD COLUMN volume INTEGER")
     if "jita_available" not in cols:
         conn.execute("ALTER TABLE market_price_cache ADD COLUMN jita_available INTEGER")
+    # Secondary trade-hub prices (Amarr/Dodixie/Rens/Hek …), fetched on demand.
+    # Region-wide best sell/buy + 7-day region volume, one row per (region, type).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hub_price_cache (
+            region_id  INTEGER NOT NULL,
+            type_id    INTEGER NOT NULL,
+            sell_price REAL,
+            buy_price  REAL,
+            volume     INTEGER,
+            cached_at  REAL,
+            PRIMARY KEY (region_id, type_id)
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS station_volume_cache (
             location_id    INTEGER NOT NULL,

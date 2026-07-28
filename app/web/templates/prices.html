@@ -107,6 +107,37 @@
   </div>
 </div>
 
+<div class="row g-3 mb-4">
+  <div class="col-12">
+    <div class="card p-4">
+      <h6 class="mb-1"><i class="bi bi-shop me-2 text-primary"></i>Secondary Trade Hubs</h6>
+      <p class="text-muted small mb-3">
+        Fetch sell/buy + 7-day volume for another hub to compare against Jita. Data is
+        downloaded on demand (per hub) — smaller regions than Jita, so it's faster.
+        Once loaded, the hub's columns appear in the table; toggle which columns show below.
+      </p>
+      <div class="d-flex flex-wrap gap-2">
+        {% for h in hubs %}
+        <button class="btn btn-sm btn-outline-primary hub-fetch-btn" data-region="{{ h.region_id }}" data-name="{{ h.name }}">
+          <i class="bi bi-download me-1"></i>Fetch {{ h.name }}
+          <span class="text-muted ms-1" style="font-size:.75em">{% if h.has_data %}· {{ h.last_update_str }}{% else %}· not loaded{% endif %}</span>
+        </button>
+        {% endfor %}
+      </div>
+      <div id="hub-progress" class="d-none mt-3">
+        <div class="d-flex justify-content-between mb-1">
+          <small id="hub-progress-text" class="text-muted">Preparing…</small>
+          <small id="hub-progress-pct" class="text-muted">0%</small>
+        </div>
+        <div class="progress" style="height:8px">
+          <div id="hub-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+               role="progressbar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% if not items %}
 <div class="card p-4 text-center text-muted">
   <i class="bi bi-currency-exchange mb-3" style="font-size:2.5rem;opacity:.3"></i>
@@ -135,27 +166,51 @@
     </div>
   </div>
 
+  <div id="col-picker" class="d-flex flex-wrap align-items-center gap-3 mb-3 small">
+    <span class="text-muted"><i class="bi bi-sliders me-1"></i>Columns:</span>
+    <span class="d-inline-flex align-items-center gap-2">
+      <span class="text-muted">Metric</span>
+      <label class="mb-0"><input type="checkbox" class="metric-cb form-check-input me-1" value="sell">Sell</label>
+      <label class="mb-0"><input type="checkbox" class="metric-cb form-check-input me-1" value="buy">Buy</label>
+      <label class="mb-0"><input type="checkbox" class="metric-cb form-check-input me-1" value="vol">Vol 7d</label>
+      <label class="mb-0"><input type="checkbox" class="metric-cb form-check-input me-1" value="avail">Available</label>
+    </span>
+    <span class="d-inline-flex align-items-center gap-2">
+      <span class="text-muted">Hub</span>
+      <label class="mb-0"><input type="checkbox" class="hub-cb form-check-input me-1" value="jita">Jita</label>
+      {% for h in downloaded_hubs %}
+      <label class="mb-0"><input type="checkbox" class="hub-cb form-check-input me-1" value="{{ h.region_id }}">{{ h.name }}</label>
+      {% endfor %}
+    </span>
+  </div>
+
   <div style="max-height:520px; overflow-y:auto;">
     <table class="table table-sm table-hover mb-0" id="price-table">
       <thead class="sticky-top" style="top:0; background:var(--bs-body-bg);">
+        {% set ns = namespace(c=6) %}
         <tr>
           <th style="width:36px"></th>
           <th class="sortable" data-col="1" data-sort-type="text" style="cursor:pointer;user-select:none">Name <span class="sort-indicator"></span></th>
-          <th class="text-end sortable" data-col="2" data-sort-type="num" style="cursor:pointer;user-select:none">Jita sell <span class="sort-indicator"></span></th>
-          <th class="text-end sortable" data-col="3" data-sort-type="num" style="cursor:pointer;user-select:none">Jita buy <span class="sort-indicator"></span></th>
-          <th class="text-end sortable" data-col="4" data-sort-type="num" style="cursor:pointer;user-select:none" title="Traded volume over the last 7 days at Jita (from ESI history)">Jita vol/7d <span class="sort-indicator"></span></th>
-          <th class="text-end sortable" data-col="5" data-sort-type="num" style="cursor:pointer;user-select:none" title="Available units in sell orders at Jita 4-4">Jita available <span class="sort-indicator"></span></th>
-          <th class="text-end station-col sortable" data-col="6" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Best sell price at station">
+          <th class="text-end sortable pricecol pm-sell ph-jita" data-col="2" data-sort-type="num" style="cursor:pointer;user-select:none">Jita sell <span class="sort-indicator"></span></th>
+          <th class="text-end sortable pricecol pm-buy ph-jita" data-col="3" data-sort-type="num" style="cursor:pointer;user-select:none">Jita buy <span class="sort-indicator"></span></th>
+          <th class="text-end sortable pricecol pm-vol ph-jita" data-col="4" data-sort-type="num" style="cursor:pointer;user-select:none" title="Traded volume over the last 7 days at Jita (from ESI history)">Jita vol/7d <span class="sort-indicator"></span></th>
+          <th class="text-end sortable pricecol pm-avail ph-jita" data-col="5" data-sort-type="num" style="cursor:pointer;user-select:none" title="Available units in sell orders at Jita 4-4">Jita available <span class="sort-indicator"></span></th>
+          {% for h in downloaded_hubs %}
+          <th class="text-end sortable pricecol hubcol pm-sell ph-{{ h.region_id }}" data-col="{{ ns.c }}" data-sort-type="num" style="cursor:pointer;user-select:none" title="Best sell across {{ h.name }}'s region">{{ h.name }} sell <span class="sort-indicator"></span></th>{% set ns.c = ns.c + 1 %}
+          <th class="text-end sortable pricecol hubcol pm-buy ph-{{ h.region_id }}" data-col="{{ ns.c }}" data-sort-type="num" style="cursor:pointer;user-select:none" title="Best buy across {{ h.name }}'s region">{{ h.name }} buy <span class="sort-indicator"></span></th>{% set ns.c = ns.c + 1 %}
+          <th class="text-end sortable pricecol hubcol pm-vol ph-{{ h.region_id }}" data-col="{{ ns.c }}" data-sort-type="num" style="cursor:pointer;user-select:none" title="7-day region trade volume for {{ h.name }}">{{ h.name }} vol/7d <span class="sort-indicator"></span></th>{% set ns.c = ns.c + 1 %}
+          {% endfor %}
+          <th class="text-end station-col sortable" data-col="{{ ns.c }}" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Best sell price at station">
             <span class="stn-name">Station</span> sell <span class="sort-indicator"></span>
-          </th>
-          <th class="text-end station-col sortable" data-col="7" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Trade volume over the last 7 days across the station's whole REGION (ESI market history). CCP does not publish trade history for individual player structures, so this is region-wide demand — not sales at this specific station/citadel.">
+          </th>{% set ns.c = ns.c + 1 %}
+          <th class="text-end station-col sortable" data-col="{{ ns.c }}" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Trade volume over the last 7 days across the station's whole REGION (ESI market history). CCP does not publish trade history for individual player structures, so this is region-wide demand — not sales at this specific station/citadel.">
             <span class="stn-name">Station</span> region vol/7d
             <i class="bi bi-info-circle ms-1" style="opacity:.5;font-size:.75rem"></i> <span class="sort-indicator"></span>
-          </th>
-          <th class="text-end station-col sortable" data-col="8" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Available units in sell orders at station">
+          </th>{% set ns.c = ns.c + 1 %}
+          <th class="text-end station-col sortable" data-col="{{ ns.c }}" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Available units in sell orders at station">
             <span class="stn-name">Station</span> available <span class="sort-indicator"></span>
-          </th>
-          <th class="sortable" data-col="9" data-sort-type="num" style="width:210px;cursor:pointer;user-select:none">Custom price <span class="sort-indicator"></span></th>
+          </th>{% set ns.c = ns.c + 1 %}
+          <th class="sortable" data-col="{{ ns.c }}" data-sort-type="num" style="width:210px;cursor:pointer;user-select:none">Custom price <span class="sort-indicator"></span></th>
         </tr>
       </thead>
       <tbody>
@@ -176,34 +231,41 @@
               <span class="badge bg-warning text-dark ms-1 custom-badge" style="font-size:.65em">custom</span>
             {% endif %}
           </td>
-          <td class="text-end py-1 align-middle font-monospace small">
+          <td class="text-end py-1 align-middle font-monospace small pricecol pm-sell ph-jita">
             {% if item.sell_price is not none %}
               {{ "{:,.2f}".format(item.sell_price) }}
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td class="text-end py-1 align-middle font-monospace small">
+          <td class="text-end py-1 align-middle font-monospace small pricecol pm-buy ph-jita">
             {% if item.buy_price is not none %}
               {{ "{:,.2f}".format(item.buy_price) }}
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td class="text-end py-1 align-middle font-monospace small">
+          <td class="text-end py-1 align-middle font-monospace small pricecol pm-vol ph-jita">
             {% if item.volume is not none %}
               {{ "{:,}".format(item.volume) }}
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
           </td>
-          <td class="text-end py-1 align-middle font-monospace small">
+          <td class="text-end py-1 align-middle font-monospace small pricecol pm-avail ph-jita">
             {% if item.jita_available is not none %}
               {{ "{:,}".format(item.jita_available) }}
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
           </td>
+          {% set ihubs = item.get('hubs') or {} %}
+          {% for h in downloaded_hubs %}
+          {% set hd = ihubs.get(h.region_id) %}
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-{{ h.region_id }}">{% if hd and hd.sell is not none %}{{ "{:,.2f}".format(hd.sell) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-{{ h.region_id }}">{% if hd and hd.buy is not none %}{{ "{:,.2f}".format(hd.buy) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-{{ h.region_id }}">{% if hd and hd.volume is not none %}{{ "{:,}".format(hd.volume) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          {% endfor %}
           <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">
             <span class="text-muted">—</span>
           </td>
@@ -242,6 +304,46 @@
 
 <script>
 (function () {
+  // Downloaded secondary hubs (region_id + name) — server-rendered.
+  const DL_HUBS = [{% for h in downloaded_hubs %}{id:{{ h.region_id }}, name:{{ h.name|tojson }}}{% if not loop.last %},{% endif %}{% endfor %}];
+
+  // ── Column preferences: which metric × hub columns are visible (localStorage) ──
+  function loadColPrefs() {
+    let p = {};
+    try { p = JSON.parse(localStorage.getItem('priceColPrefs')) || {}; } catch {}
+    p.metrics = p.metrics || {}; p.hubs = p.hubs || {};
+    return p;
+  }
+  const colPrefs = loadColPrefs();
+  const metricOn = m => colPrefs.metrics[m] !== false;   // default visible
+  const hubOn    = h => colPrefs.hubs[h]    !== false;   // default visible
+  function applyColumnPrefs() {
+    document.querySelectorAll('.pricecol').forEach(el => {
+      let m = null, h = null;
+      el.classList.forEach(c => { if (c.startsWith('pm-')) m = c.slice(3); else if (c.startsWith('ph-')) h = c.slice(3); });
+      el.style.display = ((m ? metricOn(m) : true) && (h ? hubOn(h) : true)) ? '' : 'none';
+    });
+  }
+  (function initColPicker() {
+    document.querySelectorAll('.metric-cb').forEach(cb => {
+      cb.checked = metricOn(cb.value);
+      cb.addEventListener('change', () => {
+        colPrefs.metrics[cb.value] = cb.checked;
+        localStorage.setItem('priceColPrefs', JSON.stringify(colPrefs));
+        applyColumnPrefs();
+      });
+    });
+    document.querySelectorAll('.hub-cb').forEach(cb => {
+      cb.checked = hubOn(cb.value);
+      cb.addEventListener('change', () => {
+        colPrefs.hubs[cb.value] = cb.checked;
+        localStorage.setItem('priceColPrefs', JSON.stringify(colPrefs));
+        applyColumnPrefs();
+      });
+    });
+  })();
+  applyColumnPrefs();
+
   // --- Search ---
   const search    = document.getElementById('price-search');
   const priceTable = document.getElementById('price-table');
@@ -294,6 +396,7 @@
   let loadedStationData = null;
 
   function applyStationDataToTbody() {
+    applyColumnPrefs();   // re-apply metric/hub column visibility after any tbody rebuild
     if (!loadedStationData || !tbody) return;
     tbody.querySelectorAll('tr').forEach(tr => {
       const tid = tr.dataset.id;
@@ -340,10 +443,11 @@
           ? `<span class="badge bg-secondary ms-1" style="font-size:.65em">${item.group_name}</span>`
           : ''}
       </td>
-      <td class="text-end py-1 align-middle font-monospace small">${fmt(item.sell_price)}</td>
-      <td class="text-end py-1 align-middle font-monospace small">${fmt(item.buy_price)}</td>
-      <td class="text-end py-1 align-middle font-monospace small">${fmtInt(item.volume)}</td>
-      <td class="text-end py-1 align-middle font-monospace small">${fmtInt(item.jita_available)}</td>
+      <td class="text-end py-1 align-middle font-monospace small pricecol pm-sell ph-jita">${fmt(item.sell_price)}</td>
+      <td class="text-end py-1 align-middle font-monospace small pricecol pm-buy ph-jita">${fmt(item.buy_price)}</td>
+      <td class="text-end py-1 align-middle font-monospace small pricecol pm-vol ph-jita">${fmtInt(item.volume)}</td>
+      <td class="text-end py-1 align-middle font-monospace small pricecol pm-avail ph-jita">${fmtInt(item.jita_available)}</td>
+      ${DL_HUBS.map(h => { const hd=(item.hubs||{})[h.id]||{}; return `<td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-${h.id}">${fmt(hd.sell)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-${h.id}">${fmt(hd.buy)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-${h.id}">${fmtInt(hd.volume)}</td>`; }).join('')}
       <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-traded-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-avail-cell" style="display:none">${na}</td>
@@ -698,6 +802,50 @@
     }
     stationLoad.disabled = false;
     stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Load';
+  });
+
+  // --- Secondary trade hub refresh (SSE, one hub at a time) ---
+  document.querySelectorAll('.hub-fetch-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const rid = btn.dataset.region, name = btn.dataset.name;
+      const allBtns = document.querySelectorAll('.hub-fetch-btn');
+      allBtns.forEach(b => b.disabled = true);
+      const prog  = document.getElementById('hub-progress');
+      const bar   = document.getElementById('hub-bar');
+      const txt   = document.getElementById('hub-progress-text');
+      const pctEl = document.getElementById('hub-progress-pct');
+      prog.classList.remove('d-none');
+      bar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
+      bar.style.width = '0%';
+      txt.textContent = 'Connecting… (' + name + ')';
+      pctEl.textContent = '0%';
+
+      const es = new EventSource('/prices/refresh/hub/' + rid + '/stream');
+      es.onmessage = (e) => {
+        const d = JSON.parse(e.data);
+        const p = d.pct || 0;
+        bar.style.width = p + '%';
+        pctEl.textContent = p + '%';
+        if (d.done) {
+          es.close();
+          txt.textContent = 'Done (' + name + '): ' + d.refreshed + ' prices.';
+          bar.className = 'progress-bar bg-success';
+          bar.style.width = '100%';
+          setTimeout(() => window.location.reload(), 1500);
+        } else if (d.phase === 'volumes') {
+          txt.textContent = name + ' volumes: ' + d.vol_done + ' / ' + d.vol_total + '…';
+        } else {
+          txt.textContent = name + ' orders: ' + d.current + ' / ' + d.total + ' pages…';
+        }
+      };
+      es.onerror = () => {
+        if (es.readyState === EventSource.CLOSED) return;
+        es.close();
+        txt.textContent = 'Connection error.';
+        bar.className = 'progress-bar bg-danger';
+        allBtns.forEach(b => b.disabled = false);
+      };
+    });
   });
 })();
 </script>

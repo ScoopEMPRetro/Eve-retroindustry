@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.61"
+APP_VERSION = "0.8.62"
 
 import asyncio
 import datetime
@@ -47,7 +47,7 @@ from app.cache.blueprint_cache import resolve_type
 from app.db.database import get_session
 from app.manufacturing.planner import build_plan, find_blueprint_for_product, calc_job_time, format_duration
 from app.bom.resolver import BOMResolver
-from app.market.prices import ensure_price_table, fetch_station_volumes, get_cached_station_volumes, fetch_structure_market
+from app.market.prices import ensure_price_table, fetch_station_volumes, get_cached_station_volumes, fetch_structure_market, TRADE_HUBS
 from app.web.prices_helper import (
     get_prices_for_ids,
     get_cached_prices_for_ids,
@@ -56,6 +56,9 @@ from app.web.prices_helper import (
     get_all_price_items,
     set_custom_price,
     stream_jita_refresh,
+    stream_hub_refresh,
+    get_hub_cache_stats,
+    get_all_hub_prices,
 )
 from app.web.location_resolver import (
     resolve_station_names_bulk,
@@ -3320,12 +3323,24 @@ async def prices_page(request: Request):
         ).fetchall()
         relevant |= {r[0] for r in bp_products}
     items = get_all_price_items(conn, relevant_ids=relevant)
+
+    # Secondary trade hubs: metadata for all, price data only for those already
+    # fetched. Attach each hub's sell/buy/volume to the item rows for comparison.
+    hubs = [{"region_id": rid, "name": name, **get_hub_cache_stats(conn, rid)}
+            for rid, name in TRADE_HUBS.items()]
+    downloaded_hubs = [h for h in hubs if h["has_data"]]
+    if downloaded_hubs:
+        hub_prices = get_all_hub_prices(conn, [i["type_id"] for i in items])
+        for it in items:
+            it["hubs"] = hub_prices.get(it["type_id"], {})
     conn.close()
     return _tr("prices.html", request, {
         "stats": stats,
         "refreshed_count": None,
         "total_requested": None,
         "items": items,
+        "hubs": hubs,
+        "downloaded_hubs": downloaded_hubs,
     })
 
 
@@ -4094,6 +4109,32 @@ async def prices_refresh_stream():
     )
 
 
+@app.get("/prices/refresh/hub/{region_id}/stream")
+async def prices_refresh_hub_stream(region_id: int):
+    """SSE refresh for one secondary trade hub (Amarr/Dodixie/Rens/Hek). Same
+    pipeline as the Jita refresh, writing to hub_price_cache."""
+    from fastapi.responses import JSONResponse
+    if region_id not in TRADE_HUBS:
+        return JSONResponse({"error": "unknown hub"}, status_code=404)
+    conn = get_conn()
+    all_ids = _refresh_type_ids(conn)
+
+    async def event_gen():
+        try:
+            async for chunk in stream_hub_refresh(conn, all_ids, region_id):
+                yield chunk
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/prices/search")
 async def prices_search(q: str = ""):
     if len(q.strip()) < 2:
@@ -4142,6 +4183,7 @@ async def prices_search(q: str = ""):
             import asyncio as _asyncio
             _asyncio.create_task(_bg_fetch_prices(uncached))
 
+        hub_prices = get_all_hub_prices(conn, [r[0] for r in rows])
         conn.close()
         return {
             "mode": "group",
@@ -4157,6 +4199,7 @@ async def prices_search(q: str = ""):
                     "fresh":         bool(r[5] and (now - r[5]) < PRICE_CACHE_TTL),
                     "volume":        r[6],
                     "jita_available": r[7],
+                    "hubs":          hub_prices.get(r[0], {}),
                 }
                 for r in rows
             ],
@@ -4189,6 +4232,7 @@ async def prices_search(q: str = ""):
         conn.commit()
         import asyncio as _asyncio
         _asyncio.create_task(_bg_fetch_prices(uncached))
+    hub_prices = get_all_hub_prices(conn, [r[0] for r in rows])
     conn.close()
     return {
         "mode": "name",
@@ -4203,6 +4247,7 @@ async def prices_search(q: str = ""):
                 "fresh":         bool(r[5] and (now - r[5]) < PRICE_CACHE_TTL),
                 "volume":        r[6],
                 "jita_available": r[7],
+                "hubs":          hub_prices.get(r[0], {}),
             }
             for r in rows
         ],
