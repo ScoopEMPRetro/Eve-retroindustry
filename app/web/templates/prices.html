@@ -77,12 +77,17 @@
         Fetch sell/buy + 7-day volume for another hub to compare against Jita. Downloaded
         on demand — smaller regions than Jita, so faster. Loaded hubs add columns below.
       </p>
-      <div class="d-flex flex-wrap gap-2">
+      <div class="d-flex flex-column gap-2">
         {% for h in hubs %}
-        <button class="btn btn-sm btn-outline-primary hub-fetch-btn" data-region="{{ h.region_id }}" data-name="{{ h.name }}">
-          <i class="bi bi-download me-1"></i>{{ h.name }}
-          <span class="text-muted ms-1" style="font-size:.75em">{% if h.has_data %}· {{ h.last_update_str }}{% else %}· —{% endif %}</span>
-        </button>
+        <div class="d-flex align-items-center justify-content-between gap-2">
+          <button class="btn btn-sm btn-outline-primary hub-fetch-btn text-start flex-shrink-0"
+                  data-region="{{ h.region_id }}" data-name="{{ h.name }}" style="min-width:118px">
+            <i class="bi bi-download me-1"></i>{{ h.name }}
+          </button>
+          <span class="text-muted text-end text-truncate" style="font-size:.78em">
+            {% if h.has_data %}{{ h.last_update_str }}{% else %}not loaded{% endif %}
+          </span>
+        </div>
         {% endfor %}
       </div>
       <div id="hub-progress" class="d-none mt-3">
