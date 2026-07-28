@@ -193,7 +193,13 @@ async def fetch_region_history(client: httpx.AsyncClient, region_id: int, type_i
 
 
 async def _fetch_region_volume(client: httpx.AsyncClient, region_id: int, type_id: int) -> int | None:
-    """Returns the total volume over the last 7 days from ESI history for the given region."""
+    """Total units traded over the last 7 CALENDAR days from ESI history.
+
+    ESI omits days with no trades, so summing the last 7 *entries* over-counts
+    for illiquid items (e.g. a SKIN that trades once a week would sum ~2 months
+    of days). We sum only entries dated within the last 7 days — 0 if it hasn't
+    traded recently, which is the truthful answer."""
+    import datetime
     async with _HIST_SEM:
         try:
             r = await client.get(
@@ -205,7 +211,8 @@ async def _fetch_region_volume(client: httpx.AsyncClient, region_id: int, type_i
                 return None
             history = r.json()
             if isinstance(history, list) and history:
-                return sum(entry.get("volume", 0) for entry in history[-7:])
+                cutoff = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+                return sum(e.get("volume", 0) for e in history if (e.get("date") or "") >= cutoff)
         except Exception:
             pass
     return None
