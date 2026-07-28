@@ -32,8 +32,10 @@
                width="32" height="32" class="rounded" alt="" loading="lazy"
                onerror="this.onerror=function(){this.style.visibility='hidden'};this.src='https://images.evetech.net/types/{{ item.type_id }}/icon?size=32'">
         </td>
-        <td>{{ item.name }}{% if item.is_blueprint_copy %}
-          <span class="badge badge-bpc ms-1" title="Blueprint copy — no market value">BPC</span>{% endif %}</td>
+        <td>{{ item.name }}{% if item.bp_kind == 'bpc' %}
+          <span class="badge badge-bpc ms-1" title="Blueprint copy — no market value">BPC</span>{% elif item.bp_kind == 'bpo' %}
+          <span class="badge badge-bpo ms-1" title="Blueprint original">BPO</span>{% elif item.bp_kind == 'rxn' %}
+          <span class="badge badge-rxn ms-1" title="Reaction formula">RXN</span>{% endif %}</td>
         {% if show_badge %}
         <td>
           {% if item.character_id %}

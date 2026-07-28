@@ -110,10 +110,13 @@ def test_token_refresh_is_serialized(app_module, monkeypatch):
             c.close()
 
 
-def test_bpc_detected_via_blueprints_endpoint(app_module, client):
-    # A blueprint whose assets flag says is_blueprint_copy=False (the ESI assets
-    # endpoint is unreliable) but which the blueprints endpoint marks as a copy
-    # (quantity -2) must be treated as a BPC: shown with a BPC badge, not priced.
+def test_blueprint_badges_bpo_bpc_rxn(app_module, client):
+    # The ESI assets flag is unreliable, so BPO/BPC come from the blueprints
+    # endpoint (matched by item_id) and reaction formulas from sde_blueprints:
+    #   - a copy (quantity -2)      → BPC badge, no price
+    #   - an original (quantity -1) → BPO badge, priced
+    #   - a reaction-formula original → RXN badge
+    # A BPO and a BPC of the same type must not merge into one priced row.
     import json
     import time as _t
     m = app_module
@@ -121,27 +124,43 @@ def test_bpc_detected_via_blueprints_endpoint(app_module, client):
     orig_a = orig_b = None
     c = m.get_conn()
     try:
-        bp = c.execute(
-            "SELECT type_id, name FROM sde_types WHERE name LIKE '%Blueprint%' "
-            "ORDER BY type_id LIMIT 1"
+        mfg = c.execute(
+            "SELECT blueprint_type_id FROM sde_blueprints WHERE manufacturing_time > 0 "
+            "ORDER BY blueprint_type_id LIMIT 1"
         ).fetchone()
-        bp_type, bp_name = bp[0], bp[1]
+        rxn = c.execute(
+            "SELECT blueprint_type_id FROM sde_blueprints WHERE reaction_time > 0 "
+            "ORDER BY blueprint_type_id LIMIT 1"
+        ).fetchone()
+        assert mfg and rxn, "need a manufacturing and a reaction blueprint in the SDE"
+        mfg_type, rxn_type = mfg[0], rxn[0]
         now = _t.time()
         orig_a = c.execute("SELECT data_json, cached_at FROM char_assets_cache WHERE character_id=?", (cid,)).fetchone()
         orig_b = c.execute("SELECT data_json, cached_at FROM char_blueprints_cache WHERE character_id=?", (cid,)).fetchone()
 
-        assets = [{"item_id": 777001, "type_id": bp_type, "quantity": 1,
-                   "location_id": 60003760, "location_flag": "Hangar",
-                   "is_singleton": True, "is_blueprint_copy": False}]
-        bps = [{"item_id": 777001, "type_id": bp_type, "location_id": 60003760,
-                "location_flag": "Hangar", "quantity": -2, "runs": 10,
-                "material_efficiency": 0, "time_efficiency": 0}]
+        # All three carry is_blueprint_copy=False (the unreliable asset flag).
+        assets = [
+            {"item_id": 777001, "type_id": mfg_type, "quantity": 1, "location_id": 60003760,
+             "location_flag": "Hangar", "is_singleton": True, "is_blueprint_copy": False},
+            {"item_id": 777002, "type_id": mfg_type, "quantity": 1, "location_id": 60003760,
+             "location_flag": "Hangar", "is_singleton": True, "is_blueprint_copy": False},
+            {"item_id": 777003, "type_id": rxn_type, "quantity": 1, "location_id": 60003760,
+             "location_flag": "Hangar", "is_singleton": True, "is_blueprint_copy": False},
+        ]
+        bps = [
+            {"item_id": 777001, "type_id": mfg_type, "location_id": 60003760, "location_flag": "Hangar",
+             "quantity": -2, "runs": 10, "material_efficiency": 0, "time_efficiency": 0},   # BPC
+            {"item_id": 777002, "type_id": mfg_type, "location_id": 60003760, "location_flag": "Hangar",
+             "quantity": -1, "runs": -1, "material_efficiency": 0, "time_efficiency": 0},   # BPO
+            {"item_id": 777003, "type_id": rxn_type, "location_id": 60003760, "location_flag": "Hangar",
+             "quantity": -1, "runs": -1, "material_efficiency": 0, "time_efficiency": 0},   # RXN original
+        ]
         # These caches have no UNIQUE(character_id), so mirror _save_cache: DELETE + INSERT.
         c.execute("DELETE FROM char_assets_cache WHERE character_id=?", (cid,))
         c.execute("INSERT INTO char_assets_cache (character_id, data_json, cached_at) VALUES (?,?,?)", (cid, json.dumps(assets), now))
         c.execute("DELETE FROM char_blueprints_cache WHERE character_id=?", (cid,))
         c.execute("INSERT INTO char_blueprints_cache (character_id, data_json, cached_at) VALUES (?,?,?)", (cid, json.dumps(bps), now))
-        c.execute("INSERT OR REPLACE INTO market_price_cache (type_id, sell_price, buy_price, cached_at) VALUES (?,?,?,?)", (bp_type, 750_000_000.0, 0.0, now))
+        c.execute("INSERT OR REPLACE INTO market_price_cache (type_id, sell_price, buy_price, cached_at) VALUES (?,?,?,?)", (mfg_type, 750_000_000.0, 0.0, now))
         c.commit()
     finally:
         c.close()
@@ -149,8 +168,9 @@ def test_bpc_detected_via_blueprints_endpoint(app_module, client):
     try:
         r = client.get(f"/assets?view={cid}")
         assert r.status_code == 200
-        assert bp_name in r.text
-        assert "badge-bpc" in r.text          # detected as a copy despite the asset flag
+        assert "badge-bpc" in r.text   # copy detected despite the asset flag
+        assert "badge-bpo" in r.text   # original badged
+        assert "badge-rxn" in r.text   # reaction formula badged distinctly
     finally:
         c = m.get_conn()
         try:

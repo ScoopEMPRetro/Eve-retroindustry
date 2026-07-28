@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.60"
+APP_VERSION = "0.8.61"
 
 import asyncio
 import datetime
@@ -2455,10 +2455,13 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
     # Per-char fetch (uses cache; ESI refresh only when stale)
     char_assets: dict[int, list] = {}            # char_id → personal assets list
     corp_data: dict[int, tuple[int, list]] = {}  # char_id → (corp_id, assets list)
-    # item_ids of blueprint COPIES (BPCs). The assets endpoint's is_blueprint_copy
-    # flag is unreliable (often missing), so we trust the blueprints endpoint,
-    # which authoritatively marks BPO vs BPC — matched to assets by item_id.
+    # item_ids of blueprint COPIES (BPCs) and ORIGINALS (BPOs). The assets
+    # endpoint's is_blueprint_copy flag is unreliable (often missing), so we trust
+    # the blueprints endpoint (authoritative BPO/BPC) — matched to assets by
+    # item_id. all_bp_type_ids feeds reaction-formula detection below.
     bpc_item_ids: set[int] = set()
+    bpo_item_ids: set[int] = set()
+    all_bp_type_ids: set[int] = set()
     primary_token: str | None = None
     if selected_chars:
         async with esi_client() as client:
@@ -2473,7 +2476,9 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                     char_assets[cid] = []
                 try:
                     bps = await fetch_blueprints(client, cid, tok, conn)
-                    bpc_item_ids.update(bp.item_id for bp in bps if not bp.is_original)
+                    for bp in bps:
+                        (bpc_item_ids if not bp.is_original else bpo_item_ids).add(bp.item_id)
+                        all_bp_type_ids.add(bp.type_id)
                 except Exception:
                     pass
                 try:
@@ -2495,6 +2500,27 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
 
     if selected_chars:
         char_name_by_id = {cid: name for cid, name in all_chars}
+
+        # Reaction-formula blueprint type_ids (reaction_time set, no manufacturing)
+        # — so we can badge them "RXN" instead of "BPO".
+        reaction_bp_types: set[int] = set()
+        if all_bp_type_ids:
+            _ph_r = ",".join("?" * len(all_bp_type_ids))
+            reaction_bp_types = {
+                r[0] for r in conn.execute(
+                    f"SELECT blueprint_type_id FROM sde_blueprints "
+                    f"WHERE reaction_time > 0 AND blueprint_type_id IN ({_ph_r})",
+                    list(all_bp_type_ids),
+                ).fetchall()
+            }
+
+        def _bp_kind(a, is_copy: bool) -> str | None:
+            """Badge kind for a blueprint asset: bpc / bpo / rxn (or None)."""
+            if is_copy:
+                return "bpc"
+            if a.item_id in bpo_item_ids:
+                return "rxn" if a.type_id in reaction_bp_types else "bpo"
+            return None
 
         # ── Personal assets across all selected characters ────────────────
         station_data: dict[int, dict] = {}
@@ -2546,6 +2572,7 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                         "name": item_name,
                         "quantity": a.quantity,
                         "is_blueprint_copy": is_copy,
+                        "bp_kind": _bp_kind(a, is_copy),
                         "character_id": owner_id,
                         "character_name": owner_name,
                     }
@@ -2646,6 +2673,9 @@ async def assets_page(request: Request, search: str = "", view: str = ""):
                         "name": item_name,
                         "quantity": a.quantity,
                         "is_blueprint_copy": is_copy,
+                        # Corp blueprints aren't fetched, so we can only trust the
+                        # (unreliable) copy flag here — badge BPC only, never guess BPO.
+                        "bp_kind": "bpc" if is_copy else None,
                     }
 
         # ── Prices (shared for both personal and corp) ───────────────────────
