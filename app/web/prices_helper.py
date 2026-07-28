@@ -587,9 +587,11 @@ async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: i
         "SELECT data_json, cached_at FROM price_history_cache WHERE region_id=? AND type_id=?",
         (region_id, type_id),
     ).fetchone()
+    # Densify on every return (incl. cache hits) so no-trade days are filled even
+    # for cache rows written before densifying existed. It's idempotent.
     if row and (time.time() - (row[1] or 0)) < HISTORY_TTL:
         try:
-            return _json.loads(row[0])
+            return _densify_history(_json.loads(row[0]))
         except Exception:
             pass
 
@@ -597,13 +599,10 @@ async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: i
     async with esi_client() as client:
         series = await fetch_region_history(client, region_id, type_id)
 
-    if series is not None:
-        series = _densify_history(series)   # fill no-trade days with volume 0
-
     if series is None:  # fetch failed — serve stale if we have it
         if row:
             try:
-                return _json.loads(row[0])
+                return _densify_history(_json.loads(row[0]))
             except Exception:
                 return []
         return []
@@ -616,7 +615,7 @@ async def get_price_history(conn: sqlite3.Connection, region_id: int, type_id: i
         (region_id, type_id, _json.dumps(series), time.time()),
     )
     conn.commit()
-    return series
+    return _densify_history(series)
 
 
 def _fmt_ts(ts: float | None) -> str:
