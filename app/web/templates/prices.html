@@ -190,7 +190,7 @@
           <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="sell"></td>
           <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="buy"></td>
           <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="vol"></td>
-          <td class="text-center px-2 text-muted opacity-25" title="Hubs have no per-station availability">—</td>
+          <td class="text-center px-2"><input type="checkbox" class="col-cb form-check-input" data-hub="{{ h.region_id }}" data-metric="avail"></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -212,6 +212,7 @@
           <th class="text-end sortable pricecol hubcol pm-sell ph-{{ h.region_id }}" data-col="{{ ns.c }}" data-sort-type="num" style="cursor:pointer;user-select:none" title="Best sell across {{ h.name }}'s region">{{ h.name }} sell <span class="sort-indicator"></span></th>{% set ns.c = ns.c + 1 %}
           <th class="text-end sortable pricecol hubcol pm-buy ph-{{ h.region_id }}" data-col="{{ ns.c }}" data-sort-type="num" style="cursor:pointer;user-select:none" title="Best buy across {{ h.name }}'s region">{{ h.name }} buy <span class="sort-indicator"></span></th>{% set ns.c = ns.c + 1 %}
           <th class="text-end sortable pricecol hubcol pm-vol ph-{{ h.region_id }}" data-col="{{ ns.c }}" data-sort-type="num" style="cursor:pointer;user-select:none" title="7-day region trade volume for {{ h.name }}">{{ h.name }} vol/7d <span class="sort-indicator"></span></th>{% set ns.c = ns.c + 1 %}
+          <th class="text-end sortable pricecol hubcol pm-avail ph-{{ h.region_id }}" data-col="{{ ns.c }}" data-sort-type="num" style="cursor:pointer;user-select:none" title="Units in sell orders at {{ h.name }}'s main station">{{ h.name }} available <span class="sort-indicator"></span></th>{% set ns.c = ns.c + 1 %}
           {% endfor %}
           <th class="text-end station-col sortable" data-col="{{ ns.c }}" data-sort-type="num" style="display:none;cursor:pointer;user-select:none" title="Best sell price at station">
             <span class="stn-name">Station</span> sell <span class="sort-indicator"></span>
@@ -278,6 +279,7 @@
           <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-{{ h.region_id }}">{% if hd and hd.sell is not none %}{{ "{:,.2f}".format(hd.sell) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-{{ h.region_id }}">{% if hd and hd.buy is not none %}{{ "{:,.2f}".format(hd.buy) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-{{ h.region_id }}">{% if hd and hd.volume is not none %}{{ "{:,}".format(hd.volume) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-avail ph-{{ h.region_id }}">{% if hd and hd.available is not none %}{{ "{:,}".format(hd.available) }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           {% endfor %}
           <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">
             <span class="text-muted">—</span>
@@ -453,7 +455,7 @@
       <td class="text-end py-1 align-middle font-monospace small pricecol pm-buy ph-jita">${fmt(item.buy_price)}</td>
       <td class="text-end py-1 align-middle font-monospace small pricecol pm-vol ph-jita">${fmtInt(item.volume)}</td>
       <td class="text-end py-1 align-middle font-monospace small pricecol pm-avail ph-jita">${fmtInt(item.jita_available)}</td>
-      ${DL_HUBS.map(h => { const hd=(item.hubs||{})[h.id]||{}; return `<td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-${h.id}">${fmt(hd.sell)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-${h.id}">${fmt(hd.buy)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-${h.id}">${fmtInt(hd.volume)}</td>`; }).join('')}
+      ${DL_HUBS.map(h => { const hd=(item.hubs||{})[h.id]||{}; return `<td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-sell ph-${h.id}">${fmt(hd.sell)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-buy ph-${h.id}">${fmt(hd.buy)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-vol ph-${h.id}">${fmtInt(hd.volume)}</td><td class="text-end py-1 align-middle font-monospace small pricecol hubcol pm-avail ph-${h.id}">${fmtInt(hd.available)}</td>`; }).join('')}
       <td class="text-end py-1 align-middle font-monospace small station-col station-sell-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-traded-cell" style="display:none">${na}</td>
       <td class="text-end py-1 align-middle font-monospace small station-col station-avail-cell" style="display:none">${na}</td>

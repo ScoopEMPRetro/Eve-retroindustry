@@ -194,16 +194,17 @@ def test_prices_hub_columns_render(app_module, client):
     try:
         ensure_price_table(c)
         c.execute(
-            "INSERT OR REPLACE INTO hub_price_cache (region_id, type_id, sell_price, buy_price, volume, cached_at) "
-            "VALUES (?,?,?,?,?,?)", (10000043, 34, 6.5, 5.5, 1234, _t.time()))
+            "INSERT OR REPLACE INTO hub_price_cache (region_id, type_id, sell_price, buy_price, volume, available, cached_at) "
+            "VALUES (?,?,?,?,?,?,?)", (10000043, 34, 6.5, 5.5, 1234, 999, _t.time()))
         c.commit()
     finally:
         c.close()
     try:
         r = client.get("/prices")
         assert r.status_code == 200
-        assert "Amarr sell" in r.text        # hub column header rendered
-        assert "hub-fetch-btn" in r.text      # per-hub fetch buttons present
+        assert "Amarr sell" in r.text          # hub column header rendered
+        assert "Amarr available" in r.text     # incl. per-hub available column
+        assert "hub-fetch-btn" in r.text       # per-hub fetch buttons present
         assert "col-picker" in r.text          # metric/hub column picker present
     finally:
         c = m.get_conn()

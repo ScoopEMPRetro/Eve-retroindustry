@@ -19,6 +19,7 @@ from app.market.prices import (
     ensure_price_table,
     PRICE_CACHE_TTL,
     JITA_REGION,
+    TRADE_HUBS,
 )
 
 
@@ -224,7 +225,7 @@ def _persist_bulk_orders(
             continue
         sell = d.get("sell")
         buy  = d.get("buy")
-        jita_avail = d.get("jita_available")
+        jita_avail = d.get("available")
         if sell is not None or buy is not None:
             refreshed += 1
             traded.append(tid)
@@ -388,20 +389,23 @@ def _persist_hub_bulk_orders(
     for tid in wanted:
         d = bulk.get(tid)
         if d is None:
-            rows.append((region_id, tid, None, None, now))
+            rows.append((region_id, tid, None, None, None, now))
             continue
         sell = d.get("sell")
         buy = d.get("buy")
+        avail = d.get("available")
         if sell is not None or buy is not None:
             refreshed += 1
             traded.append(tid)
-        rows.append((region_id, tid, sell, buy, now))
+        rows.append((region_id, tid, sell, buy, avail, now))
+    # volume is filled separately (7-day history) — don't overwrite it here.
     conn.executemany(
-        """INSERT INTO hub_price_cache (region_id, type_id, sell_price, buy_price, cached_at)
-           VALUES (?, ?, ?, ?, ?)
+        """INSERT INTO hub_price_cache (region_id, type_id, sell_price, buy_price, available, cached_at)
+           VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(region_id, type_id) DO UPDATE SET
              sell_price = excluded.sell_price,
              buy_price = excluded.buy_price,
+             available = excluded.available,
              cached_at = excluded.cached_at""",
         rows,
     )
@@ -463,10 +467,12 @@ async def stream_hub_refresh(conn: sqlite3.Connection, type_ids: list[int], regi
 
     bulk_holder: dict = {}
 
+    station = TRADE_HUBS.get(region_id, {}).get("station", 0)
+
     async def _run():
         async with esi_client() as client:
             bulk_holder.update(
-                await fetch_region_orders_bulk(client, region_id, progress_cb=_progress)
+                await fetch_region_orders_bulk(client, region_id, progress_cb=_progress, station_id=station)
             )
 
     task = asyncio.create_task(_run())
@@ -526,14 +532,14 @@ def get_all_hub_prices(
     out: dict[int, dict[int, dict]] = {}
     ph = ",".join("?" * len(type_ids))
     rows = conn.execute(
-        f"SELECT type_id, region_id, sell_price, buy_price, volume "
+        f"SELECT type_id, region_id, sell_price, buy_price, volume, available "
         f"FROM hub_price_cache WHERE type_id IN ({ph})",
         list(type_ids),
     ).fetchall()
-    for tid, rid, sell, buy, vol in rows:
-        if sell is None and buy is None and vol is None:
+    for tid, rid, sell, buy, vol, avail in rows:
+        if sell is None and buy is None and vol is None and avail is None:
             continue
-        out.setdefault(tid, {})[rid] = {"sell": sell, "buy": buy, "volume": vol}
+        out.setdefault(tid, {})[rid] = {"sell": sell, "buy": buy, "volume": vol, "available": avail}
     return out
 
 

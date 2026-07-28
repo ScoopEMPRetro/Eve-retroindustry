@@ -16,15 +16,16 @@ JITA_REGION = 10000002   # The Forge
 JITA_STATION = 60003760  # Jita 4-4 CNAP
 PRICE_CACHE_TTL = 60 * 60 * 12  # 12 hours
 
-# Secondary trade hubs — region_id → display name. Jita stays the app-wide
+# Secondary trade hubs — region_id → {name, station}. Jita stays the app-wide
 # reference (market_price_cache); these are fetched on demand per hub into
-# hub_price_cache and shown as comparison columns on the Prices page. Prices are
-# region-wide best (as with Jita/The Forge), which the hub station dominates.
-TRADE_HUBS: dict[int, str] = {
-    10000043: "Amarr",     # Domain
-    10000032: "Dodixie",   # Sinq Laison
-    10000030: "Rens",      # Heimatar
-    10000042: "Hek",       # Metropolis
+# hub_price_cache and shown as comparison columns on the Prices page. Sell/buy are
+# region-wide best (as with Jita/The Forge); `station` is the hub's main station,
+# used to sum "available" units (sell-order volume) there.
+TRADE_HUBS: dict[int, dict] = {
+    10000043: {"name": "Amarr",   "station": 60008494},  # Domain / Amarr VIII (Oris)
+    10000032: {"name": "Dodixie", "station": 60011866},  # Sinq Laison / Dodixie IX-M20
+    10000030: {"name": "Rens",    "station": 60004588},  # Heimatar / Rens VI-M8
+    10000042: {"name": "Hek",     "station": 60005686},  # Metropolis / Hek VIII-M12
 }
 # Used ONLY for the UI freshness indicator (green/red badge on /prices,
 # `fresh` flag in the API). For price calculations (`get_prices_for_ids`) the
@@ -75,10 +76,14 @@ def ensure_price_table(conn: sqlite3.Connection):
             sell_price REAL,
             buy_price  REAL,
             volume     INTEGER,
+            available  INTEGER,
             cached_at  REAL,
             PRIMARY KEY (region_id, type_id)
         )
     """)
+    hub_cols = {r[1] for r in conn.execute("PRAGMA table_info(hub_price_cache)")}
+    if "available" not in hub_cols:
+        conn.execute("ALTER TABLE hub_price_cache ADD COLUMN available INTEGER")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS station_volume_cache (
             location_id    INTEGER NOT NULL,
@@ -357,9 +362,11 @@ async def fetch_region_orders_bulk(
     client: httpx.AsyncClient,
     region_id: int = JITA_REGION,
     progress_cb=None,
+    station_id: int = JITA_STATION,
 ) -> dict[int, dict]:
     """Fetches ALL active orders for the region, paginated, and aggregates
-    per type_id: {type_id: {sell, buy, jita_available}}.
+    per type_id: {type_id: {sell, buy, available}}. `available` = units in sell
+    orders at `station_id` (the hub's main station).
 
     This is orders of magnitude more efficient than a per-type call: ~500 pages vs. 19k calls.
     progress_cb(page, total_pages) is called after each page (if provided).
@@ -376,15 +383,15 @@ async def fetch_region_orders_bulk(
             price = o.get("price")
             if tid is None or price is None:
                 continue
-            entry = agg.setdefault(tid, {"sell": None, "buy": None, "jita_available": 0})
+            entry = agg.setdefault(tid, {"sell": None, "buy": None, "available": 0})
             if o.get("is_buy_order"):
                 if entry["buy"] is None or price > entry["buy"]:
                     entry["buy"] = price
             else:
                 if entry["sell"] is None or price < entry["sell"]:
                     entry["sell"] = price
-                if o.get("location_id") == JITA_STATION:
-                    entry["jita_available"] += int(o.get("volume_remain", 0))
+                if o.get("location_id") == station_id:
+                    entry["available"] += int(o.get("volume_remain", 0))
     return agg
 
 

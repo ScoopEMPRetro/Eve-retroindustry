@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.63"
+APP_VERSION = "0.8.64"
 
 import asyncio
 import datetime
@@ -3326,8 +3326,8 @@ async def prices_page(request: Request):
 
     # Secondary trade hubs: metadata for all, price data only for those already
     # fetched. Attach each hub's sell/buy/volume to the item rows for comparison.
-    hubs = [{"region_id": rid, "name": name, **get_hub_cache_stats(conn, rid)}
-            for rid, name in TRADE_HUBS.items()]
+    hubs = [{"region_id": rid, "name": info["name"], **get_hub_cache_stats(conn, rid)}
+            for rid, info in TRADE_HUBS.items()]
     downloaded_hubs = [h for h in hubs if h["has_data"]]
     if downloaded_hubs:
         hub_prices = get_all_hub_prices(conn, [i["type_id"] for i in items])
