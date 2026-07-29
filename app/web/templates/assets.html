@@ -148,10 +148,10 @@
      data-loc-id="{{ station.loc_id }}"
      data-sys-id="{{ station.solar_system_id or '' }}"
      data-jumps="">
-  <div class="card-header d-flex justify-content-between align-items-center py-2"
+  <div class="card-header grp-station collapsed d-flex justify-content-between align-items-center py-2"
        data-bs-toggle="collapse" data-bs-target="#st-{{ sid }}" style="cursor:pointer">
     <span class="d-flex align-items-center gap-2">
-      <i class="bi bi-geo-alt text-muted"></i>
+      <i class="bi bi-boxes" style="color:var(--eve-gold)"></i>
       <strong class="loc-label" id="loc-label-{{ station.loc_id }}">{{ station.name }}</strong>
       <span class="text-muted small">ID: {{ station.loc_id }}</span>
       <span class="loc-rename-wrap d-none" id="loc-rename-{{ station.loc_id }}" onclick="event.stopPropagation()">
@@ -186,8 +186,8 @@
   <div class="collapse" id="st-{{ sid }}">
 
     {% if station.hangar %}
-    <div {% if station.containers %}class="border-bottom" style="border-color:#30363d !important"{% endif %}>
-      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+    <div class="grp-nest">
+      <div class="grp-sub collapsed d-flex justify-content-between align-items-center px-3 py-2"
            data-bs-toggle="collapse" data-bs-target="#hng-{{ sid }}" style="cursor:pointer">
         <span class="d-flex align-items-center gap-2">
           <i class="bi bi-inbox text-muted" style="font-size:.85em"></i>
@@ -206,8 +206,8 @@
 
     {% for container in station.containers %}
     {% set ckey = sid ~ "-" ~ loop.index %}
-    <div class="border-top" style="border-color:#30363d !important">
-      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+    <div class="grp-nest">
+      <div class="grp-sub collapsed d-flex justify-content-between align-items-center px-3 py-2"
            data-bs-toggle="collapse" data-bs-target="#cont-{{ ckey }}" style="cursor:pointer">
         <span class="d-flex align-items-center gap-2">
           {% if container.type_id %}
@@ -253,10 +253,10 @@
 {% for station in corp_stations %}
 {% set csid = "corp-" ~ (station.loc_id | string) %}
 <div class="card mb-3">
-  <div class="card-header d-flex justify-content-between align-items-center py-2"
+  <div class="card-header grp-station collapsed d-flex justify-content-between align-items-center py-2"
        data-bs-toggle="collapse" data-bs-target="#st-{{ csid }}" style="cursor:pointer">
     <span class="d-flex align-items-center gap-2">
-      <i class="bi bi-building text-warning" style="font-size:.85em"></i>
+      <i class="bi bi-boxes" style="color:var(--eve-gold)"></i>
       <strong>{{ station.name }}</strong>
       <span class="text-muted small">ID: {{ station.loc_id }}</span>
     </span>
@@ -271,8 +271,8 @@
   <div class="collapse" id="st-{{ csid }}">
     {% for div in station.divisions %}
     {% set dkey = csid ~ "-" ~ loop.index %}
-    <div class="border-top" style="border-color:#30363d !important">
-      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+    <div class="grp-nest">
+      <div class="grp-sub collapsed d-flex justify-content-between align-items-center px-3 py-2"
            data-bs-toggle="collapse" data-bs-target="#div-{{ dkey }}" style="cursor:pointer">
         <span class="d-flex align-items-center gap-2">
           <i class="bi bi-inbox text-warning" style="font-size:.85em"></i>
@@ -288,7 +288,7 @@
       <div class="collapse" id="div-{{ dkey }}">
         {# Direct items in this division #}
         {% if div.hangar %}
-        <div {% if div.containers %}class="border-bottom" style="border-color:#30363d !important"{% endif %}>
+        <div class="grp-nest">
           {{ asset_table(div.hangar, "divhng-" ~ dkey) }}
         </div>
         {% endif %}
@@ -296,8 +296,8 @@
         {# Containers in this division #}
         {% for container in div.containers %}
         {% set ck = dkey ~ "-" ~ loop.index %}
-        <div class="border-top" style="border-color:#30363d !important">
-          <div class="d-flex justify-content-between align-items-center px-3 py-2"
+        <div class="grp-nest">
+          <div class="grp-sub collapsed d-flex justify-content-between align-items-center px-3 py-2"
                data-bs-toggle="collapse" data-bs-target="#ccont-{{ ck }}" style="cursor:pointer">
             <span class="d-flex align-items-center gap-2">
               {% if container.type_id %}

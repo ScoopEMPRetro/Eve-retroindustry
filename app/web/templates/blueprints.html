@@ -121,10 +121,10 @@
 {% set sid = station.loc_id | string %}
 <div class="card mb-3">
   {# === Station header === #}
-  <div class="card-header d-flex justify-content-between align-items-center py-2"
+  <div class="card-header grp-station collapsed d-flex justify-content-between align-items-center py-2"
        data-bs-toggle="collapse" data-bs-target="#st-{{ sid }}" style="cursor:pointer">
     <span class="d-flex align-items-center gap-2">
-      <i class="bi bi-geo-alt text-muted"></i>
+      <i class="bi bi-boxes" style="color:var(--eve-gold)"></i>
       <strong class="loc-label" id="loc-label-{{ station.loc_id }}">{{ station.name }}</strong>
       <span class="text-muted small">ID: {{ station.loc_id }}</span>
       <span class="loc-rename-wrap d-none" id="loc-rename-{{ station.loc_id }}" onclick="event.stopPropagation()">
@@ -163,8 +163,8 @@
     {% if station.hangar %}
     {% set h_bpo = station.hangar | selectattr('is_original') | list | length %}
     {% set h_bpc = station.hangar | rejectattr('is_original') | list | length %}
-    <div {% if station.containers %}class="border-bottom" style="border-color:#30363d !important"{% endif %}>
-      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+    <div class="grp-nest">
+      <div class="grp-sub collapsed d-flex justify-content-between align-items-center px-3 py-2"
            data-bs-toggle="collapse" data-bs-target="#hng-{{ sid }}" style="cursor:pointer">
         <span class="d-flex align-items-center gap-2">
           <i class="bi bi-inbox text-muted" style="font-size:.85em"></i>
@@ -185,8 +185,8 @@
     {# === Kontejnery === #}
     {% for container in station.containers %}
     {% set ckey = station.loc_id | string ~ "-" ~ loop.index %}
-    <div class="border-top" style="border-color:#30363d !important">
-      <div class="d-flex justify-content-between align-items-center px-3 py-2"
+    <div class="grp-nest">
+      <div class="grp-sub collapsed d-flex justify-content-between align-items-center px-3 py-2"
            data-bs-toggle="collapse" data-bs-target="#cont-{{ ckey }}" style="cursor:pointer">
         <span class="d-flex align-items-center gap-2">
           <i class="bi bi-box text-muted" style="font-size:.85em"></i>
