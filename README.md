@@ -20,14 +20,17 @@ A local industry calculator for EVE Online. Runs as a web app on your machine �
 - **Jita Price Cache** — fetches live market data from ESI, caches locally, refresh on demand; secondary trade hubs (Amarr / Dodixie / Rens / Hek) and any custom station/citadel can be pulled in for side-by-side price comparison
 
 ![Prices — Jita + secondary hubs, filtered to the Battleship group](docs/screenshots/prices.png)
+
 - **Structure & Rig Modelling** — supports Raitaru / Azbel / Sotiyo / Athanor / Tatara with per-slot rig selection; ME/TE bonuses applied correctly with security multiplier (highsec 1.0× / lowsec 1.9× / null 2.1×)
 - **Production Projects** — save a plan as a project, track which jobs are done, and get a unified shopping list across multi-stage manufacturing
 - **Market Orders** — open buy/sell orders for every character and corporation, split into active vs. completed/expired
-- **Industry Jobs** — running and finished manufacturing/reaction jobs, with per-character slot usage (used / available, derived from skills)
 
 ![Market Orders — active buy/sell across all characters](docs/screenshots/orders.png)
 
+- **Industry Jobs** — running and finished manufacturing/reaction jobs, with per-character slot usage (used / available, derived from skills)
+
 ![Industry Jobs — running jobs with per-character slot usage](docs/screenshots/jobs.png)
+
 - **Contracts** — browse your own **personal + corporation** contracts, plus a **public contract browser**: index a whole region once, then search it locally by item, type, or price (ESI exposes no contract search, so the region is fully indexed into a local cache). Public contract prices can be pulled straight into the Production Planner for a side-by-side profit comparison against market prices
 - **Wallet** — personal and corporation wallet balances
 - **In-app updates** — check for new releases and apply them without leaving the app
