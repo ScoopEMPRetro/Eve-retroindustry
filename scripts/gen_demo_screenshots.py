@@ -171,6 +171,58 @@ def main() -> None:
     m.fetch_location = fake_location
     m.fetch_skill_queue = fake_skill_queue
 
+    # ── Jobs & Orders are fetched live from ESI (never cached in the DB), so —
+    #    like location/skills above — stub the fetchers with a realistic spread. ──
+    _c = sqlite3.connect(demo_db)
+    TID = {}
+    for _n in ("Raven", "Scorpion", "Megathron", "Tempest",
+               "Scourge Fury Heavy Missile", "Ferrogel", "Tritanium", "Large Skill Injector"):
+        _r = _c.execute("SELECT type_id FROM sde_types WHERE name=?", (_n,)).fetchone()
+        TID[_n] = _r[0] if _r else None
+    _c.close()
+
+    def _iso(delta):
+        return (utcnow + delta).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def _job(jid, name, activity, runs, ends, status, facility):
+        return {"job_id": jid, "product_type_id": TID[name], "blueprint_type_id": None,
+                "facility_id": facility, "activity_id": activity, "runs": runs,
+                "status": status, "cost": 0.0,
+                "start_date": _iso(dt.timedelta(hours=-8)), "end_date": _iso(ends)}
+
+    JOBS_BY_INDEX = {
+        0: [_job(9001, "Raven", 1, 1, dt.timedelta(days=2, hours=7), "active", STATIONS[0]),
+            _job(9002, "Scourge Fury Heavy Missile", 1, 250, dt.timedelta(hours=9, minutes=20), "active", STATIONS[0]),
+            _job(9003, "Ferrogel", 9, 40, dt.timedelta(hours=-1), "ready", STATIONS[0])],
+        1: [_job(9004, "Megathron", 1, 2, dt.timedelta(days=5, hours=3), "active", STATIONS[1]),
+            _job(9005, "Tempest", 1, 1, dt.timedelta(hours=14), "active", STATIONS[1])],
+        2: [_job(9006, "Scorpion", 1, 1, dt.timedelta(hours=3, minutes=40), "active", STATIONS[2])],
+    }
+
+    async def fake_industry_jobs(client, cid, tok, include_completed=True):
+        return list(JOBS_BY_INDEX.get(order.get(cid, 0), []))
+
+    m.jobs_api.fetch_industry_jobs = fake_industry_jobs
+
+    def _ord(name, total, remain, price, is_buy, duration, facility):
+        return {"type_id": TID[name], "volume_total": total, "volume_remain": remain,
+                "price": price, "is_buy_order": is_buy, "location_id": facility,
+                "issued": _iso(dt.timedelta(days=-2)), "duration": duration}
+
+    ORDERS_BY_INDEX = {
+        0: [_ord("Raven", 4, 2, 224_900_000.0, False, 90, STATIONS[0]),
+            _ord("Tempest", 3, 3, 78_500_000.0, False, 90, STATIONS[0]),
+            _ord("Tritanium", 80_000_000, 41_320_540, 5.62, True, 30, STATIONS[0])],
+        1: [_ord("Megathron", 2, 1, 191_800_000.0, False, 90, STATIONS[1]),
+            _ord("Large Skill Injector", 6, 6, 792_400_000.0, False, 14, STATIONS[1])],
+        2: [_ord("Scorpion", 5, 4, 68_200_000.0, False, 90, STATIONS[2])],
+    }
+
+    async def fake_orders(client, cid, tok):
+        return list(ORDERS_BY_INDEX.get(order.get(cid, 0), []))
+
+    m.orders_api.fetch_orders = fake_orders
+
     @m.app.get("/demo/assetsshot")
     async def _assetsshot(request: Request):
         # Render the real assets page, then expand the first station + its hangar
@@ -202,10 +254,24 @@ def main() -> None:
         return HTMLResponse(
             '<!doctype html><body style="background:#0d1117">'
             '<form id="f" method="post" action="/plan">'
-            '<input name="product" value="Hyperion"><input name="station" value="60003760">'
+            '<input name="product" value="Raven"><input name="station" value="60003760">'
             '<input name="qty" value="1"><input name="mode" value="full">'
+            '<input name="form_me" value="10"><input name="form_te" value="20">'
             '<input name="selling_station" value="60003760">'
             '</form><script>document.getElementById("f").submit()</script>')
+
+    @m.app.get("/demo/pricesshot")
+    async def _pricesshot(request: Request):
+        # Render the real Prices page, then type "Battleship" into the search so the
+        # table shows that market group (all battleship hulls have cached prices).
+        resp = await m.prices_page(request)
+        html = resp.template.render(resp.context)
+        inject = (
+            "<script>addEventListener('load',function(){setTimeout(function(){"
+            "var s=document.getElementById('price-search');"
+            "if(s){s.value='Battleship';s.dispatchEvent(new Event('input',{bubbles:true}));}"
+            "},500);});</script>")
+        return HTMLResponse(html.replace("</body>", inject + "</body>"))
 
     cfg = uvicorn.Config(m.app, host="127.0.0.1", port=PORT, log_level="warning")
     server = uvicorn.Server(cfg)
@@ -224,11 +290,16 @@ def main() -> None:
         "dashboard":       f"http://127.0.0.1:{PORT}/",
         "production-plan": f"http://127.0.0.1:{PORT}/demo/planshot",
         "assets":          f"http://127.0.0.1:{PORT}/demo/assetsshot",
+        "jobs":            f"http://127.0.0.1:{PORT}/jobs",
+        "orders":          f"http://127.0.0.1:{PORT}/orders?char=all",
+        "prices":          f"http://127.0.0.1:{PORT}/demo/pricesshot",
     }
+    HEIGHT = {"assets": 1750}
+    VTB = {"assets": 13000, "prices": 12000}
     for name, url in shots.items():
         out = os.path.join(OUT_DIR, f"{name}.png")
-        h = 1750 if name == "assets" else 1500
-        vtb = 13000 if name == "assets" else 9000
+        h = HEIGHT.get(name, 1500)
+        vtb = VTB.get(name, 9000)
         prof = os.path.join(tmp, f"chrome-{name}")
         subprocess.run(
             ["chromium", "--headless=new", "--disable-gpu", "--no-sandbox",
