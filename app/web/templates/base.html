@@ -14,10 +14,10 @@
       --eve-dim:    #8b7020;
       /* Steel-blue accent — replaces Bootstrap's default primary blue on
          buttons, progress bars and spinners (gold stays the ISK/brand colour). */
-      --eve-steel:    #7d9bc1;
-      --eve-steel-hi: #98b2d3;
-      --bs-primary: #7d9bc1;
-      --bs-primary-rgb: 125,155,193;
+      --eve-steel:    #7bb8ec;
+      --eve-steel-hi: #9fcbf2;
+      --bs-primary: #7bb8ec;
+      --bs-primary-rgb: 123,184,236;
       --eve-bg:     #0b0e13;
       --eve-card:   #161c25;
       --eve-border: #2b333d;
@@ -65,7 +65,7 @@
     /* ── Grouped list headers (Assets / Blueprints): collapsible station / hangar
        / container / division. Gold gradient band for the station, darker inset
        rounded bands for nested groups, a rotating chevron, and count pills. ── */
-    .grp-station { background: linear-gradient(90deg, rgba(125,155,193,.16), rgba(125,155,193,.03)) !important; border-bottom: 0 !important; }
+    .grp-station { background: linear-gradient(90deg, rgba(123,184,236,.18), rgba(123,184,236,.04)) !important; border-bottom: 0 !important; }
     .grp-station .loc-label, .grp-station > span:first-child strong { color: var(--eve-steel); }
     .grp-nest { margin: .4rem .6rem; border-radius: 8px; overflow: hidden; }
     .grp-sub { background: #1a212b; }
@@ -114,14 +114,14 @@
       --bs-btn-active-bg: var(--eve-steel-hi); --bs-btn-active-border-color: var(--eve-steel-hi);
       --bs-btn-disabled-bg: var(--eve-steel); --bs-btn-disabled-border-color: var(--eve-steel);
       --bs-btn-color: #0b0e13; --bs-btn-hover-color: #0b0e13; --bs-btn-active-color: #0b0e13; --bs-btn-disabled-color: #0b0e13;
-      --bs-btn-focus-shadow-rgb: 125,155,193;
+      --bs-btn-focus-shadow-rgb: 123,184,236;
     }
     .btn-outline-primary {
       --bs-btn-color: var(--eve-steel); --bs-btn-border-color: var(--eve-steel);
       --bs-btn-hover-bg: var(--eve-steel); --bs-btn-hover-border-color: var(--eve-steel); --bs-btn-hover-color: #0b0e13;
       --bs-btn-active-bg: var(--eve-steel); --bs-btn-active-border-color: var(--eve-steel); --bs-btn-active-color: #0b0e13;
       --bs-btn-disabled-color: var(--eve-steel); --bs-btn-disabled-border-color: var(--eve-steel);
-      --bs-btn-focus-shadow-rgb: 125,155,193;
+      --bs-btn-focus-shadow-rgb: 123,184,236;
     }
     /* In-progress bars unified to steel-blue (bg-primary busy state + old bg-info).
        bg-success (done) and bg-danger (error) stay semantic. */
@@ -130,9 +130,9 @@
     }
     /* Bootstrap hardcodes #0d6efd on form controls — steer them to steel too. */
     .form-check-input:checked { background-color: var(--eve-steel); border-color: var(--eve-steel); }
-    .form-check-input:focus   { border-color: var(--eve-steel); box-shadow: 0 0 0 .25rem rgba(125,155,193,.35); }
+    .form-check-input:focus   { border-color: var(--eve-steel); box-shadow: 0 0 0 .25rem rgba(123,184,236,.35); }
     .form-control:focus, .form-select:focus, .form-check-input:focus {
-      border-color: var(--eve-steel); box-shadow: 0 0 0 .2rem rgba(125,155,193,.28);
+      border-color: var(--eve-steel); box-shadow: 0 0 0 .2rem rgba(123,184,236,.28);
     }
     .btn-eve       { background: linear-gradient(180deg, #e6b84a, #caa02e); border: 1px solid #e6b84a; color: #12161c; font-weight: 600; }
     .btn-eve:hover { background: linear-gradient(180deg, #efc35c, #d4ab33); border-color: #efc35c; color: #12161c; }
