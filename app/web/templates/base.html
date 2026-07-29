@@ -45,9 +45,11 @@
     .table th { color: #98a3b0; font-weight: 500; font-size: .85rem; text-transform: uppercase; letter-spacing: .07em; }
     /* Unified compact list table (the Prices-table look): smaller font, tight
        rows, tabular figures for aligned numbers. Add class="tbl-compact" to a table. */
-    .tbl-compact { font-size: .8rem; line-height: 1.15; }
-    .tbl-compact thead th { font-size: .72rem; padding-top: .3rem; padding-bottom: .3rem; }
-    .tbl-compact tbody td { padding-top: .12rem; padding-bottom: .12rem; }
+    .tbl-compact { font-size: .8rem; line-height: 1.2; }
+    .tbl-compact thead th { font-size: .72rem; padding-top: .4rem; padding-bottom: .4rem; }
+    /* Fixed row height + vertical centering so every row is the same height
+       whether or not it has an icon/pill (text-only rows were shorter). */
+    .tbl-compact tbody td { height: 2.1rem; padding-top: .25rem; padding-bottom: .25rem; vertical-align: middle; }
     .tbl-compact td.text-end, .tbl-compact td.num, .tbl-compact td.font-monospace {
       font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
     }
