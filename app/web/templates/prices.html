@@ -249,9 +249,6 @@
           </td>
           <td class="py-1 align-middle">
             <span class="item-hist" role="button" tabindex="0" title="Show price history">{{ item.name }}</span>
-            {% if not item.fresh %}
-              <span class="badge bg-secondary ms-1" style="font-size:.65em">stale</span>
-            {% endif %}
           </td>
           <td class="text-end py-1 align-middle font-monospace small pricecol pm-sell ph-jita" data-v="{{ item.sell_price if item.sell_price is not none else '' }}">{% if item.sell_price is not none %}{{ item.sell_price | price_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
           <td class="text-end py-1 align-middle font-monospace small pricecol pm-buy ph-jita" data-v="{{ item.buy_price if item.buy_price is not none else '' }}">{% if item.buy_price is not none %}{{ item.buy_price | price_eu }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
@@ -513,7 +510,6 @@
       </td>
       <td class="py-1 align-middle">
         <span class="item-hist" role="button" tabindex="0" title="Show price history">${item.name}</span>
-        ${item.fresh === false ? '<span class="badge bg-secondary ms-1" style="font-size:.65em">stale</span>' : ''}
         ${item.group_name && item.group_name !== data_group_name
           ? `<span class="badge bg-secondary ms-1" style="font-size:.65em">${item.group_name}</span>`
           : ''}
