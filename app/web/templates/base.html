@@ -121,6 +121,10 @@
       --bs-btn-hover-bg: var(--eve-steel); --bs-btn-hover-border-color: var(--eve-steel); --bs-btn-hover-color: #0b0e13;
       --bs-btn-active-bg: var(--eve-steel); --bs-btn-active-border-color: var(--eve-steel); --bs-btn-active-color: #0b0e13;
       --bs-btn-disabled-color: var(--eve-steel); --bs-btn-disabled-border-color: var(--eve-steel);
+      /* Bootstrap dims disabled buttons to .65, which washes the steel out so a
+         disabled outline button (e.g. the custom-station Load) reads as a duller,
+         "old" blue. Keep it clearly the same steel, just marginally muted. */
+      --bs-btn-disabled-opacity: .85;
       --bs-btn-focus-shadow-rgb: 123,184,236;
     }
     /* In-progress bars unified to steel-blue (bg-primary busy state + old bg-info).
