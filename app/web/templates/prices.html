@@ -35,59 +35,82 @@
 </style>
 
 <div class="row g-3 mb-4">
-  <div class="col-xl-3 col-md-6">
-    <div class="card p-4 h-100">
-      <h6 class="mb-1"><i class="bi bi-arrow-repeat me-2 text-primary"></i>Refresh Jita Prices</h6>
+  <div class="col-xl-8">
+    <div class="card p-4 h-100 d-flex flex-column">
+      <h6 class="mb-1"><i class="bi bi-cloud-arrow-down me-2 text-primary"></i>Fetch Prices</h6>
       <p class="text-muted small mb-3">
-        Fetches current Jita sell/buy prices for all materials, components, and blueprints.
-        May take 1–2 minutes. Cache is valid for 30 minutes.
+        Download market data from ESI. Only one download runs at a time — starting one
+        disables the others until it finishes, so ESI is never hit twice at once.
       </p>
-      <button id="refresh-btn" class="btn btn-eve refresh-btn mb-3">
-        <i class="bi bi-arrow-clockwise me-2"></i>Refresh Jita Prices
-      </button>
-      <div id="refresh-progress" class="d-none">
+
+      <div class="row g-4">
+        {# Jita — the primary market #}
+        <div class="col-md-6">
+          <div class="fw-semibold small mb-2"><i class="bi bi-star-fill me-1" style="color:var(--eve-gold);font-size:.72em"></i>Jita 4-4 (primary)</div>
+          <button id="refresh-btn" class="btn btn-eve btn-sm">
+            <i class="bi bi-arrow-clockwise me-1"></i>Refresh Jita Prices
+          </button>
+          <p class="text-muted mt-2 mb-0" style="font-size:.78rem">
+            All materials, components &amp; blueprints. ~1–2 min, 30-min cache.
+            Without a Jita price the ESI adjusted price is used (less accurate).
+          </p>
+        </div>
+
+        {# Secondary trade hubs #}
+        <div class="col-md-6">
+          <div class="fw-semibold small mb-2"><i class="bi bi-shop me-1 text-muted" style="font-size:.85em"></i>Secondary trade hubs</div>
+          <div class="d-flex flex-wrap gap-2">
+            {% for h in hubs %}
+            <button class="btn btn-sm btn-outline-primary hub-fetch-btn" data-region="{{ h.region_id }}" data-name="{{ h.name }}">
+              <i class="bi bi-download me-1"></i>{{ h.name }}
+            </button>
+            {% endfor %}
+          </div>
+          <p class="text-muted mt-2 mb-0" style="font-size:.78rem">
+            Sell/buy + 7-day volume for another hub. Adds comparison columns below.
+            Smaller regions than Jita, so faster.
+          </p>
+        </div>
+
+        {# Custom station / citadel — same graphical style as the hub buttons #}
+        <div class="col-12">
+          <div class="fw-semibold small mb-2"><i class="bi bi-geo-alt me-1 text-muted" style="font-size:.85em"></i>Custom station / citadel</div>
+          <div class="d-flex gap-2 align-items-start" style="max-width:520px">
+            <div class="position-relative flex-grow-1">
+              <input type="text" id="station-vol-display" class="form-control form-control-sm"
+                     placeholder="Search station…" autocomplete="off">
+              <input type="hidden" id="station-vol-id">
+              <div id="station-vol-suggestions" style="
+                position:absolute; top:100%; left:0; right:0; z-index:1050;
+                background:#161b22; border:1px solid #30363d; border-radius:6px;
+                max-height:260px; overflow-y:auto; display:none;"></div>
+            </div>
+            <button id="station-vol-load" class="btn btn-sm btn-outline-primary flex-shrink-0" disabled>
+              <i class="bi bi-download me-1"></i>Load
+            </button>
+          </div>
+          <p class="text-muted mt-2 mb-0" style="font-size:.78rem">
+            Sell prices for all table items at any station/citadel. The 7-day volume column is
+            region-wide market history (ESI has no per-structure trade history).
+          </p>
+        </div>
+      </div>
+
+      {# Shared progress bar — reused by all three downloads (one at a time) #}
+      <div id="dl-progress" class="d-none mt-3 pt-3 border-top" style="border-color:var(--eve-border) !important">
         <div class="d-flex justify-content-between mb-1">
-          <small id="refresh-progress-text" class="text-muted">Preparing…</small>
-          <small id="refresh-progress-pct" class="text-muted">0%</small>
+          <small id="dl-text" class="text-muted">Preparing…</small>
+          <small id="dl-pct" class="text-muted">0%</small>
         </div>
         <div class="progress" style="height:8px">
-          <div id="refresh-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+          <div id="dl-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
                role="progressbar" style="width:0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
         </div>
       </div>
-      <p class="text-muted small mb-0 mt-auto pt-2">
-        <i class="bi bi-info-circle me-1"></i>
-        Without a Jita price, the ESI adjusted price will be used (less accurate).
-      </p>
+      <div id="station-vol-status" class="small text-muted mt-2 d-none"></div>
     </div>
   </div>
-  <div class="col-xl-3 col-md-6">
-    <div class="card p-4 h-100">
-      <h6 class="mb-1"><i class="bi bi-shop me-2 text-primary"></i>Secondary Trade Hubs</h6>
-      <p class="text-muted small mb-3">
-        Fetch sell/buy + 7-day volume for another hub to compare against Jita. Downloaded
-        on demand — smaller regions than Jita, so faster. Loaded hubs add columns below.
-      </p>
-      <div class="d-flex flex-wrap gap-2">
-        {% for h in hubs %}
-        <button class="btn btn-sm btn-outline-primary hub-fetch-btn" data-region="{{ h.region_id }}" data-name="{{ h.name }}">
-          <i class="bi bi-download me-1"></i>{{ h.name }}
-        </button>
-        {% endfor %}
-      </div>
-      <div id="hub-progress" class="d-none mt-3">
-        <div class="d-flex justify-content-between mb-1">
-          <small id="hub-progress-text" class="text-muted">Preparing…</small>
-          <small id="hub-progress-pct" class="text-muted">0%</small>
-        </div>
-        <div class="progress" style="height:8px">
-          <div id="hub-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
-               role="progressbar" style="width:0%"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="col-xl-3 col-md-6">
+  <div class="col-xl-4">
     <div class="card p-4 h-100" id="col-picker">
       <h6 class="mb-1"><i class="bi bi-sliders me-2 text-primary"></i>Displayed Columns</h6>
       <p class="text-muted small mb-2">Tick any price × hub to show it side by side.</p>
@@ -127,41 +150,6 @@
           </tbody>
         </table>
       </div>
-    </div>
-  </div>
-  <div class="col-xl-3 col-md-6">
-    <div class="card p-4 h-100">
-      <h6 class="mb-1"><i class="bi bi-geo-alt me-2 text-primary"></i>Custom Station Prices</h6>
-      <p class="text-muted small mb-3">
-        Search for a station or citadel and fetch sell prices for all items in the table.
-        The 7-day volume column is region-wide market history (ESI has no per-structure
-        trade history), so it reflects regional demand rather than sales at that exact station.
-      </p>
-      <div class="d-flex gap-2 align-items-start mb-2">
-        <div class="position-relative flex-grow-1">
-          <input type="text" id="station-vol-display" class="form-control form-control-sm"
-                 placeholder="Search station…" autocomplete="off">
-          <input type="hidden" id="station-vol-id">
-          <div id="station-vol-suggestions" style="
-            position:absolute; top:100%; left:0; right:0; z-index:1050;
-            background:#161b22; border:1px solid #30363d; border-radius:6px;
-            max-height:260px; overflow-y:auto; display:none;"></div>
-        </div>
-        <button id="station-vol-load" class="btn btn-sm btn-outline-primary flex-shrink-0" disabled>
-          <i class="bi bi-download me-1"></i>Load
-        </button>
-      </div>
-      <div id="station-vol-progress" class="d-none">
-        <div class="d-flex justify-content-between mb-1">
-          <small id="station-vol-progress-text" class="text-muted">Loading…</small>
-          <small id="station-vol-progress-pct" class="text-muted">0%</small>
-        </div>
-        <div class="progress" style="height:6px">
-          <div id="station-vol-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-info"
-               role="progressbar" style="width:0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-        </div>
-      </div>
-      <div id="station-vol-status" class="small text-muted mt-1 d-none"></div>
     </div>
   </div>
 </div>
@@ -599,49 +587,79 @@
     }, 350);
   });
 
+  // ── Shared download progress + mutual exclusion (one ESI download at a time) ──
+  // All three fetches (Jita / hub / custom station) share one progress bar and a
+  // single lock, so a second download can't start while one is running — that
+  // would double the load on ESI.
+  const dlProgress = document.getElementById('dl-progress');
+  const dlBar      = document.getElementById('dl-bar');
+  const dlText     = document.getElementById('dl-text');
+  const dlPct      = document.getElementById('dl-pct');
+  let downloadBusy = false;
+  function dlTriggers() {
+    return [document.getElementById('refresh-btn'),
+            document.getElementById('station-vol-load'),
+            ...document.querySelectorAll('.hub-fetch-btn')];
+  }
+  function dlLock(on) {
+    downloadBusy = on;
+    dlTriggers().forEach(b => { if (b) b.disabled = on; });
+    if (!on) {
+      // The custom-station Load button also requires a chosen station.
+      const sid = document.getElementById('station-vol-id');
+      const sl  = document.getElementById('station-vol-load');
+      if (sl) sl.disabled = !(sid && sid.value);
+    }
+  }
+  function dlStart(text) {
+    dlProgress.classList.remove('d-none');
+    dlBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
+    dlBar.style.width = '0%'; dlBar.setAttribute('aria-valuenow', 0);
+    dlText.textContent = text || 'Connecting…'; dlPct.textContent = '0%';
+  }
+  function dlSet(pct, text) {
+    const p = Math.max(0, Math.min(100, Math.round(pct)));
+    dlBar.style.width = p + '%'; dlBar.setAttribute('aria-valuenow', p); dlPct.textContent = p + '%';
+    if (text != null) dlText.textContent = text;
+  }
+  function dlFinish(kind, text) {
+    dlBar.classList.remove('progress-bar-striped', 'progress-bar-animated', 'bg-primary');
+    dlBar.classList.add(kind === 'error' ? 'bg-danger' : 'bg-success');
+    dlBar.style.width = '100%'; dlPct.textContent = '100%';
+    if (text != null) dlText.textContent = text;
+  }
+  function dlHide(delay) { setTimeout(() => dlProgress.classList.add('d-none'), delay || 2500); }
+
   // --- Jita refresh (SSE) ---
-  const refreshBtn      = document.getElementById('refresh-btn');
-  const refreshProgress = document.getElementById('refresh-progress');
-  const refreshBar      = document.getElementById('refresh-bar');
-  const refreshText     = document.getElementById('refresh-progress-text');
-  const refreshPct      = document.getElementById('refresh-progress-pct');
+  const refreshBtn = document.getElementById('refresh-btn');
 
   refreshBtn && refreshBtn.addEventListener('click', () => {
-    refreshBtn.disabled = true;
+    if (downloadBusy) return;
+    dlLock(true);
     refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading…';
-    refreshProgress.classList.remove('d-none');
-    refreshBar.style.width = '0%';
-    refreshBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
-    refreshText.textContent = 'Connecting…';
-    refreshPct.textContent = '0%';
+    dlStart('Connecting…');
 
     const es = new EventSource('/prices/refresh/stream');
     es.onmessage = (e) => {
       const d = JSON.parse(e.data);
-      const pct = d.pct || 0;
-      refreshBar.style.width = pct + '%';
-      refreshBar.setAttribute('aria-valuenow', pct);
-      refreshPct.textContent = pct + '%';
       if (d.done) {
         es.close();
         const volMsg = d.volume_updated ? `, ${d.volume_updated} volumes` : '';
-        refreshText.textContent = `Done! Fetched ${d.refreshed} prices${volMsg}.`;
-        refreshBar.className = 'progress-bar bg-success';
-        refreshBar.style.width = '100%';
+        dlFinish('done', `Done! Fetched ${d.refreshed} prices${volMsg}.`);
         setTimeout(() => window.location.reload(), 1500);
       } else if (d.phase === 'volumes') {
-        refreshText.textContent = `Volumes: ${d.vol_done} / ${d.vol_total}…`;
+        dlSet(d.pct || 0, `Volumes: ${d.vol_done} / ${d.vol_total}…`);
       } else {
-        refreshText.textContent = `Orders: ${d.current} / ${d.total} pages…`;
+        dlSet(d.pct || 0, `Orders: ${d.current} / ${d.total} pages…`);
       }
     };
     es.onerror = () => {
       if (es.readyState === EventSource.CLOSED) return;
       es.close();
-      refreshText.textContent = 'Connection error.';
-      refreshBar.className = 'progress-bar bg-danger';
-      refreshBtn.disabled = false;
-      refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-2"></i>Refresh Jita Prices';
+      dlFinish('error', 'Connection error.');
+      refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Refresh Jita Prices';
+      dlLock(false);
+      dlHide(4000);
     };
   });
 
@@ -651,10 +669,6 @@
   const stationBox     = document.getElementById('station-vol-suggestions');
   const stationLoad    = document.getElementById('station-vol-load');
   const stationStatus  = document.getElementById('station-vol-status');
-  const stationVolProgress  = document.getElementById('station-vol-progress');
-  const stationVolBar       = document.getElementById('station-vol-bar');
-  const stationVolPct       = document.getElementById('station-vol-progress-pct');
-  const stationVolProgText  = document.getElementById('station-vol-progress-text');
 
   let stationDebounce = null;
 
@@ -689,7 +703,7 @@
           stationDisplay.value = el.dataset.name;
           stationId.value = el.dataset.id;
           stationBox.style.display = 'none';
-          stationLoad.disabled = false;
+          stationLoad.disabled = downloadBusy;
         });
       });
     }, 250);
@@ -701,25 +715,17 @@
 
   stationLoad && stationLoad.addEventListener('click', async () => {
     const locId = stationId.value;
-    if (!locId) return;
-    stationLoad.disabled = true;
+    if (!locId || downloadBusy) return;
+    dlLock(true);
     stationLoad.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading…';
     stationStatus.classList.add('d-none');
 
-    // Animated fake progress bar
-    stationVolProgress.classList.remove('d-none');
-    stationVolBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-info';
-    stationVolBar.style.width = '0%';
-    stationVolBar.setAttribute('aria-valuenow', 0);
-    stationVolPct.textContent = '0%';
-    stationVolProgText.textContent = 'Fetching orders…';
+    // Animated fake progress bar (the POST has no streamed progress)
+    dlStart('Fetching orders…');
     let fakeP = 0;
     const fakeInterval = setInterval(() => {
       fakeP = Math.min(90, fakeP + (90 - fakeP) * 0.07 + 0.3);
-      const p = Math.round(fakeP);
-      stationVolBar.style.width = p + '%';
-      stationVolBar.setAttribute('aria-valuenow', p);
-      stationVolPct.textContent = p + '%';
+      dlSet(fakeP);
     }, 600);
 
     try {
@@ -730,23 +736,17 @@
       });
       const json = await r.json();
       clearInterval(fakeInterval);
-      stationVolBar.style.width = '100%';
-      stationVolBar.setAttribute('aria-valuenow', 100);
-      stationVolPct.textContent = '100%';
-      stationVolBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
 
       if (!json.ok) {
-        stationVolBar.className = 'progress-bar bg-danger';
-        stationVolProgText.textContent = 'Error: ' + (json.error || 'unknown error');
-        stationLoad.disabled = false;
+        dlFinish('error', 'Error: ' + (json.error || 'unknown error'));
         stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Load';
-        setTimeout(() => stationVolProgress.classList.add('d-none'), 4000);
+        dlLock(false);
+        dlHide(4000);
         return;
       }
 
-      stationVolBar.className = 'progress-bar bg-success';
-      stationVolProgText.textContent = json.cached ? 'Data from cache (< 30 min).' : 'Done.';
-      setTimeout(() => stationVolProgress.classList.add('d-none'), 2500);
+      dlFinish('done', json.cached ? 'Data from cache (< 30 min).' : 'Done.');
+      dlHide(2500);
 
       // Show the columns and set the station name
       const stationShortName = stationDisplay.value.split(' - ')[0];
@@ -781,13 +781,11 @@
       }
     } catch(e) {
       clearInterval(fakeInterval);
-      stationVolBar.className = 'progress-bar bg-danger';
-      stationVolBar.style.width = '100%';
-      stationVolProgText.textContent = 'Connection error.';
-      setTimeout(() => stationVolProgress.classList.add('d-none'), 3000);
+      dlFinish('error', 'Connection error.');
+      dlHide(3000);
     }
-    stationLoad.disabled = false;
     stationLoad.innerHTML = '<i class="bi bi-download me-1"></i>Load';
+    dlLock(false);
   });
 
   // --- Restore the last custom station from a previous session (cache, any age) ---
@@ -827,43 +825,30 @@
   // --- Secondary trade hub refresh (SSE, one hub at a time) ---
   document.querySelectorAll('.hub-fetch-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (downloadBusy) return;
       const rid = btn.dataset.region, name = btn.dataset.name;
-      const allBtns = document.querySelectorAll('.hub-fetch-btn');
-      allBtns.forEach(b => b.disabled = true);
-      const prog  = document.getElementById('hub-progress');
-      const bar   = document.getElementById('hub-bar');
-      const txt   = document.getElementById('hub-progress-text');
-      const pctEl = document.getElementById('hub-progress-pct');
-      prog.classList.remove('d-none');
-      bar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
-      bar.style.width = '0%';
-      txt.textContent = 'Connecting… (' + name + ')';
-      pctEl.textContent = '0%';
+      dlLock(true);
+      dlStart('Connecting… (' + name + ')');
 
       const es = new EventSource('/prices/refresh/hub/' + rid + '/stream');
       es.onmessage = (e) => {
         const d = JSON.parse(e.data);
-        const p = d.pct || 0;
-        bar.style.width = p + '%';
-        pctEl.textContent = p + '%';
         if (d.done) {
           es.close();
-          txt.textContent = 'Done (' + name + '): ' + d.refreshed + ' prices.';
-          bar.className = 'progress-bar bg-success';
-          bar.style.width = '100%';
+          dlFinish('done', 'Done (' + name + '): ' + d.refreshed + ' prices.');
           setTimeout(() => window.location.reload(), 1500);
         } else if (d.phase === 'volumes') {
-          txt.textContent = name + ' volumes: ' + d.vol_done + ' / ' + d.vol_total + '…';
+          dlSet(d.pct || 0, name + ' volumes: ' + d.vol_done + ' / ' + d.vol_total + '…');
         } else {
-          txt.textContent = name + ' orders: ' + d.current + ' / ' + d.total + ' pages…';
+          dlSet(d.pct || 0, name + ' orders: ' + d.current + ' / ' + d.total + ' pages…');
         }
       };
       es.onerror = () => {
         if (es.readyState === EventSource.CLOSED) return;
         es.close();
-        txt.textContent = 'Connection error.';
-        bar.className = 'progress-bar bg-danger';
-        allBtns.forEach(b => b.disabled = false);
+        dlFinish('error', 'Connection error.');
+        dlLock(false);
+        dlHide(4000);
       };
     });
   });

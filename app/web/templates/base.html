@@ -12,6 +12,12 @@
       --eve-gold:   #e6b84a;
       --eve-amber:  #caa02e;
       --eve-dim:    #8b7020;
+      /* Steel-blue accent — replaces Bootstrap's default primary blue on
+         buttons, progress bars and spinners (gold stays the ISK/brand colour). */
+      --eve-steel:    #7d9bc1;
+      --eve-steel-hi: #98b2d3;
+      --bs-primary: #7d9bc1;
+      --bs-primary-rgb: 125,155,193;
       --eve-bg:     #0b0e13;
       --eve-card:   #161c25;
       --eve-border: #2b333d;
@@ -101,6 +107,33 @@
 
     /* ── Buttons ── */
     .btn, .btn-sm { border-radius: 8px; }
+    /* Steel-blue primary (replaces Bootstrap's default blue). Light fill → dark text. */
+    .btn-primary {
+      --bs-btn-bg: var(--eve-steel); --bs-btn-border-color: var(--eve-steel);
+      --bs-btn-hover-bg: var(--eve-steel-hi); --bs-btn-hover-border-color: var(--eve-steel-hi);
+      --bs-btn-active-bg: var(--eve-steel-hi); --bs-btn-active-border-color: var(--eve-steel-hi);
+      --bs-btn-disabled-bg: var(--eve-steel); --bs-btn-disabled-border-color: var(--eve-steel);
+      --bs-btn-color: #0b0e13; --bs-btn-hover-color: #0b0e13; --bs-btn-active-color: #0b0e13; --bs-btn-disabled-color: #0b0e13;
+      --bs-btn-focus-shadow-rgb: 125,155,193;
+    }
+    .btn-outline-primary {
+      --bs-btn-color: var(--eve-steel); --bs-btn-border-color: var(--eve-steel);
+      --bs-btn-hover-bg: var(--eve-steel); --bs-btn-hover-border-color: var(--eve-steel); --bs-btn-hover-color: #0b0e13;
+      --bs-btn-active-bg: var(--eve-steel); --bs-btn-active-border-color: var(--eve-steel); --bs-btn-active-color: #0b0e13;
+      --bs-btn-disabled-color: var(--eve-steel); --bs-btn-disabled-border-color: var(--eve-steel);
+      --bs-btn-focus-shadow-rgb: 125,155,193;
+    }
+    /* In-progress bars unified to steel-blue (bg-primary busy state + old bg-info).
+       bg-success (done) and bg-danger (error) stay semantic. */
+    .progress-bar.bg-primary, .progress-bar.bg-info {
+      background-color: var(--eve-steel) !important; color: #0b0e13;
+    }
+    /* Bootstrap hardcodes #0d6efd on form controls — steer them to steel too. */
+    .form-check-input:checked { background-color: var(--eve-steel); border-color: var(--eve-steel); }
+    .form-check-input:focus   { border-color: var(--eve-steel); box-shadow: 0 0 0 .25rem rgba(125,155,193,.35); }
+    .form-control:focus, .form-select:focus, .form-check-input:focus {
+      border-color: var(--eve-steel); box-shadow: 0 0 0 .2rem rgba(125,155,193,.28);
+    }
     .btn-eve       { background: linear-gradient(180deg, #e6b84a, #caa02e); border: 1px solid #e6b84a; color: #12161c; font-weight: 600; }
     .btn-eve:hover { background: linear-gradient(180deg, #efc35c, #d4ab33); border-color: #efc35c; color: #12161c; }
     /* Subtle secondary action button — unified from ad-hoc inline styles */
@@ -127,7 +160,7 @@
     /* Override Bootstrap text-primary to gold (except loading spinners) */
     .text-primary { color: var(--eve-gold) !important; }
     .spinner-border.text-primary,
-    .spinner-grow.text-primary  { color: #58a6ff !important; }
+    .spinner-grow.text-primary  { color: var(--eve-steel) !important; }
     .htmx-indicator { display: none; }
     .htmx-request .htmx-indicator { display: inline-block; }
     .htmx-request.htmx-indicator  { display: inline-block; }
