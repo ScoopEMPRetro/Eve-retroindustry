@@ -78,7 +78,7 @@
 {% macro orders_table(rows) %}
 <div class="card mb-3">
   <div class="table-responsive">
-    <table class="table table-hover table-sm mb-0 align-middle" style="font-size:.85rem">
+    <table class="table table-hover tbl-compact table-sm mb-0 align-middle">
       <thead>
         <tr>
           {% if all_chars %}<th>{{ 'Corporation' if scope == 'corp' else 'Character' }}</th>{% endif %}

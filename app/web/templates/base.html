@@ -43,6 +43,16 @@
     .card  { background: linear-gradient(180deg, #171e28, #131922); border: 1px solid var(--eve-border); border-radius: 12px; }
     .table { --bs-table-bg: transparent; --bs-table-striped-bg: #1c2128; }
     .table th { color: #98a3b0; font-weight: 500; font-size: .85rem; text-transform: uppercase; letter-spacing: .07em; }
+    /* Unified compact list table (the Prices-table look): smaller font, tight
+       rows, tabular figures for aligned numbers. Add class="tbl-compact" to a table. */
+    .tbl-compact { font-size: .8rem; line-height: 1.15; }
+    .tbl-compact thead th { font-size: .72rem; padding-top: .3rem; padding-bottom: .3rem; }
+    .tbl-compact tbody td { padding-top: .12rem; padding-bottom: .12rem; }
+    .tbl-compact td.text-end, .tbl-compact td.num, .tbl-compact td.font-monospace {
+      font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+    }
+    .tbl-compact td.font-monospace { font-family: var(--bs-body-font-family) !important; }
+    .tbl-compact td img { width: 20px !important; height: 20px !important; }
 
     /* ── Badges ── */
     .badge { border-radius: 6px; }
