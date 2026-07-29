@@ -43,58 +43,36 @@
         disables the others until it finishes, so ESI is never hit twice at once.
       </p>
 
-      <div class="row g-4">
-        {# Jita — the primary market #}
-        <div class="col-md-6">
-          <div class="fw-semibold small mb-2"><i class="bi bi-star-fill me-1" style="color:var(--eve-gold);font-size:.72em"></i>Jita 4-4 (primary)</div>
-          <button id="refresh-btn" class="btn btn-eve btn-sm">
-            <i class="bi bi-arrow-clockwise me-1"></i>Refresh Jita Prices
-          </button>
-          <p class="text-muted mt-2 mb-0" style="font-size:.78rem">
-            All materials, components &amp; blueprints. ~1–2 min, 30-min cache.
-            Without a Jita price the ESI adjusted price is used (less accurate).
-          </p>
-        </div>
+      {# All fetch controls on one line: Jita + hub buttons, then the custom-station
+         search + Load immediately to their right. #}
+      <div class="d-flex flex-wrap align-items-center gap-2">
+        <button id="refresh-btn" class="btn btn-eve btn-sm">
+          <i class="bi bi-arrow-clockwise me-1"></i>Refresh Jita Prices
+        </button>
+        {% for h in hubs %}
+        <button class="btn btn-sm btn-outline-primary hub-fetch-btn" data-region="{{ h.region_id }}" data-name="{{ h.name }}">
+          <i class="bi bi-download me-1"></i>{{ h.name }}
+        </button>
+        {% endfor %}
 
-        {# Secondary trade hubs #}
-        <div class="col-md-6">
-          <div class="fw-semibold small mb-2"><i class="bi bi-shop me-1 text-muted" style="font-size:.85em"></i>Secondary trade hubs</div>
-          <div class="d-flex flex-wrap gap-2">
-            {% for h in hubs %}
-            <button class="btn btn-sm btn-outline-primary hub-fetch-btn" data-region="{{ h.region_id }}" data-name="{{ h.name }}">
-              <i class="bi bi-download me-1"></i>{{ h.name }}
-            </button>
-            {% endfor %}
-          </div>
-          <p class="text-muted mt-2 mb-0" style="font-size:.78rem">
-            Sell/buy + 7-day volume for another hub. Adds comparison columns below.
-            Smaller regions than Jita, so faster.
-          </p>
+        <div class="position-relative ms-lg-2" style="width:190px">
+          <input type="text" id="station-vol-display" class="form-control form-control-sm"
+                 placeholder="Custom station…" autocomplete="off">
+          <input type="hidden" id="station-vol-id">
+          <div id="station-vol-suggestions" style="
+            position:absolute; top:100%; left:0; right:0; z-index:1050;
+            background:#161b22; border:1px solid #30363d; border-radius:6px;
+            max-height:260px; overflow-y:auto; display:none;"></div>
         </div>
-
-        {# Custom station / citadel — same graphical style as the hub buttons #}
-        <div class="col-12">
-          <div class="fw-semibold small mb-2"><i class="bi bi-geo-alt me-1 text-muted" style="font-size:.85em"></i>Custom station / citadel</div>
-          <div class="d-flex gap-2 align-items-start" style="max-width:520px">
-            <div class="position-relative flex-grow-1">
-              <input type="text" id="station-vol-display" class="form-control form-control-sm"
-                     placeholder="Search station…" autocomplete="off">
-              <input type="hidden" id="station-vol-id">
-              <div id="station-vol-suggestions" style="
-                position:absolute; top:100%; left:0; right:0; z-index:1050;
-                background:#161b22; border:1px solid #30363d; border-radius:6px;
-                max-height:260px; overflow-y:auto; display:none;"></div>
-            </div>
-            <button id="station-vol-load" class="btn btn-sm btn-outline-primary flex-shrink-0" disabled>
-              <i class="bi bi-download me-1"></i>Load
-            </button>
-          </div>
-          <p class="text-muted mt-2 mb-0" style="font-size:.78rem">
-            Sell prices for all table items at any station/citadel. The 7-day volume column is
-            region-wide market history (ESI has no per-structure trade history).
-          </p>
-        </div>
+        <button id="station-vol-load" class="btn btn-sm btn-outline-primary flex-shrink-0" disabled>
+          <i class="bi bi-download me-1"></i>Load
+        </button>
       </div>
+      <p class="text-muted small mt-2 mb-0" style="font-size:.78rem">
+        <strong>Jita</strong> — all materials, components &amp; blueprints (~1–2 min, 30-min cache).
+        <strong>Hubs</strong> — sell/buy + 7-day volume, add comparison columns below.
+        <strong>Custom station</strong> — sell prices at any station/citadel (7-day volume is region-wide).
+      </p>
 
       {# Shared progress bar — reused by all three downloads (one at a time) #}
       <div id="dl-progress" class="d-none mt-3 pt-3 border-top" style="border-color:var(--eve-border) !important">

@@ -65,12 +65,12 @@
     /* ── Grouped list headers (Assets / Blueprints): collapsible station / hangar
        / container / division. Gold gradient band for the station, darker inset
        rounded bands for nested groups, a rotating chevron, and count pills. ── */
-    .grp-station { background: linear-gradient(90deg, rgba(230,184,74,.14), rgba(230,184,74,.03)) !important; border-bottom: 0 !important; }
-    .grp-station .loc-label, .grp-station > span:first-child strong { color: var(--eve-gold); }
+    .grp-station { background: linear-gradient(90deg, rgba(125,155,193,.16), rgba(125,155,193,.03)) !important; border-bottom: 0 !important; }
+    .grp-station .loc-label, .grp-station > span:first-child strong { color: var(--eve-steel); }
     .grp-nest { margin: .4rem .6rem; border-radius: 8px; overflow: hidden; }
     .grp-sub { background: #1a212b; }
     .grp-sub:hover { background: #202934; }
-    .grp-station .badge.bg-secondary { background: var(--eve-gold) !important; color: #0b0e13 !important; font-weight: 600; border-radius: 20px; }
+    .grp-station .badge.bg-secondary { background: var(--eve-steel) !important; color: #0b0e13 !important; font-weight: 600; border-radius: 20px; }
     .grp-sub .badge.bg-secondary { background: #39434f !important; color: #c9d1d9 !important; border-radius: 20px; }
     /* rotating chevron injected before the header's left group (its first flex child) */
     .grp-station > span:first-child::before,
@@ -78,7 +78,7 @@
       content: "\25BE"; display: inline-block; font-size: .7rem; line-height: 1;
       transition: transform .15s ease; flex: 0 0 auto;
     }
-    .grp-station > span:first-child::before { color: var(--eve-gold); }
+    .grp-station > span:first-child::before { color: var(--eve-steel); }
     .grp-sub > span:first-child::before { color: #6e7681; }
     .grp-station.collapsed > span:first-child::before,
     .grp-sub.collapsed > span:first-child::before { transform: rotate(-90deg); }
