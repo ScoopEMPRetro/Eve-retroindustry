@@ -135,6 +135,13 @@
         </tr>
         {% endfor %}
       </tbody>
+      <tfoot>
+        <tr style="border-top:2px solid #30363d">
+          <td colspan="{{ 5 if all_chars else 4 }}" class="text-end text-muted small">Total</td>
+          <td class="text-end fw-bold text-isk" style="white-space:nowrap">{{ (rows | map(attribute='order_total') | sum) | isk }}</td>
+          <td colspan="2"></td>
+        </tr>
+      </tfoot>
     </table>
   </div>
 </div>
