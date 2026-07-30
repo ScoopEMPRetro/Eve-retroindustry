@@ -37,6 +37,11 @@
   .plan-form .facility-block.rxn { border-left: 3px solid #b392f0; }
   .plan-form .me-te-mini { width: 64px; }
   .plan-form .me-te-mini::placeholder { color:#5d6670; font-size:.8rem }
+  /* On wide screens the station group sits right of the parameters with a divider;
+     below xl it drops onto its own line (no divider). */
+  @media (min-width: 1200px) {
+    .plan-form .plan-stations-group { border-left: 1px solid var(--eve-border, #2b333d); padding-left: 1rem; }
+  }
 </style>
 
 <div class="card mb-3 p-3 plan-form">
@@ -49,25 +54,28 @@
     <input type="hidden" id="has-result" value="{{ 'true' if result else '' }}">
     <input type="hidden" name="stock_stations" id="stock-stations-input" value="{{ form_stock_stations or '' }}">
 
-    {# Row 1: product + qty + mode + ME/TE override + Calculate #}
-    <div class="row g-2 align-items-end">
-      <div class="col-12 col-lg-5" style="position:relative">
+    {# Row 1: parameters (left) beside the station pickers (right); the station
+       group drops onto its own line automatically below xl. #}
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-xl-auto">
+        <div class="d-flex flex-wrap align-items-end gap-2">
+          <div style="width:190px;position:relative">
         <label class="form-label"><i class="bi bi-box me-1"></i>Product</label>
         <input type="text" name="product" id="product-input" class="form-control form-control-sm"
                placeholder="Phoenix, Raven, 19726…"
                value="{{ form_product or '' }}" required autocomplete="off">
         <div id="product-suggestions" style="
-          display:none; position:absolute; z-index:1000; left:0; right:0;
+          display:none; position:absolute; z-index:1000; left:0; min-width:320px;
           background:#1c2128; border:1px solid #30363d; border-radius:6px;
           box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:420px; overflow-y:auto;
           font-size:.875rem; margin-top:2px;
         "></div>
       </div>
-      <div class="col-3 col-lg-1">
+          <div style="width:62px">
         <label class="form-label">Qty</label>
         <input type="number" name="qty" class="form-control form-control-sm" min="1" value="{{ form_qty or 1 }}">
       </div>
-      <div class="col-9 col-lg-2">
+          <div style="width:112px">
         <label class="form-label">Mode</label>
         <select name="mode" class="form-select form-select-sm">
           <option value="full"       {% if form_mode == 'full'       %}selected{% endif %}>Full</option>
@@ -75,28 +83,30 @@
           <option value="optimal"    {% if form_mode == 'optimal'    %}selected{% endif %}>Optimal</option>
         </select>
       </div>
-      <div class="col-6 col-lg-auto">
-        <label class="form-label" title="How many runs one blueprint copy has. EVE rounds ME per job, so this changes material totals: 1 = parallel single-run copies (safe default, never short on materials); e.g. 10 = ten-run BPC copies, quantity is split into jobs of 10 runs + a smaller remainder job; empty = everything in ONE batched job (matches the in-game industry window for a multi-run job).">Runs/job</label>
+          <div>
+            <label class="form-label" title="How many runs one blueprint copy has. EVE rounds ME per job, so this changes material totals: 1 = parallel single-run copies (safe default, never short on materials); e.g. 10 = ten-run BPC copies, quantity is split into jobs of 10 runs + a smaller remainder job; empty = everything in ONE batched job (matches the in-game industry window for a multi-run job).">Runs/job</label>
         <input type="number" name="runs_per_job" class="form-control form-control-sm me-te-mini"
                min="0" placeholder="all" value="{{ form_runs_per_job if form_runs_per_job is defined else '1' }}">
       </div>
-      <div class="col-6 col-lg-auto">
-        <label class="form-label" title="Material Efficiency — pre-fills from your blueprint cache when you select a product; you can override here">ME</label>
+          <div>
+            <label class="form-label" title="Material Efficiency — pre-fills from your blueprint cache when you select a product; you can override here">ME</label>
         <input type="number" name="form_me" id="me-input"
                class="form-control form-control-sm me-te-mini"
                min="0" max="10" placeholder="—" value="{{ form_me or '' }}">
       </div>
-      <div class="col-6 col-lg-auto">
-        <label class="form-label" title="Time Efficiency — pre-fills from your blueprint cache when you select a product; you can override here">TE</label>
+          <div>
+            <label class="form-label" title="Time Efficiency — pre-fills from your blueprint cache when you select a product; you can override here">TE</label>
         <input type="number" name="form_te" id="te-input"
                class="form-control form-control-sm me-te-mini"
                min="0" max="20" placeholder="—" value="{{ form_te or '' }}">
       </div>
-    </div>
+        </div>
+      </div>
 
-    {# Row 2: stations #}
-    <div class="row g-2 align-items-end mt-1">
-      <div class="col-12 col-md-4" style="position:relative">
+      {# Stations — wrap to their own line below xl #}
+      <div class="col-12 col-xl plan-stations-group">
+        <div class="row g-2 align-items-end">
+          <div class="col-12 col-md-4" style="position:relative">
         <label class="form-label">
           <i class="bi bi-hammer me-1" style="color:#e3b341"></i>Manufacturing station
         </label>
@@ -145,6 +155,8 @@
           box-shadow:0 8px 24px rgba(0,0,0,.5); max-height:340px; overflow-y:auto;
           font-size:.875rem; margin-top:2px;
         "></div>
+          </div>
+        </div>
       </div>
     </div>
 
