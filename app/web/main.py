@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.94"
+APP_VERSION = "0.8.95"
 
 import asyncio
 import datetime
@@ -529,7 +529,20 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 
 def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_ABS)
+    # WAL + a long busy timeout so concurrent work never trips "database is
+    # locked". In the default rollback-journal mode a writer blocks all readers,
+    # so the burst when a character is added (background sync writing large asset
+    # caches) collided with rotating-refresh-token writes — a commit that waited
+    # past the timeout raised, the token came back None, and the dashboard showed
+    # no location / skill training for every character. WAL lets readers and one
+    # writer run concurrently; the timeout absorbs brief writer-writer waits.
+    conn = sqlite3.connect(DB_ABS, timeout=30.0)
+    try:
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except Exception:
+        pass
     if not _SCHEMA_ENSURED[0]:
         # First-ever connection in this process: bootstrap once.
         ensure_schema(conn)

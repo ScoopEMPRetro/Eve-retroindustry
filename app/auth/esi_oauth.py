@@ -34,7 +34,13 @@ def _open_conn() -> sqlite3.Connection:
     app_dir = os.environ.get("EVE_APP_DIR") or os.path.join(
         os.path.dirname(__file__), "..", ".."
     )
-    return sqlite3.connect(os.path.join(app_dir, "eve_cache.db"))
+    conn = sqlite3.connect(os.path.join(app_dir, "eve_cache.db"), timeout=30.0)
+    try:
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA journal_mode=WAL")
+    except Exception:
+        pass
+    return conn
 
 _login_lock = threading.Lock()
 

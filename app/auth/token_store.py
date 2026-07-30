@@ -311,11 +311,24 @@ def get_valid_token(conn: sqlite3.Connection, character_id: int) -> str | None:
         new_refresh = resp.get("refresh_token", refresh)
         new_expires_at = time.time() + resp.get("expires_in", 1200) - 60
 
-        conn.execute(
-            """UPDATE characters
-               SET access_token=?, refresh_token=?, token_expires_at=?
-               WHERE character_id=?""",
-            (new_access, new_refresh, new_expires_at, int(character_id)),
-        )
-        conn.commit()
+        # Persisting the rotated refresh token is critical: EVE has already
+        # invalidated the old one server-side, so if we don't store the new one
+        # the character is locked out until re-login. Retry briefly on a lock.
+        for _attempt in range(3):
+            try:
+                conn.execute(
+                    """UPDATE characters
+                       SET access_token=?, refresh_token=?, token_expires_at=?
+                       WHERE character_id=?""",
+                    (new_access, new_refresh, new_expires_at, int(character_id)),
+                )
+                conn.commit()
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" in str(exc).lower() and _attempt < 2:
+                    time.sleep(0.5)
+                    continue
+                print(f"[token] failed to persist refreshed token for "
+                      f"{character_id}: {exc!r}", flush=True)
+                break
         return new_access

@@ -40,6 +40,9 @@ class BlueprintCache(Base):
 engine = create_engine(
     f"sqlite:///{os.path.abspath(DB_PATH)}",
     poolclass=NullPool,
+    # 30s busy timeout so these writes don't raise "database is locked" when the
+    # add-character background sync and token refreshes are writing concurrently.
+    connect_args={"timeout": 30.0},
 )
 Base.metadata.create_all(engine)
 
