@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.90"
+APP_VERSION = "0.8.91"
 
 import asyncio
 import datetime
@@ -311,6 +311,16 @@ def _isk(v: float | None) -> str:
     return f"{v:,.2f}".replace(",", " ")
 
 
+def _isk0(v: float | None) -> str:
+    """Whole ISK, no decimals, space thousands (used where cents are just noise)."""
+    if v is None:
+        return "N/A"
+    try:
+        return f"{round(float(v)):,}".replace(",", " ")
+    except (TypeError, ValueError):
+        return "—"
+
+
 def _format_number(v) -> str:
     try:
         return f"{int(v):,}".replace(",", " ")
@@ -386,6 +396,7 @@ def _age_short(ts) -> str:
 
 
 templates.env.filters["isk"] = _isk
+templates.env.filters["isk0"] = _isk0
 templates.env.filters["format_number"] = _format_number
 templates.env.filters["format_date"] = _format_date
 templates.env.filters["age_short"] = _age_short

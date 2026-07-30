@@ -47,10 +47,10 @@
         {% endif %}
         <td class="text-end fw-semibold">{{ item.quantity | int | format_number }}</td>
         <td class="text-end text-muted">
-          {% if item.unit_price %}{{ item.unit_price | isk }}{% else %}<span class="text-muted opacity-50">—</span>{% endif %}
+          {% if item.unit_price %}{{ item.unit_price | isk0 }}{% else %}<span class="text-muted opacity-50">—</span>{% endif %}
         </td>
         <td class="text-end text-isk fw-semibold">
-          {% if item.total_value %}{{ item.total_value | isk }}{% else %}<span class="text-muted opacity-50">—</span>{% endif %}
+          {% if item.total_value %}{{ item.total_value | isk0 }}{% else %}<span class="text-muted opacity-50">—</span>{% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -62,7 +62,7 @@
         <td class="text-end text-muted small">Total</td>
         <td class="text-end fw-bold text-isk">
           {% set tbl_total = items | selectattr('total_value') | map(attribute='total_value') | sum %}
-          {% if tbl_total > 0 %}{{ tbl_total | isk }}{% else %}—{% endif %}
+          {% if tbl_total > 0 %}{{ tbl_total | isk0 }}{% else %}—{% endif %}
         </td>
       </tr>
     </tfoot>
@@ -157,7 +157,7 @@
     <span class="d-flex align-items-center gap-2">
       <span class="jumps-badge d-none text-muted small"></span>
       {% if station.total_value > 0 %}
-      <span class="text-isk fw-semibold">{{ station.total_value | isk }} ISK</span>
+      <span class="text-isk fw-semibold">{{ station.total_value | isk0 }} ISK</span>
       {% endif %}
       <span class="badge bg-secondary">{{ station.total_items }} types</span>
     </span>
@@ -174,7 +174,7 @@
           <span class="fw-medium">Hangar</span>
         </span>
         <span class="d-flex align-items-center gap-2">
-          {% if station.hangar_value and station.hangar_value > 0 %}<span class="text-isk">{{ station.hangar_value | isk }} ISK</span>{% endif %}
+          {% if station.hangar_value and station.hangar_value > 0 %}<span class="text-isk">{{ station.hangar_value | isk0 }} ISK</span>{% endif %}
           <span class="badge bg-secondary">{{ station.hangar | length }} types</span>
         </span>
       </div>
@@ -205,7 +205,7 @@
           {% endif %}
         </span>
         <span class="d-flex align-items-center gap-2">
-          {% if container.total_value and container.total_value > 0 %}<span class="text-isk">{{ container.total_value | isk }} ISK</span>{% endif %}
+          {% if container.total_value and container.total_value > 0 %}<span class="text-isk">{{ container.total_value | isk0 }} ISK</span>{% endif %}
           <span class="badge bg-secondary">{{ container.assets | length }} types</span>
         </span>
       </div>
@@ -241,7 +241,7 @@
     </span>
     <span class="d-flex align-items-center gap-2">
       {% if station.total_value > 0 %}
-      <span class="text-isk fw-semibold">{{ station.total_value | isk }} ISK</span>
+      <span class="text-isk fw-semibold">{{ station.total_value | isk0 }} ISK</span>
       {% endif %}
       <span class="badge bg-secondary">{{ station.total_items }} types</span>
     </span>
@@ -258,7 +258,7 @@
           <span class="fw-medium">{{ div.label }}</span>
         </span>
         <span class="d-flex align-items-center gap-2">
-          {% if div.total_value and div.total_value > 0 %}<span class="text-isk">{{ div.total_value | isk }} ISK</span>{% endif %}
+          {% if div.total_value and div.total_value > 0 %}<span class="text-isk">{{ div.total_value | isk0 }} ISK</span>{% endif %}
           {% set div_item_count = div.hangar | length + (div.containers | sum(attribute='assets', start=[]) | length) %}
           <span class="badge bg-secondary">{{ div_item_count }} types</span>
         </span>
@@ -289,7 +289,7 @@
               <span class="fw-medium">{{ container.name }}</span>
             </span>
             <span class="d-flex align-items-center gap-2">
-              {% if container.total_value and container.total_value > 0 %}<span class="text-isk">{{ container.total_value | isk }} ISK</span>{% endif %}
+              {% if container.total_value and container.total_value > 0 %}<span class="text-isk">{{ container.total_value | isk0 }} ISK</span>{% endif %}
               <span class="badge bg-secondary">{{ container.assets | length }} types</span>
             </span>
           </div>
