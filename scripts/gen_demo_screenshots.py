@@ -164,9 +164,19 @@ def main() -> None:
 
     async def fake_skill_queue(client, cid, tok):
         i = order.get(cid, 0)
+        fin = finish[i % len(finish)]
+        # Give the active entry SP + a past start_date so SP/hour can be derived
+        # (rate = sp / total_hours). Pick a plausible rate per character.
+        rate = [2700, 2340, 1980][i % 3]
+        total_h = [55, 20, 40][i % 3]
+        fin_dt = dt.datetime.strptime(fin, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+        start_dt = fin_dt - dt.timedelta(hours=total_h)
         return [{"skill_id": skill_ids[i % len(skill_ids)],
                  "finished_level": [5, 4, 3][i % 3],
-                 "finish_date": finish[i % len(finish)]}]
+                 "finish_date": fin,
+                 "start_date": start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "level_start_sp": 0, "training_start_sp": 0,
+                 "level_end_sp": round(rate * total_h)}]
 
     m.fetch_location = fake_location
     m.fetch_skill_queue = fake_skill_queue

@@ -1,7 +1,7 @@
 """FastAPI web application for EVE Retroindustry."""
 from __future__ import annotations
 
-APP_VERSION = "0.8.93"
+APP_VERSION = "0.8.94"
 
 import asyncio
 import datetime
@@ -1420,11 +1420,29 @@ async def _compute_dashboard(request: Request, conn, *, live: bool) -> dict:
         training = None
         _act = _sq[0] if _sq else None
         if _act and _act.get("skill_id") and _act.get("finish_date"):
+            # SP/hour for the skill in training. Derived straight from the queue
+            # entry — SP gained over its wall-clock span — so it already reflects
+            # this character's attributes, attribute implants and any boosters,
+            # and it's specific to the current skill's primary/secondary attrs.
+            sp_hr = None
+            try:
+                if _act.get("start_date"):
+                    _s = _dt.datetime.fromisoformat(_act["start_date"].replace("Z", "+00:00"))
+                    _f = _dt.datetime.fromisoformat(_act["finish_date"].replace("Z", "+00:00"))
+                    _hrs = (_f - _s).total_seconds() / 3600.0
+                    _sp = (_act.get("level_end_sp") or 0) - (
+                        _act.get("training_start_sp") or _act.get("level_start_sp") or 0)
+                    if _hrs > 0 and _sp > 0:
+                        sp_hr = round(_sp / _hrs)
+            except Exception:
+                sp_hr = None
             training = {
                 "skill":     skill_names.get(_act["skill_id"], f"#{_act['skill_id']}"),
                 "level":     _roman(_act.get("finished_level", 0)),
                 "remaining": _fmt_remaining(_act["finish_date"], _now_utc),
                 "finish_iso": _act["finish_date"],   # live countdown on the client
+                "sp_per_hour":     sp_hr,
+                "sp_per_hour_str": (f"{sp_hr:,}".replace(",", " ") if sp_hr else None),
             }
 
         char_cards.append({

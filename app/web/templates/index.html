@@ -181,6 +181,11 @@
       h += `<span class="text-truncate">${esc(t.skill)} ${esc(t.level)}</span>`;
       h += `<span class="text-muted ms-auto skill-countdown" data-finish="${esc(t.finish_iso)}" `
         + `style="font-size:.72rem;white-space:nowrap;flex-shrink:0">${esc(t.remaining)}</span>`;
+      if (t.sp_per_hour_str) {
+        h += `<span class="text-muted" style="font-size:.72rem;white-space:nowrap;flex-shrink:0;opacity:.8" `
+          + `title="Skillpoints per hour for the skill in training (reflects this character's attributes, implants and boosters)">`
+          + `<span style="opacity:.45">·</span> ${esc(t.sp_per_hour_str)} SP/h</span>`;
+      }
     } else {
       h += `<span class="text-muted">Not training</span>`;
     }
