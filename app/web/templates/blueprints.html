@@ -126,26 +126,6 @@
     <span class="d-flex align-items-center gap-2">
       <i class="bi bi-boxes" style="color:var(--eve-steel)"></i>
       <strong class="loc-label" id="loc-label-{{ station.loc_id }}">{{ station.name }}</strong>
-      <span class="text-muted small">ID: {{ station.loc_id }}</span>
-      <span class="loc-rename-wrap d-none" id="loc-rename-{{ station.loc_id }}" onclick="event.stopPropagation()">
-        <button class="btn btn-sm btn-outline-secondary loc-resolve-btn me-1" data-id="{{ station.loc_id }}"
-                title="Try to look up name via ESI">
-          <i class="bi bi-search"></i>
-        </button>
-        <input type="text" class="form-control form-control-sm d-inline-block"
-               style="width:280px" value="{{ station.name }}"
-               placeholder="Enter structure name…">
-        <button class="btn btn-sm btn-outline-success ms-1 loc-rename-save" data-id="{{ station.loc_id }}">
-          <i class="bi bi-check-lg"></i>
-        </button>
-        <button class="btn btn-sm btn-outline-secondary ms-1 loc-rename-cancel" data-id="{{ station.loc_id }}">
-          <i class="bi bi-x-lg"></i>
-        </button>
-      </span>
-      <button class="btn btn-link btn-sm p-0 text-muted loc-rename-btn" data-id="{{ station.loc_id }}"
-              title="Rename location" onclick="event.stopPropagation()">
-        <i class="bi bi-pencil" style="font-size:.75em"></i>
-      </button>
     </span>
     <span class="d-flex align-items-center gap-2">
       {% set all_bps = station.hangar + station.containers | map(attribute='bps') | sum(start=[]) %}
@@ -215,76 +195,6 @@
 
 {% block scripts %}
 <script>
-document.querySelectorAll('.loc-rename-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const id = btn.dataset.id;
-    document.getElementById(`loc-label-${id}`).classList.add('d-none');
-    btn.classList.add('d-none');
-    document.getElementById(`loc-rename-${id}`).classList.remove('d-none');
-    document.getElementById(`loc-rename-${id}`).querySelector('input').focus();
-  });
-});
-
-document.querySelectorAll('.loc-rename-cancel').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const id = btn.dataset.id;
-    document.getElementById(`loc-label-${id}`).classList.remove('d-none');
-    document.getElementById(`loc-rename-${id}`).classList.add('d-none');
-    document.querySelector(`.loc-rename-btn[data-id="${id}"]`).classList.remove('d-none');
-  });
-});
-
-document.querySelectorAll('.loc-rename-save').forEach(btn => {
-  btn.addEventListener('click', async () => {
-    const id = btn.dataset.id;
-    const input = document.querySelector(`#loc-rename-${id} input`);
-    const name = input.value.trim();
-    if (!name) return;
-    const r = await fetch('/api/location/rename', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({location_id: parseInt(id), name}),
-    });
-    if ((await r.json()).ok) {
-      const label = document.getElementById(`loc-label-${id}`);
-      label.textContent = name;
-      label.classList.remove('d-none');
-      document.getElementById(`loc-rename-${id}`).classList.add('d-none');
-      document.querySelector(`.loc-rename-btn[data-id="${id}"]`).classList.remove('d-none');
-    }
-  });
-});
-
-document.querySelectorAll('.loc-resolve-btn').forEach(btn => {
-  btn.addEventListener('click', async () => {
-    const id = btn.dataset.id;
-    const input = document.querySelector(`#loc-rename-${id} input`);
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-    const r = await fetch(`/api/location/resolve?location_id=${id}`);
-    const data = await r.json();
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-search"></i>';
-    if (data.ok) {
-      input.value = data.name;
-      input.classList.add('border-success');
-      setTimeout(() => input.classList.remove('border-success'), 2000);
-    } else {
-      input.placeholder = 'ESI: access denied — enter manually';
-      input.classList.add('border-warning');
-      setTimeout(() => input.classList.remove('border-warning'), 2000);
-    }
-  });
-});
-
-document.querySelectorAll('.loc-rename-wrap input').forEach(input => {
-  input.addEventListener('keydown', e => {
-    const id = input.closest('.loc-rename-wrap').id.replace('loc-rename-', '');
-    if (e.key === 'Enter')  document.querySelector(`.loc-rename-save[data-id="${id}"]`)?.click();
-    if (e.key === 'Escape') document.querySelector(`.loc-rename-cancel[data-id="${id}"]`)?.click();
-  });
-});
-
 document.addEventListener('shown.bs.collapse', e => {
   e.target.querySelectorAll('img').forEach(img => {
     if (!img.complete || img.naturalWidth === 0) {
